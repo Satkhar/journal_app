@@ -6,7 +6,12 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON) # Автоматическая обработка .ui файлов
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS 
+    Core 
+    Gui 
+    Widgets
+    Sql
+    )
 
 
 add_executable(journal_app 
@@ -22,7 +27,12 @@ target_include_directories(journal_app PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Src)
     
 
-target_link_libraries(journal_app PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(journal_app PRIVATE 
+    Qt6::Core 
+    Qt6::Gui 
+    Qt6::Widgets
+    Qt6::Sql
+    )
 
 include(CTest)
 enable_testing()
