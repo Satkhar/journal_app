@@ -34,6 +34,9 @@ private:
   bool createConnection();
   void loadTableData();
   void viewTableData();
+  void createTable();
+  void createCheckTable();
+  void createDefaultTable();
 };
 
 #endif // MAINWINDOW_H
