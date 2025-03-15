@@ -21,6 +21,8 @@ add_executable(journal_app
     ./App/Inc/journal_app.h
     ./App/Inc/mainwindow.hpp
     ./journal_app.ui)
+    
+
 
 target_include_directories(journal_app PRIVATE 
     ${CMAKE_SOURCE_DIR}/App/Inc

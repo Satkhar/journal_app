@@ -2,3 +2,5 @@
 finaly work at otus basic
 
 сборка под GCC 14.2.0 mingw
+
+надо добавить требуемые ресурсы Qt6 
