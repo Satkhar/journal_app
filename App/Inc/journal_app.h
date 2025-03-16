@@ -1,13 +1,13 @@
 /********************************************************************************
-** Form generated from reading UI file 'journal_appRbmPoy.ui'
+** Form generated from reading UI file 'journal_appUZoucC.ui'
 **
 ** Created by: Qt User Interface Compiler version 6.8.2
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
 
-#ifndef JOURNAL_APPRBMPOY_H
-#define JOURNAL_APPRBMPOY_H
+#ifndef JOURNAL_APPUZOUCC_H
+#define JOURNAL_APPUZOUCC_H
 
 #include <QtCore/QVariant>
 #include <QtWidgets/QApplication>
@@ -29,8 +29,9 @@ class Ui_MainWindow
 {
 public:
     QWidget *centralwidget;
-    QGridLayout *gridLayout_2;
     QGridLayout *gridLayout;
+    QHBoxLayout *horizontalLayout_3;
+    QVBoxLayout *verticalLayout_3;
     QHBoxLayout *horizontalLayout_2;
     QVBoxLayout *verticalLayout;
     QHBoxLayout *horizontalLayout;
@@ -40,9 +41,8 @@ public:
     QVBoxLayout *verticalLayout_2;
     QPushButton *btnViewAll;
     QPushButton *btnCreateTable;
-    QCalendarWidget *calendarWidget;
     QSpacerItem *verticalSpacer;
-    QSpacerItem *verticalSpacer_2;
+    QCalendarWidget *calendarWidget;
     QMenuBar *menubar;
     QStatusBar *statusbar;
 
@@ -53,10 +53,12 @@ public:
         MainWindow->resize(776, 532);
         centralwidget = new QWidget(MainWindow);
         centralwidget->setObjectName("centralwidget");
-        gridLayout_2 = new QGridLayout(centralwidget);
-        gridLayout_2->setObjectName("gridLayout_2");
-        gridLayout = new QGridLayout();
+        gridLayout = new QGridLayout(centralwidget);
         gridLayout->setObjectName("gridLayout");
+        horizontalLayout_3 = new QHBoxLayout();
+        horizontalLayout_3->setObjectName("horizontalLayout_3");
+        verticalLayout_3 = new QVBoxLayout();
+        verticalLayout_3->setObjectName("verticalLayout_3");
         horizontalLayout_2 = new QHBoxLayout();
         horizontalLayout_2->setObjectName("horizontalLayout_2");
         verticalLayout = new QVBoxLayout();
@@ -100,23 +102,22 @@ public:
         horizontalLayout_2->addLayout(verticalLayout_2);
 
 
-        gridLayout->addLayout(horizontalLayout_2, 0, 0, 1, 1);
+        verticalLayout_3->addLayout(horizontalLayout_2);
+
+        verticalSpacer = new QSpacerItem(20, 108, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Minimum);
+
+        verticalLayout_3->addItem(verticalSpacer);
+
+
+        horizontalLayout_3->addLayout(verticalLayout_3);
 
         calendarWidget = new QCalendarWidget(centralwidget);
         calendarWidget->setObjectName("calendarWidget");
 
-        gridLayout->addWidget(calendarWidget, 0, 1, 2, 1);
-
-        verticalSpacer = new QSpacerItem(20, 192, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
-
-        gridLayout->addItem(verticalSpacer, 1, 0, 1, 1);
-
-        verticalSpacer_2 = new QSpacerItem(20, 192, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
-
-        gridLayout->addItem(verticalSpacer_2, 2, 1, 1, 1);
+        horizontalLayout_3->addWidget(calendarWidget);
 
 
-        gridLayout_2->addLayout(gridLayout, 0, 0, 1, 1);
+        gridLayout->addLayout(horizontalLayout_3, 0, 0, 1, 1);
 
         MainWindow->setCentralWidget(centralwidget);
         menubar = new QMenuBar(MainWindow);
@@ -149,4 +150,4 @@ namespace Ui {
 
 QT_END_NAMESPACE
 
-#endif // JOURNAL_APPRBMPOY_H
+#endif // JOURNAL_APPUZOUCC_H

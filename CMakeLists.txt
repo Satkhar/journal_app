@@ -13,7 +13,6 @@ find_package(Qt6 REQUIRED COMPONENTS
     Sql
     )
 
-
 add_executable(journal_app 
     ./App/Src/main.cpp
     ./App/Src/mainwindow.cpp
@@ -21,20 +20,24 @@ add_executable(journal_app
     ./App/Inc/journal_app.h
     ./App/Inc/mainwindow.hpp
     ./journal_app.ui)
-    
-
 
 target_include_directories(journal_app PRIVATE 
     ${CMAKE_SOURCE_DIR}/App/Inc
     ${CMAKE_SOURCE_DIR}/App/Src)
     
-
 target_link_libraries(journal_app PRIVATE 
     Qt6::Core 
     Qt6::Gui 
     Qt6::Widgets
     Qt6::Sql
     )
+
+    # Указываем флаги компилятора для поддержки UTF-8
+if(MSVC)
+    add_compile_options(/utf-8)
+else()
+    add_compile_options(-finput-charset=UTF-8 -fexec-charset=UTF-8)
+endif()
 
 include(CTest)
 enable_testing()

@@ -4,8 +4,23 @@
 #include <QMainWindow>
 #include <QTableWidget>
 #include <QtSql>
+#include <QStringList>
 
 #include "journal_app.h" // Подключаем сгенерированный файл
+
+// Определяем список дней недели
+const QStringList kDaysOfWeek = {
+  "Пн",
+  "Вт",
+  "Ср",
+  "Чт",
+  "Пт",
+  "Сб",
+  "Вск"
+};
+
+
+//----------------------------------------------------------------------------
 
 class MainWindow : public QMainWindow
 {
@@ -26,17 +41,21 @@ private:
 
   void updateTable();
   // void CreateBase(QMainWindow *MainWindow);
-  void addUser(const QString &name, int age);
+  void addUser(const QString &name);
   void delUserById(int id);
   void delUserByName(const QString &name);
 
 
   bool createConnection();
   void loadTableData();
-  void viewTableData();
+  void viewTableData(); // выводим db
   void createTable();
-  void createCheckTable();
-  void createDefaultTable();
+  void createCheckTable();  // таблица с маской требуемых дней
+  void updToDefaultTable();  // создаем таблицу по умолчанию(пример)
+  void createEmptyTable();  // создаем пустую таблицу
+  void writeTable();  // записать из текущей таблицы в db
 };
 
 #endif // MAINWINDOW_H
+
+//----------------------------------------------------------------------------
