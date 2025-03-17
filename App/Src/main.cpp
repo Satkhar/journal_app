@@ -6,7 +6,8 @@
 
 #include "mainwindow.hpp"
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
   std::cout << "Hello, from journal_app!\n";
 
   QApplication app(argc, argv);

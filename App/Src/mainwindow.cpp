@@ -1,13 +1,14 @@
 #include "mainwindow.hpp"
+
+#include <QCheckBox>
 #include <QDebug>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QSqlTableModel>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <iostream>
-#include <QPushButton>
-#include <QSqlTableModel>
-#include <QCheckBox>
 
 #include "config.h"
 
@@ -17,7 +18,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow)
 {
   // тут можно какие-нибудь базовае общие вещи ставить в qt designer
-  ui->setupUi(this); // Инициализация нарисованного интерфейса
+  ui->setupUi(this);  // Инициализация нарисованного интерфейса
 
   // пустую таблицу делаем
   createEmptyTable();
@@ -32,14 +33,16 @@ MainWindow::MainWindow(QWidget *parent)
     return;
   }
 
-  connect(ui->btnAdd, &QPushButton::clicked, this, [this]()
+  connect(ui->btnAdd, &QPushButton::clicked, this,
+          [this]()
           {
             addUser(ui->lineEdit->text());
             // addUser("Новый пользователь", 30);
             // loadTableData(); // Обновляем таблицу
           });
 
-  connect(ui->btnDel, &QPushButton::clicked, this, [this]()
+  connect(ui->btnDel, &QPushButton::clicked, this,
+          [this]()
           {
             delUserByName(ui->lineEdit->text());
 
@@ -47,14 +50,16 @@ MainWindow::MainWindow(QWidget *parent)
             // loadTableData(); // Обновляем таблицу
           });
 
-  connect(ui->btnViewAll, &QPushButton::clicked, this, [this]()
+  connect(ui->btnReadBase, &QPushButton::clicked, this,
+          [this]()
           {
             loadTableData();
             // delUserById(1);   // Удалить пользователя с ID = 1
             // viewTableData(); // Обновляем таблицу
           });
 
-  connect(ui->btnCreateTable, &QPushButton::clicked, this, [this]()
+  connect(ui->btnCreateTable, &QPushButton::clicked, this,
+          [this]()
           {
             createTable();
             // loadTableData();
@@ -152,7 +157,8 @@ void MainWindow::loadTableData()
       QString name = query.value(1).toString();
       QString date = query.value(2).toString();
       bool checked = query.value(3).toBool();
-      qDebug() << "load ID:" << id << "Name:" << name << "Date: " << date << "Checked: " << checked;
+      qDebug() << "load ID:" << id << "Name:" << name << "Date: " << date
+               << "Checked: " << checked;
     }
   }
 
@@ -178,16 +184,16 @@ void MainWindow::viewTableData()
   //     QSqlField field = record.field(i); // Получаем поле
 
   //     qDebug() << "Field name:" << field.name();
-  //     qDebug() << "Data type:" << QMetaType(field.metaType().id()); // field.type();
-  //     qDebug() << "Value:" << field.value();
+  //     qDebug() << "Data type:" << QMetaType(field.metaType().id()); //
+  //     field.type(); qDebug() << "Value:" << field.value();
   //     // qDebug() << "is NULL:" << field.isNull();
   //     // qDebug() << "Length:" << field.length();
   //     // qDebug() << "Read only:" << field.isReadOnly();
   //     qDebug() << "-------------------------";
   //   }
-  //   int id = query.value(0).toInt();          // Получаем значение первого столбца
-  //   QString name = query.value(1).toString(); // Получаем значение второго столбца
-  //   qDebug() << "ID:" << id << "Name:" << name;
+  //   int id = query.value(0).toInt();          // Получаем значение первого
+  //   столбца QString name = query.value(1).toString(); // Получаем значение
+  //   второго столбца qDebug() << "ID:" << id << "Name:" << name;
   // }
 
   // перез table
@@ -213,7 +219,8 @@ void MainWindow::createTable()
   int year = ui->calendarWidget->yearShown();
   // Первый день текущего месяца
   QDate firstDayOfMonth = QDate(year, month, 1);
-  int dayOfWeek = firstDayOfMonth.dayOfWeek(); // 1 - понедельник, ..., 7 - воскресенье
+  int dayOfWeek =
+      firstDayOfMonth.dayOfWeek();  // 1 - понедельник, ..., 7 - воскресенье
 
   int day = ui->calendarWidget->firstDayOfWeek();
 
@@ -232,8 +239,9 @@ void MainWindow::addUser(const QString &name)
 
   if (!query.exec())
   {
-    // qDebug() << "Ошибка добавления пользователя:" << query.lastError().text();
-    // std::cout << "Ошибка добавления пользователя:\n";
+    // qDebug() << "Ошибка добавления пользователя:" <<
+    // query.lastError().text(); std::cout << "Ошибка добавления
+    // пользователя:\n";
 
     return;
   }
@@ -248,8 +256,8 @@ void MainWindow::delUserById(int id_to_del)
 {
   QSqlQuery query;
 
-  query.prepare("DELETE FROM users WHERE id = :id"); // Условие на равенство
-  query.bindValue(":id", id_to_del);                 // Привязываем значение
+  query.prepare("DELETE FROM users WHERE id = :id");  // Условие на равенство
+  query.bindValue(":id", id_to_del);                  // Привязываем значение
 
   if (!query.exec())
   {
@@ -267,8 +275,9 @@ void MainWindow::delUserByName(const QString &name_to_del)
 {
   QSqlQuery query;
 
-  query.prepare("DELETE FROM users WHERE name = :name"); // Условие на равенство
-  query.bindValue(":name", name_to_del);                 // Привязываем значение
+  query.prepare(
+      "DELETE FROM users WHERE name = :name");  // Условие на равенство
+  query.bindValue(":name", name_to_del);        // Привязываем значение
 
   if (!query.exec())
   {
@@ -287,7 +296,8 @@ void MainWindow::delUserByName(const QString &name_to_del)
 void MainWindow::updateTable()
 {
   // ищём нужный нам виджет (таблицу)
-  QTableWidget *tableWidget = ui->centralwidget->findChild<QTableWidget *>("bigTable"); // new QTableWidget(5, 3, this);      // 5 строк, 3 столбца
+  QTableWidget *tableWidget = ui->centralwidget->findChild<QTableWidget *>(
+      "bigTable");  // new QTableWidget(5, 3, this);      // 5 строк, 3 столбца
   // Очищаем таблицу перед загрузкой новых данных
   tableWidget->clearContents();
   // tableWidget->setRowCount(0);
@@ -301,8 +311,10 @@ void MainWindow::updateTable()
 
   for (int day = 1; day <= 31; ++day)
   {
-    QString text = QString("%1.%2").arg(day, 2, 10, QLatin1Char('0')) // Добавляет нули перед числом
-                       .arg(month, 2, 10, QLatin1Char('0'));
+    QString text =
+        QString("%1.%2")
+            .arg(day, 2, 10, QLatin1Char('0'))  // Добавляет нули перед числом
+            .arg(month, 2, 10, QLatin1Char('0'));
 
     QTableWidgetItem *item = tableWidget->item(0, 1 + day);
     if (item)
@@ -342,18 +354,42 @@ void MainWindow::updateTable()
   recordCount = model.rowCount();
   qDebug() << "recordCount:" << recordCount;
 
-  while (recordCount > tableWidget->rowCount())
-  {
-    tableWidget->insertRow(tableWidget->rowCount());
-  }
+  // while (recordCount > tableWidget->rowCount())
+  // {
+  //   tableWidget->insertRow(tableWidget->rowCount());
+  // }
+
   int row = 2;
+  int start_row = 2;
   while (row < recordCount)
   {
+    bool found = false;
     int id = model.data(model.index(row, 0)).toInt();
-    QString name = model.data(model.index(row, 1)).toString();
+    QString new_name = model.data(model.index(row, 1)).toString();
+    for (int search_row = start_row; search_row < tableWidget->rowCount();
+         ++search_row)
+    {
+      QTableWidgetItem *item = tableWidget->item(search_row, 1);
+      QString search_name = "";
+      // проверка, есть ли вообще что-то
+      if (item)
+      {
+        search_name = item->text();
+      }
 
-    tableWidget->setItem(row, 0, new QTableWidgetItem(QString::number(id)));
-    tableWidget->setItem(row, 1, new QTableWidgetItem(name));
+      if (new_name == search_name)
+      {
+        found = true;
+        break;
+      }
+    }
+    if (found != true)
+    {
+      tableWidget->insertRow(tableWidget->rowCount());
+      tableWidget->setItem(row, 0, new QTableWidgetItem(QString::number(id)));
+      tableWidget->setItem(row, 1, new QTableWidgetItem(new_name));
+    }
+
     row++;
   }
 }
@@ -363,7 +399,8 @@ void MainWindow::updateTable()
 void MainWindow::createCheckTable()
 {
   // Создаем таблицу
-  QTableWidget *tableWidget = new QTableWidget(1, 7, this); // 2 строки, 7 столбцов
+  QTableWidget *tableWidget =
+      new QTableWidget(1, 7, this);  // 2 строки, 7 столбцов
   // заголовки столбцов
   tableWidget->setHorizontalHeaderLabels(kDaysOfWeek);
   tableWidget->setVerticalHeaderLabels({" "});
@@ -375,10 +412,13 @@ void MainWindow::createCheckTable()
   {
     for (int col = 0; col < tableWidget->columnCount(); ++col)
     {
-      QCheckBox *checkBox = new QCheckBox();          // Создаем чекбокс
-      tableWidget->setCellWidget(row, col, checkBox); // Размещаем чекбокс в ячейке
+      QCheckBox *checkBox = new QCheckBox();  // Создаем чекбокс
+      tableWidget->setCellWidget(row, col,
+                                 checkBox);  // Размещаем чекбокс в ячейке
       if (col < 5)
+      {
         checkBox->setChecked(true);
+      }
     }
   }
   // Минимальная ширина — 50 пикселей
@@ -388,10 +428,12 @@ void MainWindow::createCheckTable()
   tableWidget->resizeColumnsToContents();
 
   // Разрешаем интерактивное изменение размера столбцов
-  tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+  tableWidget->horizontalHeader()->setSectionResizeMode(
+      QHeaderView::Interactive);
 
   // находим контейнер в UI-файле и добавляем туда таблицу
-  QVBoxLayout *layout = ui->centralwidget->findChild<QVBoxLayout *>("verticalLayout_3");
+  QVBoxLayout *layout =
+      ui->centralwidget->findChild<QVBoxLayout *>("verticalLayout_3");
   if (layout)
   {
     layout->addWidget(tableWidget);
@@ -419,13 +461,13 @@ void MainWindow::updToDefaultTable()
   // запись даты (дд.мм) в таблицу
   for (int day = 1; day <= 31; ++day)
   {
-    data = QString("%1.%2").arg(day, 2, 10, QLatin1Char('0')) // Добавляет нули перед числом
-               .arg(month, 2, 10, QLatin1Char('0'));
+    data =
+        QString("%1.%2")
+            .arg(day, 2, 10, QLatin1Char('0'))  // Добавляет нули перед числом
+            .arg(month, 2, 10, QLatin1Char('0'));
     tableWidget->setItem(0, 1 + day, new QTableWidgetItem(data));
   }
-  // пустые элементы (просто, чтобы не забыть, что они есть)
-  // tableWidget->setItem(1, 0, new QTableWidgetItem(" "));
-  // tableWidget->setItem(1, 1, new QTableWidgetItem(" "));
+
   // запись дня недели в таблицу (пн, вт и т.д.)
   for (int day = 1; day <= 31; ++day)
   {
@@ -437,12 +479,14 @@ void MainWindow::updToDefaultTable()
   // тестовый user
   tableWidget->setItem(2, 0, new QTableWidgetItem("1"));
   tableWidget->setItem(2, 1, new QTableWidgetItem("Alice"));
-  tableWidget->setItem(2, 2, new QTableWidgetItem(data));
+
   // заполнение таблицы чекбоксами
   for (int day = 1; day <= 31; ++day)
   {
-    QCheckBox *checkBox = new QCheckBox();            // Создаем чекбокс
-    tableWidget->setCellWidget(2, 1 + day, checkBox); // Размещаем чекбокс в ячейке
+    QCheckBox *checkBox = new QCheckBox();  // Создаем чекбокс
+    checkBox->setChecked(static_cast<bool>(day % 2));
+    tableWidget->setCellWidget(2, 1 + day,
+                               checkBox);  // Размещаем чекбокс в ячейке
   }
 
   // Автоматически подстраиваем ширину под содержимое
@@ -458,7 +502,8 @@ void MainWindow::createEmptyTable()
   // Первый день текущего месяца
   int day_in_month = QDate(year, month, 1).daysInMonth();
 
-  QTableWidget *tableWidget = new QTableWidget(3, 2 + day_in_month, this); // 1 строк, 7 столбца
+  QTableWidget *tableWidget =
+      new QTableWidget(3, 2 + day_in_month, this);  // 1 строк, 7 столбца
   tableWidget->setObjectName("bigTable");
 
   // Устанавливаем заголовки для каждого столбца
@@ -475,10 +520,12 @@ void MainWindow::createEmptyTable()
   tableWidget->resizeColumnsToContents();
 
   // Разрешаем интерактивное изменение размера столбцов
-  tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+  tableWidget->horizontalHeader()->setSectionResizeMode(
+      QHeaderView::Interactive);
 
   // находим контейнер в UI-файле и добавляем туда таблицу
-  QGridLayout *layout = ui->centralwidget->findChild<QGridLayout *>("gridLayout");
+  QGridLayout *layout =
+      ui->centralwidget->findChild<QGridLayout *>("gridLayout");
   if (layout)
   {
     layout->addWidget(tableWidget);
@@ -500,36 +547,45 @@ void MainWindow::writeTable()
   int year = ui->calendarWidget->yearShown();
   int day = ui->calendarWidget->firstDayOfWeek();
 
-  QDate currentDate = QDate::currentDate();                // Текущая дата
-  QString dateString = currentDate.toString("yyyy-MM-dd"); // Преобразуем в строку
+  QDate currentDate = QDate::currentDate();  // Текущая дата
+  QString dateString =
+      currentDate.toString("yyyy-MM-dd");  // Преобразуем в строку
 
   int temp = 0;
   temp = tableWidget->rowCount();
-
+  // проходим по строкам (пользователям)
   for (int row = 2; row < tableWidget->rowCount(); ++row)
   {
-    // Извлекаем данные из ячеек
-    QString name = tableWidget->item(row, 1)->text(); // Второй столбец (string)
-    QString date = QDate(year, month, 1).toString("dd.MM.yy");
-    QCheckBox *checkBox = qobject_cast<QCheckBox *>(tableWidget->cellWidget(row, 2)); // Третий столбец (checkbox)
-    bool isChecked = checkBox ? checkBox->isChecked() : false;
-
-    // Формируем SQL-запрос
-    query.prepare("INSERT INTO users (name, date, is_checked) VALUES (:name, :date, :is_checked)");
-    query.bindValue(":name", name);
-    query.bindValue(":date", date);
-    query.bindValue(":is_checked", isChecked);
-
-    // Выполняем запрос
-    if (!query.exec())
+    // проходим по всем датам(дням)
+    for (int column = 3; column < tableWidget->columnCount(); ++column)
     {
-      qDebug() << "Error write data:" << query.lastError().text();
-    }
-    else
-    {
-      qDebug() << "Insert: name =" << name
-               << ", date =" << date
-               << ", is_checked =" << isChecked;
+      // Извлекаем данные из ячеек
+      QString name =
+          tableWidget->item(row, 1)->text();  // Второй столбец (string)
+      QString date = tableWidget->item(0, column)->text();
+      // QString date = QDate(year, month, 1).toString("dd.MM.yy");
+      QCheckBox *checkBox = qobject_cast<QCheckBox *>(
+          tableWidget->cellWidget(row, column));  // Третий столбец (checkbox)
+      bool isChecked = checkBox ? checkBox->isChecked() : false;
+
+      // Формируем SQL-запрос
+      query.prepare(
+          "INSERT INTO users (name, date, is_checked) VALUES (:name, "
+          ":date, :is_checked)");
+      query.bindValue(":name", name);
+      query.bindValue(":date", date);
+      query.bindValue(":is_checked", isChecked);
+
+      // Выполняем запрос
+      if (!query.exec())
+      {
+        qDebug() << "Error write data:" << query.lastError().text();
+      }
+      else
+      {
+        qDebug() << "Insert: name =" << name << ", date =" << date
+                 << ", is_checked =" << isChecked;
+      }
     }
   }
 }
