@@ -103,7 +103,7 @@ bool MainWindow::createConnection()
   if (!query.exec("CREATE TABLE IF NOT EXISTS users ("
                   "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                   "name TEXT NOT NULL, "
-                  "date DATE NOT NULL, "
+                  "date TEXT NOT NULL, "  // DATE
                   "is_checked BOOLEAN NOT NULL )"))
   {
     qDebug() << "Ошибка создания таблицы:" << query.lastError().text();
@@ -128,10 +128,10 @@ bool MainWindow::createConnection()
     qDebug() << "not empty:";
     do
     {
-      qDebug() << "ID:" << query.value(0).toInt()
-               << "Name:" << query.value(1).toString()
-               << "Date:" << query.value(2).toString()
-               << "Checked:" << query.value(3).toBool();
+      // qDebug() << "ID:" << query.value(0).toInt()
+      //          << "Name:" << query.value(1).toString()
+      //          << "Date:" << query.value(2).toString()
+      //          << "Checked:" << query.value(3).toBool();
     } while (query.next());
   }
 
@@ -145,7 +145,7 @@ void MainWindow::loadTableData()
   QSqlQuery query;
 
   // Читаем данные из таблицы
-  if (!query.exec("SELECT id, name, date FROM users"))
+  if (!query.exec("SELECT id, name, date, is_checked FROM users"))
   {
     qDebug() << "Ошибка выполнения запроса:" << query.lastError().text();
   }
@@ -329,7 +329,7 @@ void MainWindow::updateTable()
     }
   }
 
-  for (int day = 1; day <= 31; ++day)
+  for (int day = 1; day <= max_days; ++day)
   {
     QDate firstDayOfMonth = QDate(year, month, day);
     int dayOfWeek = firstDayOfMonth.dayOfWeek();
@@ -350,7 +350,7 @@ void MainWindow::updateTable()
 
   model.setTable("users");
   model.select();
-
+  // сколько строк в db
   recordCount = model.rowCount();
   qDebug() << "recordCount:" << recordCount;
 
@@ -359,11 +359,13 @@ void MainWindow::updateTable()
   //   tableWidget->insertRow(tableWidget->rowCount());
   // }
 
-  int row = 2;
+  int row = 0;
   int start_row = 2;
+  int start_column = 2;
   while (row < recordCount)
   {
     bool found = false;
+    // bool isChecked_found = false;
     int id = model.data(model.index(row, 0)).toInt();
     QString new_name = model.data(model.index(row, 1)).toString();
     for (int search_row = start_row; search_row < tableWidget->rowCount();
@@ -376,18 +378,56 @@ void MainWindow::updateTable()
       {
         search_name = item->text();
       }
+      else
+      {
+        // таблица есть, но пустая
+        found = true;
+        tableWidget->insertRow(search_row);
+        tableWidget->setItem(search_row, 0, new QTableWidgetItem(QString::number(id)));
+        tableWidget->setItem(search_row, 1, new QTableWidgetItem(new_name));
+        // is_ckecked добавить
+        break;
+      }
 
       if (new_name == search_name)
       {
         found = true;
+        bool isChecked_found = false;
+        // тут проходка по 0 строке - ищем дату и проверяем checked
+        for (int column = start_column; column < (max_days + start_column);
+             ++column)
+        {
+          QTableWidgetItem *data_item = tableWidget->item(0, column);
+          QString date_in_column = data_item->text();
+          QString date_in_db = model.data(model.index(row, 2))
+                                   .toString();  // BUG не тот индекс стартует
+          // qDebug() << "column: " << column << " data_item: " << date;
+          // проверяем, совпала ли дата в базе с текущей в табл. и рисуем
+          // isChecked
+          if (date_in_column == date_in_db)
+          {
+            QCheckBox *checkBox = new QCheckBox();
+            isChecked_found = model.data(model.index(row, 3)).toBool();
+            checkBox->setChecked(isChecked_found);
+            tableWidget->setCellWidget(search_row, column, checkBox);
+            qDebug() << "row: " << search_row << "column: " << column
+                     << " data_item: " << date_in_column
+                     << " is_checkad: " << isChecked_found;
+            break;
+          }
+        }
         break;
       }
     }
     if (found != true)
     {
+      
+      // tableWidget->insertRow(row); 
       tableWidget->insertRow(tableWidget->rowCount());
       tableWidget->setItem(row, 0, new QTableWidgetItem(QString::number(id)));
       tableWidget->setItem(row, 1, new QTableWidgetItem(new_name));
+      // TODO сразу надо is_checked проверить!
+      // tableWidget->setItem(row, 3, new QTableWidgetItem(new_name));
     }
 
     row++;
@@ -500,7 +540,7 @@ void MainWindow::createEmptyTable()
   int month = ui->calendarWidget->monthShown();
   int year = ui->calendarWidget->yearShown();
   // Первый день текущего месяца
-  int day_in_month = QDate(year, month, 1).daysInMonth();
+  int day_in_month = max_days = QDate(year, month, 1).daysInMonth();
 
   QTableWidget *tableWidget =
       new QTableWidget(3, 2 + day_in_month, this);  // 1 строк, 7 столбца

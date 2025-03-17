@@ -30,7 +30,7 @@ class MainWindow : public QMainWindow
   QTableWidget *baseTableWidget;  // указатель на основную таблицу
                                   //   QPushButton *btnAdd;
                                   //   QPushButton *btnDel;
-
+  uint32_t max_days;  // тут макс число дней для тек месяца
   void updateTable();
   // void CreateBase(QMainWindow *MainWindow);
   void addUser(const QString &name);
