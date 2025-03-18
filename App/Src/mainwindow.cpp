@@ -378,15 +378,17 @@ void MainWindow::updateTable()
       {
         search_name = item->text();
       }
-      else
+      
+      if(!item)
       {
         // таблица есть, но пустая
         found = true;
-        tableWidget->insertRow(search_row);
+        // tableWidget->insertRow(search_row);
         tableWidget->setItem(search_row, 0, new QTableWidgetItem(QString::number(id)));
         tableWidget->setItem(search_row, 1, new QTableWidgetItem(new_name));
+        search_name = new_name; // как бы нашли - первая запись
         // is_ckecked добавить
-        break;
+        // break;
       }
 
       if (new_name == search_name)
@@ -597,7 +599,7 @@ void MainWindow::writeTable()
   for (int row = 2; row < tableWidget->rowCount(); ++row)
   {
     // проходим по всем датам(дням)
-    for (int column = 3; column < tableWidget->columnCount(); ++column)
+    for (int column = 2; column < tableWidget->columnCount(); ++column)
     {
       // Извлекаем данные из ячеек
       QString name =
