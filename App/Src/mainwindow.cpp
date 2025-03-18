@@ -36,7 +36,8 @@ MainWindow::MainWindow(QWidget *parent)
   connect(ui->btnAdd, &QPushButton::clicked, this,
           [this]()
           {
-            addUser(ui->lineEdit->text());
+            addUser(ui->lineEdit->text(),
+                    findChild<QTableWidget *>("bigTable"));
             // addUser("Новый пользователь", 30);
             // loadTableData(); // Обновляем таблицу
           });
@@ -233,23 +234,54 @@ void MainWindow::createTable()
 }
 //----------------------------------------------------------------------------
 
-void MainWindow::addUser(const QString &name)
+/// @brief функция добавления пользотеля в табличку. с отрисовкой checkBox
+/// @param name
+void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
 {
-  QSqlQuery query;
-  query.prepare("INSERT INTO users (name) VALUES (:name)");
-  query.bindValue(":name", name);
+  uint32_t current_row = tableWidget->rowCount();
+  // сначала проверяем, что такого ещё нет
 
-  if (!query.exec())
+  if(searchName(tableWidget, name) == -1)
   {
-    // qDebug() << "Ошибка добавления пользователя:" <<
-    // query.lastError().text(); std::cout << "Ошибка добавления
-    // пользователя:\n";
-
+    //empty table
+  }
+  else if(searchName(tableWidget, name) == 0)
+  {
+    // new user
+  }
+  else
+  {
+    qDebug() << "already exist";
     return;
   }
+  
+  tableWidget->insertRow(current_row);
+  tableWidget->setItem(current_row, 0, new QTableWidgetItem("new"));
+  tableWidget->setItem(current_row, 1, new QTableWidgetItem(name));
+
+  for (int day = 1; day <= day_in_month; ++day)
+  {
+    addCheckBox(tableWidget, current_row, 1 + day, false);
+  }
+
+  // QSqlQuery query;
+  // query.prepare("INSERT INTO users (name) VALUES (:name)");
+  // query.bindValue(":name", name);
+
+  // if (!query.exec())
+  // {
+  //   // qDebug() << "Ошибка добавления пользователя:" <<
+  //   // query.lastError().text(); std::cout << "Ошибка добавления
+  //   // пользователя:\n";
+
+  //   return;
+  // }
 
   // qDebug() << "Пользователь добавлен!";
   // std::cout << "Пользователь добавлен!\n";
+
+  // Автоматически подстраиваем ширину под содержимое
+  tableWidget->resizeColumnsToContents();
 }
 
 //----------------------------------------------------------------------------
@@ -633,6 +665,51 @@ int MainWindow::searchDate(QTableWidget *tableWidget, QString date_in_db)
     if (date_in_column == date_in_db)
     {
       return column;
+    }
+  }
+  return 0;
+}
+
+//----------------------------------------------------------------------------
+
+/// @brief поиск строки с нужным именем
+/// @param tableWidget
+/// @return номер строки если нашли, 0 если не нашли
+int MainWindow::searchName(QTableWidget *tableWidget, QString searched_name)
+{
+  int start_row = 2;
+
+  for (int search_row = start_row; search_row < tableWidget->rowCount();
+       ++search_row)
+  {
+    QTableWidgetItem *item = tableWidget->item(search_row, 1);
+    QString name_in_table = "";
+    // проверка, есть ли вообще что-то
+    if (item)
+    {
+      name_in_table = item->text();
+    }
+    else
+    {
+      return -1;
+    }
+
+    // if (!item)
+    // {
+    //   // таблица есть, но пустая
+    //   found = true;
+    //   // tableWidget->insertRow(search_row);
+    //   tableWidget->setItem(search_row, 0,
+    //                        new QTableWidgetItem(QString::number(id)));
+    //   tableWidget->setItem(search_row, 1, new QTableWidgetItem(new_name));
+    //   search_name = new_name;  // как бы нашли - первая запись
+    //                            // is_ckecked добавить
+    //                            // break;
+    // }
+
+    if (searched_name == name_in_table)
+    {
+      return search_row;
     }
   }
   return 0;

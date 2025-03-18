@@ -36,7 +36,7 @@ class MainWindow : public QMainWindow
 
   void updateTable();
   // void CreateBase(QMainWindow *MainWindow);
-  void addUser(const QString &name);
+  void addUser(const QString &name, QTableWidget *tableWidget);
   void delUserById(int id);
   void delUserByName(const QString &name);
 
@@ -49,7 +49,9 @@ class MainWindow : public QMainWindow
   void createEmptyTable();   // создаем пустую таблицу
   void writeTable();         // записать из текущей таблицы в db
 
-  int searchDate(QTableWidget *tableWidget, QString date_in_db); // поиск столбца и нужной датой
+  int searchDate(QTableWidget *tableWidget, QString date_in_db); // поиск столбца с нужной датой
+  int searchName(QTableWidget *tableWidget, QString name); // поиск строки с нужным именем
+  
   void addCheckBox(QTableWidget *tableWidget, int row, int column, bool is_checked); // добавление чекбокса
   void updateCalendarVariables(QCalendarWidget *calendarWidget);
 };
