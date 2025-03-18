@@ -30,7 +30,10 @@ class MainWindow : public QMainWindow
   QTableWidget *baseTableWidget;  // указатель на основную таблицу
                                   //   QPushButton *btnAdd;
                                   //   QPushButton *btnDel;
-  uint32_t max_days;  // тут макс число дней для тек месяца
+  uint32_t day_in_month;  // тут число дней для тек. месяца
+  uint32_t month;   // установленный месяц
+  uint32_t year;  // установленный год
+
   void updateTable();
   // void CreateBase(QMainWindow *MainWindow);
   void addUser(const QString &name);
@@ -45,6 +48,10 @@ class MainWindow : public QMainWindow
   void updToDefaultTable();  // создаем таблицу по умолчанию(пример)
   void createEmptyTable();   // создаем пустую таблицу
   void writeTable();         // записать из текущей таблицы в db
+
+  int searchDate(QTableWidget *tableWidget, QString date_in_db); // поиск столбца и нужной датой
+  void addCheckBox(QTableWidget *tableWidget, int row, int column, bool is_checked); // добавление чекбокса
+  void updateCalendarVariables(QCalendarWidget *calendarWidget);
 };
 
 #endif  // MAINWINDOW_H

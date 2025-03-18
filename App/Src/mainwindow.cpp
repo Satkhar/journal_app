@@ -68,7 +68,7 @@ MainWindow::MainWindow(QWidget *parent)
           });
 
   // это надо если нет таблицы из db
-  updToDefaultTable();
+  // updToDefaultTable();
 }
 
 //----------------------------------------------------------------------------
@@ -126,6 +126,8 @@ bool MainWindow::createConnection()
   else
   {
     qDebug() << "not empty:";
+    // loadTableData();
+    updateTable();
     do
     {
       // qDebug() << "ID:" << query.value(0).toInt()
@@ -215,19 +217,19 @@ void MainWindow::viewTableData()
 
 void MainWindow::createTable()
 {
-  int month = ui->calendarWidget->monthShown();
-  int year = ui->calendarWidget->yearShown();
+  // int month = ui->calendarWidget->monthShown();
+  // int year = ui->calendarWidget->yearShown();
   // Первый день текущего месяца
-  QDate firstDayOfMonth = QDate(year, month, 1);
-  int dayOfWeek =
-      firstDayOfMonth.dayOfWeek();  // 1 - понедельник, ..., 7 - воскресенье
+  // QDate firstDayOfMonth = QDate(year, month, 1);
+  // int dayOfWeek =
+  //     firstDayOfMonth.dayOfWeek();  // 1 - понедельник, ..., 7 - воскресенье
 
-  int day = ui->calendarWidget->firstDayOfWeek();
+  // int day = ui->calendarWidget->firstDayOfWeek();
 
-  int day_in_month = QDate(year, month, 1).daysInMonth();
+  // int day_in_month = QDate(year, month, 1).daysInMonth();
 
-  qDebug() << "month:" << month << "Day:" << day;
-  qDebug() << "dayOfWeek:" << dayOfWeek << "day_in_month" << day_in_month;
+  // qDebug() << "month:" << month << "Day:" << day;
+  // qDebug() << "dayOfWeek:" << dayOfWeek << "day_in_month" << day_in_month;
 }
 //----------------------------------------------------------------------------
 
@@ -306,10 +308,10 @@ void MainWindow::updateTable()
   tableWidget->setItem(0, 0, new QTableWidgetItem("Дата"));
   tableWidget->setItem(1, 0, new QTableWidgetItem("День"));
 
-  int month = ui->calendarWidget->monthShown();
-  int year = ui->calendarWidget->yearShown();
+  // int month = ui->calendarWidget->monthShown();
+  // int year = ui->calendarWidget->yearShown();
 
-  for (int day = 1; day <= 31; ++day)
+  for (int day = 1; day <= day_in_month; ++day)
   {
     QString text =
         QString("%1.%2")
@@ -329,7 +331,7 @@ void MainWindow::updateTable()
     }
   }
 
-  for (int day = 1; day <= max_days; ++day)
+  for (int day = 1; day <= day_in_month; ++day)
   {
     QDate firstDayOfMonth = QDate(year, month, day);
     int dayOfWeek = firstDayOfMonth.dayOfWeek();
@@ -354,14 +356,9 @@ void MainWindow::updateTable()
   recordCount = model.rowCount();
   qDebug() << "recordCount:" << recordCount;
 
-  // while (recordCount > tableWidget->rowCount())
-  // {
-  //   tableWidget->insertRow(tableWidget->rowCount());
-  // }
-
   int row = 0;
   int start_row = 2;
-  int start_column = 2;
+  // int start_column = 2;
   while (row < recordCount)
   {
     bool found = false;
@@ -378,15 +375,16 @@ void MainWindow::updateTable()
       {
         search_name = item->text();
       }
-      
-      if(!item)
+
+      if (!item)
       {
         // таблица есть, но пустая
         found = true;
         // tableWidget->insertRow(search_row);
-        tableWidget->setItem(search_row, 0, new QTableWidgetItem(QString::number(id)));
+        tableWidget->setItem(search_row, 0,
+                             new QTableWidgetItem(QString::number(id)));
         tableWidget->setItem(search_row, 1, new QTableWidgetItem(new_name));
-        search_name = new_name; // как бы нашли - первая запись
+        search_name = new_name;  // как бы нашли - первая запись
         // is_ckecked добавить
         // break;
       }
@@ -394,37 +392,21 @@ void MainWindow::updateTable()
       if (new_name == search_name)
       {
         found = true;
-        bool isChecked_found = false;
-        // тут проходка по 0 строке - ищем дату и проверяем checked
-        for (int column = start_column; column < (max_days + start_column);
-             ++column)
+        QString date_in_db = model.data(model.index(row, 2)).toString();
+        int column = searchDate(tableWidget, date_in_db);
+        if (column == 0)
         {
-          QTableWidgetItem *data_item = tableWidget->item(0, column);
-          QString date_in_column = data_item->text();
-          QString date_in_db = model.data(model.index(row, 2))
-                                   .toString();  // BUG не тот индекс стартует
-          // qDebug() << "column: " << column << " data_item: " << date;
-          // проверяем, совпала ли дата в базе с текущей в табл. и рисуем
-          // isChecked
-          if (date_in_column == date_in_db)
-          {
-            QCheckBox *checkBox = new QCheckBox();
-            isChecked_found = model.data(model.index(row, 3)).toBool();
-            checkBox->setChecked(isChecked_found);
-            tableWidget->setCellWidget(search_row, column, checkBox);
-            qDebug() << "row: " << search_row << "column: " << column
-                     << " data_item: " << date_in_column
-                     << " is_checkad: " << isChecked_found;
-            break;
-          }
+          // не нашли такой даты в таблице - не надо отмечать
+          break;
         }
+        bool isChecked_in_found = model.data(model.index(row, 3)).toBool();
+        addCheckBox(tableWidget, search_row, column, isChecked_in_found);
         break;
       }
     }
     if (found != true)
     {
-      
-      // tableWidget->insertRow(row); 
+      // tableWidget->insertRow(row);
       tableWidget->insertRow(tableWidget->rowCount());
       tableWidget->setItem(row, 0, new QTableWidgetItem(QString::number(id)));
       tableWidget->setItem(row, 1, new QTableWidgetItem(new_name));
@@ -434,6 +416,8 @@ void MainWindow::updateTable()
 
     row++;
   }
+  // Автоматически подстраиваем ширину под содержимое
+  tableWidget->resizeColumnsToContents();
 }
 
 //----------------------------------------------------------------------------
@@ -496,12 +480,12 @@ void MainWindow::updToDefaultTable()
   // tableWidget->setItem(0, 0, new QTableWidgetItem("ID"));
   // tableWidget->setItem(0, 1, new QTableWidgetItem("Name"));
 
-  int month = ui->calendarWidget->monthShown();
-  int year = ui->calendarWidget->yearShown();
+  // int month = ui->calendarWidget->monthShown();
+  // int year = ui->calendarWidget->yearShown();
   QString data;
 
   // запись даты (дд.мм) в таблицу
-  for (int day = 1; day <= 31; ++day)
+  for (int day = 1; day <= day_in_month; ++day)
   {
     data =
         QString("%1.%2")
@@ -511,7 +495,7 @@ void MainWindow::updToDefaultTable()
   }
 
   // запись дня недели в таблицу (пн, вт и т.д.)
-  for (int day = 1; day <= 31; ++day)
+  for (int day = 1; day <= day_in_month; ++day)
   {
     QDate firstDayOfMonth = QDate(year, month, day);
     int dayOfWeek = firstDayOfMonth.dayOfWeek();
@@ -523,12 +507,14 @@ void MainWindow::updToDefaultTable()
   tableWidget->setItem(2, 1, new QTableWidgetItem("Alice"));
 
   // заполнение таблицы чекбоксами
-  for (int day = 1; day <= 31; ++day)
+  for (int day = 1; day <= day_in_month; ++day)
   {
-    QCheckBox *checkBox = new QCheckBox();  // Создаем чекбокс
-    checkBox->setChecked(static_cast<bool>(day % 2));
-    tableWidget->setCellWidget(2, 1 + day,
-                               checkBox);  // Размещаем чекбокс в ячейке
+    // QCheckBox *checkBox = new QCheckBox();  // Создаем чекбокс
+    // checkBox->setChecked(static_cast<bool>(day % 2));
+    // tableWidget->setCellWidget(2, 1 + day,
+    //  checkBox);  // Размещаем чекбокс в ячейке
+    addCheckBox(tableWidget, 2, 1 + day,
+                static_cast<bool>(day % 2));  // добавление чекбокса
   }
 
   // Автоматически подстраиваем ширину под содержимое
@@ -539,10 +525,7 @@ void MainWindow::updToDefaultTable()
 
 void MainWindow::createEmptyTable()
 {
-  int month = ui->calendarWidget->monthShown();
-  int year = ui->calendarWidget->yearShown();
-  // Первый день текущего месяца
-  int day_in_month = max_days = QDate(year, month, 1).daysInMonth();
+  MainWindow::updateCalendarVariables(ui->calendarWidget);
 
   QTableWidget *tableWidget =
       new QTableWidget(3, 2 + day_in_month, this);  // 1 строк, 7 столбца
@@ -585,9 +568,9 @@ void MainWindow::writeTable()
   QTableWidget *tableWidget = findChild<QTableWidget *>("bigTable");
   QSqlQuery query;
 
-  int month = ui->calendarWidget->monthShown();
-  int year = ui->calendarWidget->yearShown();
-  int day = ui->calendarWidget->firstDayOfWeek();
+  // int month = ui->calendarWidget->monthShown();
+  // int year = ui->calendarWidget->yearShown();
+  // int day = ui->calendarWidget->firstDayOfWeek();
 
   QDate currentDate = QDate::currentDate();  // Текущая дата
   QString dateString =
@@ -630,4 +613,46 @@ void MainWindow::writeTable()
       }
     }
   }
+}
+
+//----------------------------------------------------------------------------
+
+/// @brief поиск столбца с нужной датой
+/// @param tableWidget
+/// @return номер столбца если нашли, 0 если не нашли
+int MainWindow::searchDate(QTableWidget *tableWidget, QString date_in_db)
+{
+  int start_column = 2;  // начало
+  for (int column = start_column; column < (day_in_month + start_column);
+       ++column)
+  {
+    QTableWidgetItem *data_item = tableWidget->item(0, column);
+    QString date_in_column = data_item->text();
+    // QString date_in_db = model.data(model.index(row, 2)).toString();
+
+    if (date_in_column == date_in_db)
+    {
+      return column;
+    }
+  }
+  return 0;
+}
+
+//----------------------------------------------------------------------------
+
+void MainWindow::addCheckBox(QTableWidget *tableWidget, int row, int column,
+                             bool is_checked)
+{
+  QCheckBox *checkBox = new QCheckBox();
+  checkBox->setChecked(is_checked);
+  tableWidget->setCellWidget(row, column, checkBox);
+}
+
+//----------------------------------------------------------------------------
+
+void MainWindow::updateCalendarVariables(QCalendarWidget *calendarWidget)
+{
+  month = calendarWidget->monthShown();
+  year = calendarWidget->yearShown();
+  day_in_month = QDate(year, month, 1).daysInMonth();
 }
