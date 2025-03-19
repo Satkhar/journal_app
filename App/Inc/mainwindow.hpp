@@ -48,6 +48,7 @@ class MainWindow : public QMainWindow
   void updToDefaultTable();  // создаем таблицу по умолчанию(пример)
   void createEmptyTable();   // создаем пустую таблицу
   void writeTable();         // записать из текущей таблицы в db
+  bool clearDB(QSqlDatabase &db, const QString &tableName); // очистить от всех записей
 
   int searchDate(QTableWidget *tableWidget, QString date_in_db); // поиск столбца с нужной датой
   int searchName(QTableWidget *tableWidget, QString name); // поиск строки с нужным именем

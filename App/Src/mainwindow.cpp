@@ -69,6 +69,17 @@ MainWindow::MainWindow(QWidget *parent)
             // viewTableData(); // Обновляем таблицу
           });
 
+  connect(ui->btnSaveCurTable, &QPushButton::clicked, this,
+          [this]()
+          {
+            clearDB(db, "users");
+            writeTable();
+            // createTable();
+            // loadTableData();
+            // delUser(1);   // Удалить пользователя с ID = 1
+            // viewTableData(); // Обновляем таблицу
+          });
+
   // это надо если нет таблицы из db
   // updToDefaultTable();
 }
@@ -241,6 +252,11 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
 {
   uint32_t current_row = tableWidget->rowCount();
   // сначала проверяем, что такого ещё нет
+  if (name == "")
+  {
+    qDebug() << "enter name";
+    return;
+  }
 
   if (searchName(tableWidget, name) == -1)
   {
@@ -322,6 +338,11 @@ void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
   // {
   //   qDebug() << name_to_del << " Name is deleted.";
   // }
+  if (name == "")
+  {
+    qDebug() << "enter name";
+    return;
+  }
   uint32_t row_to_del = searchName(tableWidget, name);
 
   if (row_to_del == -1)
@@ -435,12 +456,13 @@ void MainWindow::updateTable()
       {
         // таблица есть, но пустая
         found = true;
-        // tableWidget->insertRow(search_row);
         tableWidget->setItem(search_row, 0,
                              new QTableWidgetItem(QString::number(id)));
         tableWidget->setItem(search_row, 1, new QTableWidgetItem(new_name));
         search_name = new_name;  // как бы нашли - первая запись
-        // is_ckecked добавить
+
+        bool isChecked_in_found = model.data(model.index(row, 3)).toBool();
+        addCheckBox(tableWidget, search_row, 2, isChecked_in_found);
         // break;
       }
 
@@ -459,14 +481,16 @@ void MainWindow::updateTable()
         break;
       }
     }
+
     if (found != true)
     {
       // tableWidget->insertRow(row);
       tableWidget->insertRow(tableWidget->rowCount());
       tableWidget->setItem(row, 0, new QTableWidgetItem(QString::number(id)));
       tableWidget->setItem(row, 1, new QTableWidgetItem(new_name));
-      // TODO сразу надо is_checked проверить!
-      // tableWidget->setItem(row, 3, new QTableWidgetItem(new_name));
+
+      bool isChecked_in_found = model.data(model.index(row, 3)).toBool();
+      addCheckBox(tableWidget, row, 2, isChecked_in_found);
     }
 
     row++;
@@ -668,6 +692,25 @@ void MainWindow::writeTable()
       }
     }
   }
+}
+
+//----------------------------------------------------------------------------
+
+bool MainWindow::clearDB(QSqlDatabase &db, const QString &tableName)
+{
+  QSqlQuery query(db);
+
+  // Формируем SQL-запрос для удаления всех записей
+  QString deleteQuery = QString("DELETE FROM %1").arg(tableName);
+
+  if (!query.exec(deleteQuery))
+  {
+    qWarning() << "Failed to delete records:" << query.lastError().text();
+    return false;
+  }
+
+  qDebug() << "All records from table" << tableName << "deleted successfully.";
+  return true;
 }
 
 //----------------------------------------------------------------------------
