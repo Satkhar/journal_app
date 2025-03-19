@@ -37,8 +37,8 @@ class MainWindow : public QMainWindow
   void updateTable();
   // void CreateBase(QMainWindow *MainWindow);
   void addUser(const QString &name, QTableWidget *tableWidget);
-  void delUserById(int id);
-  void delUserByName(const QString &name);
+  void delUser(int id_to_del, QTableWidget *tableWidget);
+  void delUser(const QString &name, QTableWidget *tableWidget);
 
   bool createConnection();
   void loadTableData();

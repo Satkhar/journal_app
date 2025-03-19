@@ -45,9 +45,10 @@ MainWindow::MainWindow(QWidget *parent)
   connect(ui->btnDel, &QPushButton::clicked, this,
           [this]()
           {
-            delUserByName(ui->lineEdit->text());
+            delUser(ui->lineEdit->text(),
+                    findChild<QTableWidget *>("bigTable"));
 
-            // delUserById(1);   // Удалить пользователя с ID = 1
+            // delUser(1);   // Удалить пользователя с ID = 1
             // loadTableData(); // Обновляем таблицу
           });
 
@@ -55,7 +56,7 @@ MainWindow::MainWindow(QWidget *parent)
           [this]()
           {
             loadTableData();
-            // delUserById(1);   // Удалить пользователя с ID = 1
+            // delUser(1);   // Удалить пользователя с ID = 1
             // viewTableData(); // Обновляем таблицу
           });
 
@@ -64,7 +65,7 @@ MainWindow::MainWindow(QWidget *parent)
           {
             createTable();
             // loadTableData();
-            // delUserById(1);   // Удалить пользователя с ID = 1
+            // delUser(1);   // Удалить пользователя с ID = 1
             // viewTableData(); // Обновляем таблицу
           });
 
@@ -241,11 +242,11 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
   uint32_t current_row = tableWidget->rowCount();
   // сначала проверяем, что такого ещё нет
 
-  if(searchName(tableWidget, name) == -1)
+  if (searchName(tableWidget, name) == -1)
   {
-    //empty table
+    // empty table
   }
-  else if(searchName(tableWidget, name) == 0)
+  else if (searchName(tableWidget, name) == 0)
   {
     // new user
   }
@@ -254,7 +255,7 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
     qDebug() << "already exist";
     return;
   }
-  
+
   tableWidget->insertRow(current_row);
   tableWidget->setItem(current_row, 0, new QTableWidgetItem("new"));
   tableWidget->setItem(current_row, 1, new QTableWidgetItem(name));
@@ -286,7 +287,7 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
 
 //----------------------------------------------------------------------------
 
-void MainWindow::delUserById(int id_to_del)
+void MainWindow::delUser(int id_to_del, QTableWidget *tableWidget)
 {
   QSqlQuery query;
 
@@ -305,22 +306,44 @@ void MainWindow::delUserById(int id_to_del)
 
 //----------------------------------------------------------------------------
 
-void MainWindow::delUserByName(const QString &name_to_del)
+void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
 {
-  QSqlQuery query;
+  // QSqlQuery query;
 
-  query.prepare(
-      "DELETE FROM users WHERE name = :name");  // Условие на равенство
-  query.bindValue(":name", name_to_del);        // Привязываем значение
+  // query.prepare(
+  //     "DELETE FROM users WHERE name = :name");  // Условие на равенство
+  // query.bindValue(":name", name_to_del);        // Привязываем значение
 
-  if (!query.exec())
+  // if (!query.exec())
+  // {
+  //   qDebug() << "Delete error:" << query.lastError().text();
+  // }
+  // else
+  // {
+  //   qDebug() << name_to_del << " Name is deleted.";
+  // }
+  uint32_t row_to_del = searchName(tableWidget, name);
+
+  if (row_to_del == -1)
   {
-    qDebug() << "Delete error:" << query.lastError().text();
+    // empty table
+    qDebug() << "empty table";
+    return;
+  }
+  else if (row_to_del == 0)
+  {
+    // no user
+    qDebug() << "user don't found";
+    return;
   }
   else
   {
-    qDebug() << name_to_del << " Name is deleted.";
+    tableWidget->removeRow(row_to_del);
   }
+
+  // Автоматически подстраиваем ширину под содержимое
+  tableWidget->resizeColumnsToContents();
+  return;
 }
 
 //----------------------------------------------------------------------------
