@@ -143,10 +143,6 @@ bool MainWindow::createConnection()
     updateTable();
     do
     {
-      // qDebug() << "ID:" << query.value(0).toInt()
-      //          << "Name:" << query.value(1).toString()
-      //          << "Date:" << query.value(2).toString()
-      //          << "Checked:" << query.value(3).toBool();
     } while (query.next());
   }
 
@@ -185,31 +181,6 @@ void MainWindow::loadTableData()
 void MainWindow::viewTableData()
 {
   QSqlQuery query("SELECT id, name FROM users");
-
-  // просто
-  // // Читаем результаты запроса
-  // while (query.next())
-  // {
-  //   QSqlRecord record = query.record(); // Получаем запись (строку)
-  //   qDebug() << "\nRecord count is:" << record.count();
-
-  //   // Перебираем все поля в записи
-  //   for (int i = 0; i < record.count(); ++i)
-  //   {
-  //     QSqlField field = record.field(i); // Получаем поле
-
-  //     qDebug() << "Field name:" << field.name();
-  //     qDebug() << "Data type:" << QMetaType(field.metaType().id()); //
-  //     field.type(); qDebug() << "Value:" << field.value();
-  //     // qDebug() << "is NULL:" << field.isNull();
-  //     // qDebug() << "Length:" << field.length();
-  //     // qDebug() << "Read only:" << field.isReadOnly();
-  //     qDebug() << "-------------------------";
-  //   }
-  //   int id = query.value(0).toInt();          // Получаем значение первого
-  //   столбца QString name = query.value(1).toString(); // Получаем значение
-  //   второго столбца qDebug() << "ID:" << id << "Name:" << name;
-  // }
 
   // перез table
 
@@ -255,6 +226,7 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
   if (name == "")
   {
     qDebug() << "enter name";
+    ui->statusbar->showMessage("enter name");
     return;
   }
 
@@ -269,6 +241,7 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
   else
   {
     qDebug() << "already exist";
+    ui->statusbar->showMessage("already exist");
     return;
   }
 
@@ -281,21 +254,10 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
     addCheckBox(tableWidget, current_row, 1 + day, false);
   }
 
-  // QSqlQuery query;
-  // query.prepare("INSERT INTO users (name) VALUES (:name)");
-  // query.bindValue(":name", name);
-
-  // if (!query.exec())
-  // {
-  //   // qDebug() << "Ошибка добавления пользователя:" <<
-  //   // query.lastError().text(); std::cout << "Ошибка добавления
-  //   // пользователя:\n";
-
-  //   return;
-  // }
-
   // qDebug() << "Пользователь добавлен!";
   // std::cout << "Пользователь добавлен!\n";
+  
+  ui->statusbar->showMessage("user add");
 
   // Автоматически подстраиваем ширину под содержимое
   tableWidget->resizeColumnsToContents();
@@ -305,30 +267,10 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
 
 void MainWindow::delUser(int id_to_del, QTableWidget *tableWidget)
 {
-  QSqlQuery query;
-
-  query.prepare("DELETE FROM users WHERE id = :id");  // Условие на равенство
-  query.bindValue(":id", id_to_del);                  // Привязываем значение
-
-  if (!query.exec())
-  {
-    qDebug() << "Delete error:" << query.lastError().text();
-  }
-  else
-  {
-    qDebug() << id_to_del << " Id is deleted.";
-  }
-}
-
-//----------------------------------------------------------------------------
-
-void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
-{
   // QSqlQuery query;
 
-  // query.prepare(
-  //     "DELETE FROM users WHERE name = :name");  // Условие на равенство
-  // query.bindValue(":name", name_to_del);        // Привязываем значение
+  // query.prepare("DELETE FROM users WHERE id = :id");  // Условие на равенство
+  // query.bindValue(":id", id_to_del);                  // Привязываем значение
 
   // if (!query.exec())
   // {
@@ -336,11 +278,19 @@ void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
   // }
   // else
   // {
-  //   qDebug() << name_to_del << " Name is deleted.";
+  //   qDebug() << id_to_del << "User is deleted.";
+  //   ui->statusbar->showMessage("user is deleted.");
   // }
+}
+
+//----------------------------------------------------------------------------
+
+void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
+{
   if (name == "")
   {
     qDebug() << "enter name";
+    ui->statusbar->showMessage("enter name");
     return;
   }
   uint32_t row_to_del = searchName(tableWidget, name);
@@ -348,13 +298,15 @@ void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
   if (row_to_del == -1)
   {
     // empty table
-    qDebug() << "empty table";
+    qDebug() << "empty table";    
+    ui->statusbar->showMessage("empty table");
     return;
   }
   else if (row_to_del == 0)
   {
     // no user
     qDebug() << "user don't found";
+    ui->statusbar->showMessage("user don't found");
     return;
   }
   else
@@ -364,10 +316,9 @@ void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
 
   // Автоматически подстраиваем ширину под содержимое
   tableWidget->resizeColumnsToContents();
+  ui->statusbar->showMessage("user is deleted");
   return;
 }
-
-//----------------------------------------------------------------------------
 
 //----------------------------------------------------------------------------
 
@@ -378,10 +329,12 @@ void MainWindow::updateTable()
       "bigTable");  // new QTableWidget(5, 3, this);      // 5 строк, 3 столбца
   // Очищаем таблицу перед загрузкой новых данных
   tableWidget->clearContents();
-  // tableWidget->setRowCount(0);
+  tableWidget->setRowCount(0);
 
   // Добавляем данные в таблицу
+  tableWidget->insertRow(0);
   tableWidget->setItem(0, 0, new QTableWidgetItem("Дата"));
+  tableWidget->insertRow(1);
   tableWidget->setItem(1, 0, new QTableWidgetItem("День"));
 
   // int month = ui->calendarWidget->monthShown();
@@ -435,63 +388,42 @@ void MainWindow::updateTable()
   int row = 0;
   int start_row = 2;
   // int start_column = 2;
+  int row_in_table = 0;
   while (row < recordCount)
   {
     bool found = false;
     // bool isChecked_found = false;
     int id = model.data(model.index(row, 0)).toInt();
     QString new_name = model.data(model.index(row, 1)).toString();
-    for (int search_row = start_row; search_row < tableWidget->rowCount();
-         ++search_row)
+
+    row_in_table = searchName(tableWidget, new_name);
+
+    if (row_in_table == -1)  // empty table
     {
-      QTableWidgetItem *item = tableWidget->item(search_row, 1);
-      QString search_name = "";
-      // проверка, есть ли вообще что-то
-      if (item)
-      {
-        search_name = item->text();
-      }
-
-      if (!item)
-      {
-        // таблица есть, но пустая
-        found = true;
-        tableWidget->setItem(search_row, 0,
-                             new QTableWidgetItem(QString::number(id)));
-        tableWidget->setItem(search_row, 1, new QTableWidgetItem(new_name));
-        search_name = new_name;  // как бы нашли - первая запись
-
-        bool isChecked_in_found = model.data(model.index(row, 3)).toBool();
-        addCheckBox(tableWidget, search_row, 2, isChecked_in_found);
-        // break;
-      }
-
-      if (new_name == search_name)
-      {
-        found = true;
-        QString date_in_db = model.data(model.index(row, 2)).toString();
-        int column = searchDate(tableWidget, date_in_db);
-        if (column == 0)
-        {
-          // не нашли такой даты в таблице - не надо отмечать
-          break;
-        }
-        bool isChecked_in_found = model.data(model.index(row, 3)).toBool();
-        addCheckBox(tableWidget, search_row, column, isChecked_in_found);
-        break;
-      }
+      row_in_table = tableWidget->rowCount() - 1;
+      tableWidget->setItem(2, 0, new QTableWidgetItem(QString::number(id)));
+      tableWidget->setItem(2, 1, new QTableWidgetItem(new_name));
+    }
+    else if (row_in_table == 0)  // new user
+    {
+      row_in_table = tableWidget->rowCount();
+      tableWidget->insertRow(row_in_table);
+      tableWidget->setItem(row_in_table, 0,
+                           new QTableWidgetItem(QString::number(id)));
+      tableWidget->setItem(row_in_table, 1, new QTableWidgetItem(new_name));
     }
 
-    if (found != true)
-    {
-      // tableWidget->insertRow(row);
-      tableWidget->insertRow(tableWidget->rowCount());
-      tableWidget->setItem(row, 0, new QTableWidgetItem(QString::number(id)));
-      tableWidget->setItem(row, 1, new QTableWidgetItem(new_name));
+    QString date_in_db = model.data(model.index(row, 2)).toString();
 
-      bool isChecked_in_found = model.data(model.index(row, 3)).toBool();
-      addCheckBox(tableWidget, row, 2, isChecked_in_found);
+    int column = searchDate(tableWidget, date_in_db);
+    if (column == 0)
+    {
+      // не нашли такой даты в таблице - не надо отмечать
+      break;
     }
+
+    bool isChecked_in_found = model.data(model.index(row, 3)).toBool();
+    addCheckBox(tableWidget, row_in_table, column, isChecked_in_found);
 
     row++;
   }
@@ -554,10 +486,7 @@ void MainWindow::createCheckTable()
 void MainWindow::updToDefaultTable()
 {
   // cоздаем таблицe по умолчанию
-  // заголовок id/имя
   QTableWidget *tableWidget = findChild<QTableWidget *>("bigTable");
-  // tableWidget->setItem(0, 0, new QTableWidgetItem("ID"));
-  // tableWidget->setItem(0, 1, new QTableWidgetItem("Name"));
 
   // int month = ui->calendarWidget->monthShown();
   // int year = ui->calendarWidget->yearShown();
@@ -588,10 +517,6 @@ void MainWindow::updToDefaultTable()
   // заполнение таблицы чекбоксами
   for (int day = 1; day <= day_in_month; ++day)
   {
-    // QCheckBox *checkBox = new QCheckBox();  // Создаем чекбокс
-    // checkBox->setChecked(static_cast<bool>(day % 2));
-    // tableWidget->setCellWidget(2, 1 + day,
-    //  checkBox);  // Размещаем чекбокс в ячейке
     addCheckBox(tableWidget, 2, 1 + day,
                 static_cast<bool>(day % 2));  // добавление чекбокса
   }
@@ -647,10 +572,6 @@ void MainWindow::writeTable()
   QTableWidget *tableWidget = findChild<QTableWidget *>("bigTable");
   QSqlQuery query;
 
-  // int month = ui->calendarWidget->monthShown();
-  // int year = ui->calendarWidget->yearShown();
-  // int day = ui->calendarWidget->firstDayOfWeek();
-
   QDate currentDate = QDate::currentDate();  // Текущая дата
   QString dateString =
       currentDate.toString("yyyy-MM-dd");  // Преобразуем в строку
@@ -687,8 +608,8 @@ void MainWindow::writeTable()
       }
       else
       {
-        qDebug() << "Insert: name =" << name << ", date =" << date
-                 << ", is_checked =" << isChecked;
+        // qDebug() << "Insert: name =" << name << ", date =" << date
+        //          << ", is_checked =" << isChecked;
       }
     }
   }
@@ -709,7 +630,9 @@ bool MainWindow::clearDB(QSqlDatabase &db, const QString &tableName)
     return false;
   }
 
-  qDebug() << "All records from table" << tableName << "deleted successfully.";
+  qDebug() << "all records from table" << tableName << "deleted successfully.";
+  
+  ui->statusbar->showMessage("all records from table deleted successfully");
   return true;
 }
 
@@ -740,7 +663,7 @@ int MainWindow::searchDate(QTableWidget *tableWidget, QString date_in_db)
 
 /// @brief поиск строки с нужным именем
 /// @param tableWidget
-/// @return номер строки если нашли, 0 если не нашли
+/// @return номер строки если нашли, 0 если не нашли, -1 если пусто в строке
 int MainWindow::searchName(QTableWidget *tableWidget, QString searched_name)
 {
   int start_row = 2;
@@ -759,19 +682,6 @@ int MainWindow::searchName(QTableWidget *tableWidget, QString searched_name)
     {
       return -1;
     }
-
-    // if (!item)
-    // {
-    //   // таблица есть, но пустая
-    //   found = true;
-    //   // tableWidget->insertRow(search_row);
-    //   tableWidget->setItem(search_row, 0,
-    //                        new QTableWidgetItem(QString::number(id)));
-    //   tableWidget->setItem(search_row, 1, new QTableWidgetItem(new_name));
-    //   search_name = new_name;  // как бы нашли - первая запись
-    //                            // is_ckecked добавить
-    //                            // break;
-    // }
 
     if (searched_name == name_in_table)
     {

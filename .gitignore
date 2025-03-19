@@ -36,3 +36,5 @@
 
 #vs-code
 /.vscode
+
+*.db
