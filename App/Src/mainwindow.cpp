@@ -72,8 +72,15 @@ MainWindow::MainWindow(QWidget *parent)
   connect(ui->btnSaveCurTable, &QPushButton::clicked, this,
           [this]()
           {
+            QElapsedTimer timer;
+            timer.start();
+
             clearDB(db, "users");
+
+            qDebug() << "DB delete time:" << timer.elapsed() << "ms";
             writeTable();
+
+            qDebug() << "All Execution time:" << timer.elapsed() << "ms";
             // createTable();
             // loadTableData();
             // delUser(1);   // Удалить пользователя с ID = 1
@@ -168,8 +175,8 @@ void MainWindow::loadTableData()
       QString name = query.value(1).toString();
       QString date = query.value(2).toString();
       bool checked = query.value(3).toBool();
-      qDebug() << "load ID:" << id << "Name:" << name << "Date: " << date
-               << "Checked: " << checked;
+      // qDebug() << "load ID:" << id << "Name:" << name << "Date: " << date
+      //          << "Checked: " << checked;
     }
   }
 
@@ -256,7 +263,7 @@ void MainWindow::addUser(const QString &name, QTableWidget *tableWidget)
 
   // qDebug() << "Пользователь добавлен!";
   // std::cout << "Пользователь добавлен!\n";
-  
+
   ui->statusbar->showMessage("user add");
 
   // Автоматически подстраиваем ширину под содержимое
@@ -298,7 +305,7 @@ void MainWindow::delUser(const QString &name, QTableWidget *tableWidget)
   if (row_to_del == -1)
   {
     // empty table
-    qDebug() << "empty table";    
+    qDebug() << "empty table";
     ui->statusbar->showMessage("empty table");
     return;
   }
@@ -333,9 +340,9 @@ void MainWindow::updateTable()
 
   // Добавляем данные в таблицу
   tableWidget->insertRow(0);
-  tableWidget->setItem(0, 0, new QTableWidgetItem("Дата"));
+  tableWidget->setItem(0, 1, new QTableWidgetItem("Дата"));
   tableWidget->insertRow(1);
-  tableWidget->setItem(1, 0, new QTableWidgetItem("День"));
+  tableWidget->setItem(1, 1, new QTableWidgetItem("День"));
 
   // int month = ui->calendarWidget->monthShown();
   // int year = ui->calendarWidget->yearShown();
@@ -401,15 +408,15 @@ void MainWindow::updateTable()
     if (row_in_table == -1)  // empty table
     {
       row_in_table = tableWidget->rowCount() - 1;
-      tableWidget->setItem(2, 0, new QTableWidgetItem(QString::number(id)));
+      // tableWidget->setItem(2, 0, new QTableWidgetItem(QString::number(id)));
       tableWidget->setItem(2, 1, new QTableWidgetItem(new_name));
     }
     else if (row_in_table == 0)  // new user
     {
       row_in_table = tableWidget->rowCount();
       tableWidget->insertRow(row_in_table);
-      tableWidget->setItem(row_in_table, 0,
-                           new QTableWidgetItem(QString::number(id)));
+      // tableWidget->setItem(row_in_table, 0,
+      //                      new QTableWidgetItem(QString::number(id)));
       tableWidget->setItem(row_in_table, 1, new QTableWidgetItem(new_name));
     }
 
@@ -468,6 +475,8 @@ void MainWindow::createCheckTable()
   tableWidget->horizontalHeader()->setSectionResizeMode(
       QHeaderView::Interactive);
 
+  tableWidget->setVisible(false);
+
   // находим контейнер в UI-файле и добавляем туда таблицу
   QVBoxLayout *layout =
       ui->centralwidget->findChild<QVBoxLayout *>("verticalLayout_3");
@@ -511,7 +520,7 @@ void MainWindow::updToDefaultTable()
     tableWidget->setItem(1, 1 + day, new QTableWidgetItem(text));
   }
   // тестовый user
-  tableWidget->setItem(2, 0, new QTableWidgetItem("1"));
+  tableWidget->setItem(2, 0, new QTableWidgetItem("example"));
   tableWidget->setItem(2, 1, new QTableWidgetItem("Alice"));
 
   // заполнение таблицы чекбоксами
@@ -569,6 +578,9 @@ void MainWindow::createEmptyTable()
 
 void MainWindow::writeTable()
 {
+  QElapsedTimer timer_write_table;
+  timer_write_table.start();
+
   QTableWidget *tableWidget = findChild<QTableWidget *>("bigTable");
   QSqlQuery query;
 
@@ -576,14 +588,24 @@ void MainWindow::writeTable()
   QString dateString =
       currentDate.toString("yyyy-MM-dd");  // Преобразуем в строку
 
+  // qDebug() << "init env:" << timer_write_table.elapsed() << "ms";
+
   int temp = 0;
   temp = tableWidget->rowCount();
   // проходим по строкам (пользователям)
+  db.transaction();
+
   for (int row = 2; row < tableWidget->rowCount(); ++row)
   {
+    // qDebug() << "row:" << row << "time: " << timer_write_table.elapsed()
+            //  << "ms";
+
     // проходим по всем датам(дням)
     for (int column = 2; column < tableWidget->columnCount(); ++column)
     {
+      // qDebug() << "column:" << column << "time: " << timer_write_table.elapsed()
+              //  << "ms";
+
       // Извлекаем данные из ячеек
       QString name =
           tableWidget->item(row, 1)->text();  // Второй столбец (string)
@@ -605,6 +627,7 @@ void MainWindow::writeTable()
       if (!query.exec())
       {
         qDebug() << "Error write data:" << query.lastError().text();
+        db.rollback();
       }
       else
       {
@@ -613,26 +636,72 @@ void MainWindow::writeTable()
       }
     }
   }
+  db.commit();
 }
 
 //----------------------------------------------------------------------------
 
 bool MainWindow::clearDB(QSqlDatabase &db, const QString &tableName)
 {
+  // QSqlQuery query(db);
+
+  // // Начинаем транзакцию
+  // // db.transaction();
+
+  // // Формируем SQL-запрос для удаления всех записей
+  // QString deleteQuery = QString("DELETE FROM %1").arg(tableName);
+
+  // if (!query.exec(deleteQuery))
+  // {
+  //   qWarning() << "Failed to delete records:" << query.lastError().text();
+  //   // db.rollback();  // Откатываем транзакцию в случае ошибки
+  //   return false;
+  // }
+
+  // // Подтверждаем транзакцию
+  // // db.commit();
+
+  // qDebug() << "all records from table" << tableName << "deleted
+  // successfully.";
+
+  // ui->statusbar->showMessage("all records from table deleted successfully");
+  // return true;
+
   QSqlQuery query(db);
 
-  // Формируем SQL-запрос для удаления всех записей
-  QString deleteQuery = QString("DELETE FROM %1").arg(tableName);
+  // Создаем новую таблицу с той же структурой
+  QString createTableQuery = QString(
+      "CREATE TABLE IF NOT EXISTS temp_users ("
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+      "name TEXT NOT NULL, "
+      "date TEXT NOT NULL, "
+      "is_checked BOOLEAN NOT NULL)");
 
-  if (!query.exec(deleteQuery))
+  if (!query.exec(createTableQuery))
   {
-    qWarning() << "Failed to delete records:" << query.lastError().text();
+    qWarning() << "Failed to create new table:" << query.lastError().text();
     return false;
   }
 
-  qDebug() << "all records from table" << tableName << "deleted successfully.";
-  
-  ui->statusbar->showMessage("all records from table deleted successfully");
+  // Удаляем старую таблицу
+  QString dropTableQuery = QString("DROP TABLE %1").arg(tableName);
+  if (!query.exec(dropTableQuery))
+  {
+    qWarning() << "Failed to drop old table:" << query.lastError().text();
+    return false;
+  }
+
+  // Переименовываем новую таблицу в старое имя
+  QString renameTableQuery =
+      QString("ALTER TABLE temp_users RENAME TO %1").arg(tableName);
+  if (!query.exec(renameTableQuery))
+  {
+    qWarning() << "Failed to rename table:" << query.lastError().text();
+    return false;
+  }
+
+  qDebug() << "All records from table" << tableName << "deleted successfully.";
+  ui->statusbar->showMessage("All records from table deleted successfully");
   return true;
 }
 
@@ -708,4 +777,11 @@ void MainWindow::updateCalendarVariables(QCalendarWidget *calendarWidget)
   month = calendarWidget->monthShown();
   year = calendarWidget->yearShown();
   day_in_month = QDate(year, month, 1).daysInMonth();
+
+  calendarWidget->setMinimumSize(QSize(200, 150));  // мин
+  calendarWidget->setMaximumSize(QSize(400, 300));  // макс
+  calendarWidget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
+
+  // calendarWidget->setNavigationBarVisible(false);
+  
 }
