@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.10.0)
 project(journal_app VERSION 0.1.0 LANGUAGES C CXX)
 
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "Этот проект требует GCC. Используйте GCC для сборки.")
+endif()
+
 # Указываем использование vcpkg
 # set(CMAKE_TOOLCHAIN_FILE "/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 # "-DCMAKE_TOOLCHAIN_FILE=D:/Work/tools/vcpkg/scripts/buildsystems/vcpkg.cmake"
@@ -19,9 +23,9 @@ if(NOT Qt6_FOUND)
         RESULT_VARIABLE result
     )
 
-    if(NOT result EQUAL 0)
-        message(FATAL_ERROR "Failed to install Qt6 via vcpkg.")
-    endif()
+    # if(NOT result EQUAL 0)
+    #     message(FATAL_ERROR "Failed to install Qt6 via vcpkg.")
+    # endif()
 
     # Повторно ищем Qt6 после установки
     find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql)
@@ -35,6 +39,8 @@ set(CMAKE_AUTORCC ON)
 add_executable(journal_app 
     ./App/Src/main.cpp
     ./App/Src/mainwindow.cpp
+    ./App/Src/dbManager.cpp
+
 
     ./App/Inc/journal_app.h
     ./App/Inc/mainwindow.hpp
