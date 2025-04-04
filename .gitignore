@@ -39,3 +39,8 @@
 
 #format
 .clang-format
+
+#pvs
+/.PVS-Studio
+
+/.cache

@@ -1,0 +1,13 @@
+
+Checks: >
+    -*,                          # Отключаем все проверки по умолчанию
+    clang-analyzer-*,            # Включаем статический анализатор Clang
+    modernize-*,                 # Современные рекомендации C++
+    performance-*,               # Оптимизация производительности
+    readability-*                # Улучшение читаемости кода
+
+CheckOptions:
+    - key: readability-identifier-naming.ClassCase
+      value: PascalCase
+    - key: readability-identifier-naming.FunctionCase
+      value: camelCase

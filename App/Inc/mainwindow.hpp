@@ -7,7 +7,9 @@
 #include <QtSql>
 
 #include "journal_app.h"  // Подключаем сгенерированный файл
-
+#include "dbManager.hpp"
+#include "checkTableManager.hpp"
+#include "mainTableManager.hpp"
 
 // Определяем список дней недели
 const QStringList kDaysOfWeek = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вск"};
@@ -26,6 +28,11 @@ class MainWindow : public QMainWindow
 
  private:
   Ui::MainWindow *ui;             // основной объект UI
+
+  DatabaseManager dbManager;
+  MainTableManager mainTableManager;
+  CheckTableManager checkTableManager;
+
   QSqlDatabase db;                // тут файл с базой
   QTableWidget *baseTableWidget;  // указатель на основную таблицу
                                   //   QPushButton *btnAdd;
