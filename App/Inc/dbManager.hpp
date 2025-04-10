@@ -1,3 +1,5 @@
+#pragma once
+
 #include <iostream>
 #include <QString>
 #include <QTableWidget>
@@ -8,8 +10,10 @@
 // для работы с базой данных:
 class DatabaseManager {
 public:
-  DatabaseManager(const QString &dbPath);
-  bool createConnection();
+  DatabaseManager();
+  ~DatabaseManager();
+  void setDatabase(const QString &dbPath);   
+  bool createConnection(const QString &dbPath);
   void loadTableData(QTableWidget *tableWidget);
   void writeTable(QTableWidget *tableWidget);
   bool clearDB();

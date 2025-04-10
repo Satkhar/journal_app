@@ -47,7 +47,7 @@ class MainWindow : public QMainWindow
   void delUser(int id_to_del, QTableWidget *tableWidget);
   void delUser(const QString &name, QTableWidget *tableWidget);
 
-  bool createConnection();
+  bool createConnection(const QString &dbPath);
   void loadTableData();
   void viewTableData();  // выводим db
   void createTable();

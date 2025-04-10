@@ -11,22 +11,34 @@
 #include <iostream>
 
 #include "config.h"
+#include "dbManager.hpp"
 
 //----------------------------------------------------------------------------
 
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), ui(new Ui::MainWindow)
+    : QMainWindow(parent), ui(new Ui::MainWindow) //, dbManager(DB_PATH) //, mainTableManager(new MainTableManager()), 
+    //checkTableManager(new CheckTableManager())
 {
-  // тут можно какие-нибудь базовае общие вещи ставить в qt designer
+  // тут можно какие-нибудь базовые общие вещи ставить в qt designer
   ui->setupUi(this);  // Инициализация нарисованного интерфейса
 
   // пустую таблицу делаем
   createEmptyTable();
+  mainTableManager.setTableWidget(findChild<QTableWidget*>("bigTable"));
   // создать таблицу выбора учитываемых дней
   createCheckTable();
+  checkTableManager.setCheckTable(findChild<QTableWidget*>("checkTable")); 
 
   // читаем базу
-  if (!createConnection())
+  if (!createConnection(DB_PATH))
+  {
+    QMessageBox::critical(this, "Ошибка",
+                          "Не удалось подключиться к базе данных.");
+    return;
+  }
+
+    // вот это вот вроде
+  if (!dbManager.createConnection(DB_PATH))
   {
     QMessageBox::critical(this, "Ошибка",
                           "Не удалось подключиться к базе данных.");
@@ -105,10 +117,10 @@ MainWindow::~MainWindow()
 
 //----------------------------------------------------------------------------
 
-bool MainWindow::createConnection()
+bool MainWindow::createConnection(const QString &dbPath)
 {
   db = QSqlDatabase::addDatabase("QSQLITE");
-  db.setDatabaseName(DB_PATH);
+  db.setDatabaseName(dbPath);
 
   if (!db.open())
   {

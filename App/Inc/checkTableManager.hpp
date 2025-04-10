@@ -1,3 +1,5 @@
+#pragma once
+
 #include <QTableWidget>
 
 
@@ -5,8 +7,10 @@
 // для управления таблицей чекбоксов
   class CheckTableManager {
     public:
-        CheckTableManager(QTableWidget* tableWidget);
+        CheckTableManager();
+        ~CheckTableManager();
         void createCheckTable();
+        void setCheckTable(QTableWidget* tableWidget);
         
     private:
         QTableWidget* tableWidget;

@@ -41,6 +41,10 @@ set(CMAKE_AUTORCC ON)
 add_executable(journal_app 
     ./App/Src/main.cpp
     ./App/Src/mainwindow.cpp
+    ./App/Src/checkTableManager.cpp
+    ./App/Src/dbManager.cpp
+    ./App/Src/mainTableManager.cpp
+
 
 
     ./App/Inc/journal_app.h
