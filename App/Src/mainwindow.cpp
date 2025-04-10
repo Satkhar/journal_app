@@ -45,6 +45,14 @@ MainWindow::MainWindow(QWidget *parent)
     return;
   }
 
+  // теперь, проверка на пустую таблицу не в connection, а отдельно
+  if(!dbManager.isDatabaseEmpty())
+  {
+    qDebug() << "database is empty";
+    // mainTableManager.
+
+  }
+
   connect(ui->btnAdd, &QPushButton::clicked, this,
           [this]()
           {

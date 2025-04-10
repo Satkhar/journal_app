@@ -12,8 +12,9 @@ class DatabaseManager {
 public:
   DatabaseManager();
   ~DatabaseManager();
-  void setDatabase(const QString &dbPath);   
+  // void setDatabase(const QString &dbPath);   
   bool createConnection(const QString &dbPath);
+  bool isDatabaseEmpty();
   void loadTableData(QTableWidget *tableWidget);
   void writeTable(QTableWidget *tableWidget);
   bool clearDB();

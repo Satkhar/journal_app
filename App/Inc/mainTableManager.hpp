@@ -10,6 +10,8 @@ public:
   ~MainTableManager();
   //   MainTableManager(QTableWidget* tableWidget);
   void setTableWidget(QTableWidget *tableWidget);
+  void updToDefaultTable();
+  void writeTable();
   void createEmptyTable();
   void updateTable();
   void addUser(const QString &name);
