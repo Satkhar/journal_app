@@ -43,6 +43,11 @@
 - **MinGW** (14.2.0 для Windows) или любой другой компилятор C++ (например, GCC для Linux/macOS)
 - **Qt6** для отображения интерфейса ??
 
+
+для ubuntu
+
+sudo apt install qt6-base-dev
+
 ---
 
 ### Установка

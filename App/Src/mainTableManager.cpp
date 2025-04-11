@@ -1,4 +1,8 @@
 #include "mainTableManager.hpp"
+#include <QtCore>
+#include <QtWidgets>
+
+#include <QtSql>  // удалить
 
 MainTableManager::MainTableManager() { tableWidget = nullptr; }
 
@@ -23,10 +27,10 @@ void MainTableManager::updToDefaultTable()
   // запись дня недели в таблицу (пн, вт и т.д.)
   for (int day = 1; day <= day_in_month; ++day)
   {
-    QDate firstDayOfMonth = QDate(year, month, day);
-    int dayOfWeek = firstDayOfMonth.dayOfWeek();
-    QString text = kDaysOfWeek[dayOfWeek - 1];
-    tableWidget->setItem(1, 1 + day, new QTableWidgetItem(text));
+    // QDate firstDayOfMonth = QDate(year, month, day);
+    // int dayOfWeek = firstDayOfMonth.dayOfWeek();
+    // QString text = kDaysOfWeek[dayOfWeek - 1];
+    // tableWidget->setItem(1, 1 + day, new QTableWidgetItem(text));
   }
   // тестовый user
   tableWidget->setItem(2, 0, new QTableWidgetItem("example"));
@@ -35,8 +39,8 @@ void MainTableManager::updToDefaultTable()
   // заполнение таблицы чекбоксами
   for (int day = 1; day <= day_in_month; ++day)
   {
-    addCheckBox(tableWidget, 2, 1 + day,
-                static_cast<bool>(day % 2));  // добавление чекбокса
+    // addCheckBox(tableWidget, 2, 1 + day,
+                // static_cast<bool>(day % 2));  // добавление чекбокса
   }
 
   // Автоматически подстраиваем ширину под содержимое
@@ -59,7 +63,7 @@ void MainTableManager::writeTable()
   int temp = 0;
   temp = tableWidget->rowCount();
   // проходим по строкам (пользователям)
-  db.transaction();
+  // db.transaction();
 
   for (int row = 2; row < tableWidget->rowCount(); ++row)
   {
@@ -93,7 +97,7 @@ void MainTableManager::writeTable()
       if (!query.exec())
       {
         qDebug() << "Error write data:" << query.lastError().text();
-        db.rollback();
+        // db.rollback();
       }
       else
       {
@@ -102,7 +106,7 @@ void MainTableManager::writeTable()
       }
     }
   }
-  db.commit();
+  // db.commit();
 
 }
 
