@@ -1,0 +1,50 @@
+flowchart TD
+
+subgraph UI["app_qt"]
+  A[MainWindow]
+  VM[ViewModel]
+end
+
+subgraph APP["app"]
+  S[JournalService]
+  SY[SyncService]
+end
+
+subgraph CORE["core"]
+  M[Domain Model]
+  V[Validation]
+  SER[Serialization]
+end
+
+subgraph STORAGE["storage_local"]
+  R1[IJournalRepository]
+  L[LocalRepo]
+end
+
+subgraph CLIENT["client_sync"]
+  API[RemoteClient]
+  R2[IRemoteStore]
+end
+
+subgraph SERVER["server"]
+  H[HTTP Server]
+  ST[Server Storage]
+end
+
+A --> VM --> S
+VM --> SY
+
+S --> R1
+S --> M
+S --> V
+
+SY --> R1
+SY --> R2
+SY --> SER
+
+L -.-> R1
+API -.-> R2
+
+API <--> H
+H --> ST
+SER --> M
