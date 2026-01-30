@@ -19,32 +19,35 @@
 
 
 ```mermaid
-  flowchart TD
+flowchart TD
 
   subgraph UI["app_qt"]
     A[MainWindow]
     VM[ViewModel]
   end
 
-  subgraph APP["app"]
+  subgraph APP["app (use-cases)"]
     S[JournalService]
     SY[SyncService]
   end
 
-  subgraph CORE["core"]
+  subgraph CORE["core (domain)"]
     M[Domain Model]
     V[Validation]
-    SER[Serialization]
+  end
+
+  subgraph SER["serialization"]
+    SER1[JSON Mapper / DTO]
   end
 
   subgraph STORAGE["storage_local"]
     R1[IJournalRepository]
-    L[LocalRepo]
+    L[LocalRepository]
   end
 
   subgraph CLIENT["client_sync"]
-    API[RemoteClient]
     R2[IRemoteStore]
+    API[HTTP RemoteClient]
   end
 
   subgraph SERVER["server"]
@@ -52,23 +55,31 @@
     ST[Server Storage]
   end
 
+  %% UI -> app
   A --> VM --> S
   VM --> SY
 
-  S --> R1
+  %% app -> domain
   S --> M
   S --> V
 
+  %% app -> storage / sync
+  S --> R1
   SY --> R1
   SY --> R2
-  SY --> SER
 
+  %% implementations
   L -.-> R1
   API -.-> R2
 
+  %% serialization usage
+  L --> SER1
+  API --> SER1
+  SER1 --> M
+
+  %% client <-> server
   API <--> H
   H --> ST
-  SER --> M
 ```
 
 

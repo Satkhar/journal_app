@@ -1,50 +1,61 @@
 flowchart TD
 
-subgraph UI["app_qt"]
-  A[MainWindow]
-  VM[ViewModel]
-end
+  subgraph UI["app_qt"]
+    A[MainWindow]
+    VM[ViewModel]
+  end
 
-subgraph APP["app"]
-  S[JournalService]
-  SY[SyncService]
-end
+  subgraph APP["app (use-cases)"]
+    S[JournalService]
+    SY[SyncService]
+  end
 
-subgraph CORE["core"]
-  M[Domain Model]
-  V[Validation]
-  SER[Serialization]
-end
+  subgraph CORE["core (domain)"]
+    M[Domain Model]
+    V[Validation]
+  end
 
-subgraph STORAGE["storage_local"]
-  R1[IJournalRepository]
-  L[LocalRepo]
-end
+  subgraph SER["serialization"]
+    SER1[JSON Mapper / DTO]
+  end
 
-subgraph CLIENT["client_sync"]
-  API[RemoteClient]
-  R2[IRemoteStore]
-end
+  subgraph STORAGE["storage_local"]
+    R1[IJournalRepository]
+    L[LocalRepository]
+  end
 
-subgraph SERVER["server"]
-  H[HTTP Server]
-  ST[Server Storage]
-end
+  subgraph CLIENT["client_sync"]
+    R2[IRemoteStore]
+    API[HTTP RemoteClient]
+  end
 
-A --> VM --> S
-VM --> SY
+  subgraph SERVER["server"]
+    H[HTTP Server]
+    ST[Server Storage]
+  end
 
-S --> R1
-S --> M
-S --> V
+  %% UI -> app
+  A --> VM --> S
+  VM --> SY
 
-SY --> R1
-SY --> R2
-SY --> SER
+  %% app -> domain
+  S --> M
+  S --> V
 
-L -.-> R1
-API -.-> R2
+  %% app -> storage / sync
+  S --> R1
+  SY --> R1
+  SY --> R2
 
-API <--> H
-H --> ST
-SER --> M
+  %% implementations
+  L -.-> R1
+  API -.-> R2
+
+  %% serialization usage
+  L --> SER1
+  API --> SER1
+  SER1 --> M
+
+  %% client <-> server
+  API <--> H
+  H --> ST
