@@ -10,13 +10,20 @@
 // для работы с базой данных:
 class DatabaseManager {
 public:
+  // Создает объект менеджера БД без активного соединения.
   DatabaseManager();
+  // Закрывает ресурсы менеджера.
   ~DatabaseManager();
   // void setDatabase(const QString &dbPath);   
+  // Открывает SQLite и создает схему при необходимости.
   bool createConnection(const QString &dbPath);
+  // Проверяет, есть ли записи в таблице users.
   bool isDatabaseEmpty();
+  // Загружает данные в UI-таблицу (устаревший путь).
   void loadTableData(QTableWidget *tableWidget);
+  // Сохраняет данные UI-таблицы в БД (устаревший путь).
   void writeTable(QTableWidget *tableWidget);
+  // Полностью очищает таблицу users.
   bool clearDB();
 
 private:

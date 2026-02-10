@@ -19,6 +19,9 @@ set(CMAKE_AUTORCC ON)
 add_executable(journal_app 
     ./App/Src/main.cpp
     ./App/Src/mainwindow.cpp
+    ./App/Src/JournalApp.cpp
+    ./App/Src/JournalLocal.cpp
+    ./App/Src/SqliteConnect.cpp
     ./App/Src/checkTableManager.cpp
     ./App/Src/dbManager.cpp
     ./App/Src/mainTableManager.cpp
@@ -27,6 +30,10 @@ add_executable(journal_app
 
     ./App/Inc/journal_app.h
     ./App/Inc/mainwindow.hpp
+    ./App/Inc/JournalApp.hpp
+    ./App/Inc/JournalLocal.hpp
+    ./App/Inc/IJournalStorage.hpp
+    ./App/Inc/SqliteConnect.hpp
     ./App/Inc/dbManager.hpp
     ./App/Inc/checkTableManager.hpp
     ./App/Inc/mainTableManager.hpp

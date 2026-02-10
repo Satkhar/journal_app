@@ -1,13 +1,19 @@
+# Набор проверок clang-tidy.
+# Формат: сначала отключаем все проверки (-*), затем точечно включаем нужные группы.
+# Это даёт предсказуемое поведение и исключает "лишние" правила по умолчанию.
+# Включённые группы:
+# - clang-analyzer-* : базовый статический анализ (потенциальные баги, UB, ошибки ресурсов).
+# - modernize-*      : рекомендации по более современному C++.
+# - performance-*    : подсказки по производительности.
+# - readability-*    : улучшение читаемости и единообразия кода.
+Checks: "-*,clang-analyzer-*,modernize-*,performance-*,readability-*"
 
-Checks: >
-    -*,                          # Отключаем все проверки по умолчанию
-    clang-analyzer-*,            # Включаем статический анализатор Clang
-    modernize-*,                 # Современные рекомендации C++
-    performance-*,               # Оптимизация производительности
-    readability-*                # Улучшение читаемости кода
-
+# Тонкая настройка отдельных проверок.
+# Здесь задаются правила именования для readability-identifier-naming-*.
 CheckOptions:
+    # Имена классов: CamelCase (например, JournalEntry).
     - key: readability-identifier-naming.ClassCase
-      value: PascalCase
+      value: CamelCase
+    # Имена функций: camelBack (например, loadEntries).
     - key: readability-identifier-naming.FunctionCase
-      value: camelCase
+      value: camelBack

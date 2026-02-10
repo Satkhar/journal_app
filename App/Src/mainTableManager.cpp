@@ -6,9 +6,13 @@
 
 MainTableManager::MainTableManager() { tableWidget = nullptr; }
 
+//---------------------------------------------------------------
+
 void MainTableManager::setTableWidget(QTableWidget *tableWidget) {
   this->tableWidget = tableWidget;
 }
+
+//---------------------------------------------------------------
 
 void MainTableManager::updToDefaultTable()
 {
@@ -46,6 +50,8 @@ void MainTableManager::updToDefaultTable()
   // Автоматически подстраиваем ширину под содержимое
   tableWidget->resizeColumnsToContents();
 }
+
+//---------------------------------------------------------------
 
 void MainTableManager::writeTable()
 {
@@ -110,6 +116,7 @@ void MainTableManager::writeTable()
 
 }
 
+//---------------------------------------------------------------
 
 MainTableManager::~MainTableManager() {
   // if (tableWidget) {
@@ -117,3 +124,5 @@ MainTableManager::~MainTableManager() {
   //                       // динамически
   // }
 }
+
+//---------------------------------------------------------------
