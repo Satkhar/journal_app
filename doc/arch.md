@@ -1,85 +1,103 @@
+# Architecture
 
-## Описание архитектуры
+## Цель
 
-Кратко о слоях и их ответственности:
+Сделать приложение по предложенной архитектуре с минимальной трудоемкостью для MVP:
 
-- **UI (app_qt)** — Qt-интерфейс, экраны и виджеты, взаимодействие с пользователем.
-- **APP (app)** — бизнес-логика и сценарии (use-cases): сервисы работы с журналом и синхронизации.
-- **CORE (core)** — доменная модель и правила валидации; сериализация доменных объектов.
-- **STORAGE (storage_local)** — локальное хранение: репозитории и их реализации.
-- **CLIENT (client_sync)** — клиент синхронизации и интерфейс удалённого хранилища.
-- **SERVER (server)** — HTTP-сервер и серверное хранилище.
+1. Перенести на архитектуру с локальной реализацией. (Qt + SQLite). Рефакторинг.
+2. Прикрутить сервер, с минимальным функционалом для MVP.
 
-Связи между слоями:
-
-- UI вызывает сервисы уровня APP.
-- APP работает с доменной моделью CORE и обращается к локальным репозиториям.
-- Сервис синхронизации использует локальное хранилище, удалённый клиент и сериализацию.
-- Клиент синхронизации общается с сервером по HTTP.
-
+## Этап 1: Переделать на локальную архитектуру
 
 ```mermaid
-flowchart TD
-
-  subgraph UI["app_qt"]
-    A[MainWindow]
-    VM[ViewModel]
-  end
-
-  subgraph APP["app (use-cases)"]
-    S[JournalService]
-    SY[SyncService]
-  end
-
-  subgraph CORE["core (domain)"]
-    M[Domain Model]
-    V[Validation]
-  end
-
-  subgraph SER["serialization"]
-    SER1[JSON Mapper / DTO]
-  end
-
-  subgraph STORAGE["storage_local"]
-    R1[IJournalRepository]
-    L[LocalRepository]
-  end
-
-  subgraph CLIENT["client_sync"]
-    R2[IRemoteStore]
-    API[HTTP RemoteClient]
-  end
-
-  subgraph SERVER["server"]
-    H[HTTP Server]
-    ST[Server Storage]
-  end
-
-  %% UI -> app
-  A --> VM --> S
-  VM --> SY
-
-  %% app -> domain
-  S --> M
-  S --> V
-
-  %% app -> storage / sync
-  S --> R1
-  SY --> R1
-  SY --> R2
-
-  %% implementations
-  L -.-> R1
-  API -.-> R2
-
-  %% serialization usage
-  L --> SER1
-  API --> SER1
-  SER1 --> M
-
-  %% client <-> server
-  API <--> H
-  H --> ST
+flowchart LR
+  UI[MainWindow / Qt Widgets] --> APP[JournalApp]
+  APP --> REPO[JournalLocal]
+  REPO --> SQLITE[SqliteConnect]
+  SQLITE --> DB[(SQLite: data.db)]
 ```
 
+### Подробнее
 
+1. `MainWindow` Лицо. Только собирает ввод и показывает данные.
+2. `JournalApp` содержит сценарии:
+- `loadMonth(...)`
+- `addUser(...)`
+- `deleteUser(...)`
+- `saveMonth(...)`
+3. `JournalLocal` запись/чтение данных.
+4. `SqliteConnect` — реализация доступа к локальной БД.
+
+## Этап 2: Архитектура для сдачи (добавление сервера)
+
+```mermaid
+flowchart LR
+  UI[MainWindow / Qt Widgets] --> APP[JournalApp]
+  APP --> REPO[JournalLocal]
+
+  REPO --> L[SqliteConnect]
+  L --> LDB[(Local DB: SQLite)]
+
+  APP --> SYNC[Sync]
+  SYNC --> REMOTE[ServerConnect]
+  REMOTE --> API[Server API]
+  API --> SDB[(Server DB)]
+```
+
+### Что добавляем
+
+1. `Sync` для кнопки `Sync`, принудительная синхронизация локальной БД с сервером.
+2. `ServerConnect` для работы с сервером (запись/чтение данных). По сути коннект с API сервера.
+3. Локальная БД остается для офлайна и скорости.
+
+Стрелки в этих диаграммах
+- `-->` архитектурная зависимость (кто от кого зависит в коде).
+
+## Минимальные интерфейсы (чтобы не переделывать дважды)
+
+```cpp
+struct IJournalStorage {
+  virtual ~IJournalStorage() = default;
+  virtual std::vector<User> getUsers() = 0;
+  virtual std::vector<Attendance> getMonth(int year, int month) = 0;
+  virtual void saveMonth(int year, int month,
+                         const std::vector<Attendance>& data) = 0;
+  virtual void addUser(const std::string& name) = 0;
+  virtual void deleteUser(const std::string& name) = 0;
+};
+```
+
+На этапе 1 реализуется только `JournalLocal` (внутри использует `SqliteConnect`).
+На этапе 2 добавляется `ServerConnect`, а `Sync` использует оба источника.
+
+## Минимальная структура проекта
+
+```text
+journal_app/
+  App/
+    Src/
+      main.cpp
+      mainwindow.cpp
+      JournalApp.cpp
+      JournalLocal.cpp
+      SqliteConnect.cpp
+      Sync.cpp                  
+      ServerConnect.cpp         
+    Inc/
+      mainwindow.hpp
+      JournalApp.hpp
+      IJournalStorage.hpp
+      JournalLocal.hpp
+      SqliteConnect.hpp
+      Sync.hpp                  
+      ServerConnect.hpp         
+```
+
+## План работ
+
+1. Вынести SQL из `MainWindow` в `JournalLocal`/`SqliteConnect`.
+2. Вынести операции кнопок в `JournalApp`.
+3. Оставить `MainWindow` только как UI-слой.
+4. Проверить проект в локальном варианте (после рефакторинга).
+5. Добавить `ServerConnect`.
+6. Добавить `Sync` (кнопка для ручной синхронизации).
