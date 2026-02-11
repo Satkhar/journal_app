@@ -57,11 +57,8 @@
             </item>
             <item>
              <widget class="QPushButton" name="btnCreateTable">
-              <property name="enabled">
-               <bool>false</bool>
-              </property>
               <property name="text">
-               <string>Create Month table</string>
+               <string>Push to Server</string>
               </property>
              </widget>
             </item>

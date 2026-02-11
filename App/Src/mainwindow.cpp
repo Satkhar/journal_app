@@ -2,8 +2,11 @@
 
 #include <QCheckBox>
 #include <QDate>
+#include <QHBoxLayout>
 #include <QGridLayout>
 #include <QHeaderView>
+#include <QLabel>
+#include <QProcessEnvironment>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -12,6 +15,7 @@
 #include <QHash>
 
 #include "JournalLocal.hpp"
+#include "JournalRemote.hpp"
 #include "SqliteConnect.hpp"
 #include "config.h"
 
@@ -20,6 +24,12 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
       ui(new Ui::MainWindow),
+      serverUrlEdit_(nullptr),
+      connectLocalBtn_(nullptr),
+      connectRemoteBtn_(nullptr),
+      activeStorageMode_(),
+      activeServerUrl_(),
+      isConnectingStorage_(false),
       baseTableWidget(nullptr),
       day_in_month(0),
       month(0),
@@ -29,16 +39,24 @@ MainWindow::MainWindow(QWidget* parent)
   // Подготавливаем пустой UI-каркас таблиц до загрузки данных из БД.
   createEmptyTable();
   createCheckTable();
+  setupStorageControls();
 
-  // Собираем рабочую цепочку: SQLite -> локальное хранилище -> use-case слой.
-  auto sqlite = std::make_unique<SqliteConnect>();
-  if (!sqlite->open(DB_PATH)) {
-    QMessageBox::critical(this, "Ошибка", "Не удалось подключиться к базе данных.");
-    return;
+  const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+  const QString serverUrl =
+      env.value("JOURNAL_SERVER_URL", JOURNAL_DEFAULT_SERVER_URL);
+  serverUrlEdit_->setText(serverUrl);
+  const QString storageMode =
+      env.value("JOURNAL_STORAGE_MODE", JOURNAL_DEFAULT_STORAGE_MODE).toLower();
+
+  if (!setupStorage(storageMode == "server" ? "server" : "local",
+                    serverUrlEdit_->text().trimmed())) {
+    ui->statusbar->showMessage("Storage не подключен. Выберите Local или Remote.");
+  } else {
+    activeStorageMode_ = (storageMode == "server") ? "server" : "local";
+    activeServerUrl_ = serverUrlEdit_->text().trimmed();
+    updateEditControlsByMode();
+    refreshMonth();
   }
-
-  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
-  journalApp_ = std::make_unique<JournalApp>(std::move(local));
 
   // Добавление пользователя за текущий месяц (месяц хранится в JournalApp).
   connect(ui->btnAdd, &QPushButton::clicked, this, [this]() {
@@ -96,6 +114,11 @@ MainWindow::MainWindow(QWidget* parent)
     ui->statusbar->showMessage("Таблица сохранена");
   });
 
+  // Отправка локального состояния месяца на сервер.
+  connect(ui->btnCreateTable, &QPushButton::clicked, this, [this]() {
+    pushCurrentMonthToServer();
+  });
+
   // При смене страницы календаря пересоздаем сетку дней и загружаем месяц.
   connect(ui->calendarWidget, &QCalendarWidget::currentPageChanged, this,
           [this](int shownYear, int shownMonth) {
@@ -105,7 +128,6 @@ MainWindow::MainWindow(QWidget* parent)
             refreshMonth();
           });
 
-  refreshMonth();
 }
 
 //---------------------------------------------------------------
@@ -265,6 +287,190 @@ void MainWindow::createEmptyTable() {
   }
 
   baseTableWidget = tableWidget;
+}
+
+void MainWindow::setupStorageControls() {
+  QVBoxLayout* layout = ui->centralwidget->findChild<QVBoxLayout*>("verticalLayout_3");
+  if (!layout) {
+    return;
+  }
+
+  auto* controlsLayout = new QHBoxLayout();
+  controlsLayout->addWidget(new QLabel("Server URL:", this));
+
+  serverUrlEdit_ = new QLineEdit(this);
+  serverUrlEdit_->setPlaceholderText("http://127.0.0.1:8080");
+  controlsLayout->addWidget(serverUrlEdit_);
+
+  connectLocalBtn_ = new QPushButton("Local", this);
+  controlsLayout->addWidget(connectLocalBtn_);
+
+  connectRemoteBtn_ = new QPushButton("Remote", this);
+  controlsLayout->addWidget(connectRemoteBtn_);
+
+  layout->insertLayout(1, controlsLayout);
+
+  connect(connectLocalBtn_, &QPushButton::clicked, this,
+          [this]() { connectLocalFromUi(); });
+  connect(connectRemoteBtn_, &QPushButton::clicked, this,
+          [this]() { connectRemoteFromUi(); });
+}
+
+bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
+  if (mode == "server") {
+    const QString targetUrl =
+        serverUrl.isEmpty() ? QString(JOURNAL_DEFAULT_SERVER_URL) : serverUrl;
+
+    auto remote = std::make_unique<JournalRemote>(targetUrl, JOURNAL_REMOTE_TIMEOUT_MS);
+    QString error;
+    if (!remote->connect(&error)) {
+      QMessageBox::warning(this, "Ошибка подключения",
+                           QString("Не удалось подключиться к серверу: %1")
+                               .arg(error.isEmpty() ? targetUrl : error));
+      return false;
+    }
+
+    journalApp_ = std::make_unique<JournalApp>(std::move(remote));
+    ui->statusbar->showMessage(QString("Режим: server (%1)").arg(targetUrl), 5000);
+    updateEditControlsByMode();
+    return true;
+  }
+
+  auto sqlite = std::make_unique<SqliteConnect>();
+  if (!sqlite->open(DB_PATH)) {
+    QMessageBox::warning(this, "Ошибка подключения",
+                         "Не удалось подключиться к локальной базе данных.");
+    return false;
+  }
+
+  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
+  journalApp_ = std::make_unique<JournalApp>(std::move(local));
+  ui->statusbar->showMessage("Режим: local", 3000);
+  updateEditControlsByMode();
+  return true;
+}
+
+void MainWindow::connectLocalFromUi() {
+  if (isConnectingStorage_) {
+    return;
+  }
+
+  if (journalApp_ && activeStorageMode_ == "local") {
+    ui->statusbar->showMessage("Уже подключено к local storage.", 3000);
+    return;
+  }
+
+  isConnectingStorage_ = true;
+  if (connectLocalBtn_) {
+    connectLocalBtn_->setEnabled(false);
+  }
+  if (connectRemoteBtn_) {
+    connectRemoteBtn_->setEnabled(false);
+  }
+
+  const bool ok = setupStorage("local", QString());
+  if (connectLocalBtn_) {
+    connectLocalBtn_->setEnabled(true);
+  }
+  if (connectRemoteBtn_) {
+    connectRemoteBtn_->setEnabled(true);
+  }
+  isConnectingStorage_ = false;
+
+  if (ok) {
+    activeStorageMode_ = "local";
+    activeServerUrl_.clear();
+    updateEditControlsByMode();
+    refreshMonth();
+  } else if (journalApp_) {
+    // Сохраняем текущее рабочее подключение при ошибке reconnect.
+    ui->statusbar->showMessage("Переподключение не выполнено, старое подключение сохранено.", 5000);
+  }
+}
+
+void MainWindow::connectRemoteFromUi() {
+  if (isConnectingStorage_) {
+    return;
+  }
+
+  const QString serverUrlRaw = serverUrlEdit_ ? serverUrlEdit_->text().trimmed() : QString();
+  const QString serverUrl =
+      serverUrlRaw.isEmpty() ? QString(JOURNAL_DEFAULT_SERVER_URL) : serverUrlRaw;
+
+  if (journalApp_ && activeStorageMode_ == "server" && activeServerUrl_ == serverUrl) {
+    ui->statusbar->showMessage("Уже подключено к этому remote storage.", 3000);
+    return;
+  }
+
+  isConnectingStorage_ = true;
+  if (connectLocalBtn_) {
+    connectLocalBtn_->setEnabled(false);
+  }
+  if (connectRemoteBtn_) {
+    connectRemoteBtn_->setEnabled(false);
+  }
+
+  const bool ok = setupStorage("server", serverUrl);
+  if (connectLocalBtn_) {
+    connectLocalBtn_->setEnabled(true);
+  }
+  if (connectRemoteBtn_) {
+    connectRemoteBtn_->setEnabled(true);
+  }
+  isConnectingStorage_ = false;
+
+  if (ok) {
+    activeStorageMode_ = "server";
+    activeServerUrl_ = serverUrl;
+    updateEditControlsByMode();
+    refreshMonth();
+  } else if (journalApp_) {
+    ui->statusbar->showMessage("Переподключение не выполнено, старое подключение сохранено.", 5000);
+  }
+}
+
+void MainWindow::updateEditControlsByMode() {
+  const bool isLocalMode = (activeStorageMode_ != "server");
+  ui->btnAdd->setEnabled(isLocalMode);
+  ui->btnDel->setEnabled(isLocalMode);
+  ui->btnSaveCurTable->setEnabled(isLocalMode);
+  ui->btnCreateTable->setEnabled(isLocalMode);
+  ui->lineEdit->setEnabled(isLocalMode);
+}
+
+void MainWindow::pushCurrentMonthToServer() {
+  if (activeStorageMode_ != "local") {
+    ui->statusbar->showMessage(
+        "Push доступен только из local режима. Переключитесь на Local.", 5000);
+    return;
+  }
+
+  if (!journalApp_) {
+    ui->statusbar->showMessage("Локальное хранилище не подключено.", 5000);
+    return;
+  }
+
+  const QString serverUrl =
+      serverUrlEdit_ && !serverUrlEdit_->text().trimmed().isEmpty()
+          ? serverUrlEdit_->text().trimmed()
+          : QString(JOURNAL_DEFAULT_SERVER_URL);
+
+  auto remote = std::make_unique<JournalRemote>(serverUrl, JOURNAL_REMOTE_TIMEOUT_MS);
+  QString error;
+  if (!remote->connect(&error)) {
+    ui->statusbar->showMessage(
+        QString("Push error: %1").arg(error.isEmpty() ? serverUrl : error), 6000);
+    return;
+  }
+
+  updateCalendarVariables(ui->calendarWidget);
+  const auto data = collectMonthFromTable();
+  if (!remote->saveMonth(static_cast<int>(year), static_cast<int>(month), data)) {
+    ui->statusbar->showMessage("Push error: не удалось сохранить месяц на сервер.", 6000);
+    return;
+  }
+
+  ui->statusbar->showMessage(QString("Push OK -> %1").arg(serverUrl), 5000);
 }
 
 //---------------------------------------------------------------

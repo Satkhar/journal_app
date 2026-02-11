@@ -3,8 +3,10 @@
 
 #include <QMainWindow>
 #include <QCalendarWidget>
+#include <QLineEdit>
 #include <QStringList>
 #include <QTableWidget>
+#include <QPushButton>
 
 #include <memory>
 #include <vector>
@@ -26,6 +28,12 @@ class MainWindow : public QMainWindow {
  private:
   Ui::MainWindow* ui;
   std::unique_ptr<JournalApp> journalApp_;
+  QLineEdit* serverUrlEdit_;
+  QPushButton* connectLocalBtn_;
+  QPushButton* connectRemoteBtn_;
+  QString activeStorageMode_;
+  QString activeServerUrl_;
+  bool isConnectingStorage_;
 
   QTableWidget* baseTableWidget;
   uint32_t day_in_month;
@@ -43,6 +51,12 @@ class MainWindow : public QMainWindow {
   void createCheckTable();
   // Создает пустую таблицу под выбранный месяц.
   void createEmptyTable();
+  void setupStorageControls();
+  bool setupStorage(const QString& mode, const QString& serverUrl);
+  void connectLocalFromUi();
+  void connectRemoteFromUi();
+  void updateEditControlsByMode();
+  void pushCurrentMonthToServer();
 
   // Ищет колонку по тексту даты в служебной строке.
   int searchDate(QTableWidget* tableWidget, const QString& dateLabel) const;

@@ -7,7 +7,7 @@ endif()
 
 # Установка зависимостей (Qt6, toolchain и т.д.) должна выполняться вне CMake.
 # Например, через пакетный менеджер локально или в CI (GitHub Actions).
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Network)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,6 +21,7 @@ add_executable(journal_app
     ./App/Src/mainwindow.cpp
     ./App/Src/JournalApp.cpp
     ./App/Src/JournalLocal.cpp
+    ./App/Src/JournalRemote.cpp
     ./App/Src/SqliteConnect.cpp
     ./App/Src/checkTableManager.cpp
     ./App/Src/dbManager.cpp
@@ -32,6 +33,7 @@ add_executable(journal_app
     ./App/Inc/mainwindow.hpp
     ./App/Inc/JournalApp.hpp
     ./App/Inc/JournalLocal.hpp
+    ./App/Inc/JournalRemote.hpp
     ./App/Inc/IJournalStorage.hpp
     ./App/Inc/SqliteConnect.hpp
     ./App/Inc/dbManager.hpp
@@ -45,7 +47,8 @@ target_link_libraries(journal_app PRIVATE
     Qt6::Core 
     Qt6::Gui 
     Qt6::Widgets
-    Qt6::Sql)
+    Qt6::Sql
+    Qt6::Network)
 
 target_include_directories(journal_app PRIVATE 
     ${CMAKE_SOURCE_DIR}/App/Inc

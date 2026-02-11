@@ -96,7 +96,6 @@ class Ui_MainWindow
 
     btnCreateTable = new QPushButton(centralwidget);
     btnCreateTable->setObjectName("btnCreateTable");
-    btnCreateTable->setEnabled(false);
 
     verticalLayout_2->addWidget(btnCreateTable);
 
@@ -147,8 +146,8 @@ class Ui_MainWindow
         QCoreApplication::translate("MainWindow", "Del User", nullptr));
     btnReadBase->setText(
         QCoreApplication::translate("MainWindow", "Read Base", nullptr));
-    btnCreateTable->setText(QCoreApplication::translate(
-        "MainWindow", "Create Month table", nullptr));
+    btnCreateTable->setText(
+        QCoreApplication::translate("MainWindow", "Push to Server", nullptr));
     btnSaveCurTable->setText(QCoreApplication::translate(
         "MainWindow", "Save Current Table", nullptr));
   }  // retranslateUi
