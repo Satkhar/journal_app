@@ -3,8 +3,12 @@
 #include <QDebug>
 #include <QElapsedTimer>
 
-JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage)
-    : storage_(std::move(storage)), currentYear_(0), currentMonth_(0) {}
+JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage,
+                       bool allowBootstrapWrites)
+    : storage_(std::move(storage)),
+      allowBootstrapWrites_(allowBootstrapWrites),
+      currentYear_(0),
+      currentMonth_(0) {}
 
 //---------------------------------------------------------------
 
@@ -24,8 +28,9 @@ MonthSnapshot JournalApp::loadMonth(int year, int month) {
   snapshot.attendance = storage_->getMonth(year, month);
   qInfo() << "loadMonth read stage ms:" << readTimer.elapsed();
 
-  // Восстанавливаем старое MVP-поведение: в пустой базе появляется Alice.
-  if (snapshot.users.isEmpty()) {
+  // Сохраняем MVP-поведение для local: при пустом месяце создаем Alice.
+  // Для remote режима запись при чтении отключена.
+  if (allowBootstrapWrites_ && snapshot.users.isEmpty()) {
     qInfo() << "Month is empty, creating default user Alice";
     if (storage_->addUser(year, month, "Alice")) {
       snapshot.users = storage_->getUsersForMonth(year, month);

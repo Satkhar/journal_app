@@ -330,7 +330,7 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
       return false;
     }
 
-    journalApp_ = std::make_unique<JournalApp>(std::move(remote));
+    journalApp_ = std::make_unique<JournalApp>(std::move(remote), false);
     ui->statusbar->showMessage(QString("Режим: server (%1)").arg(targetUrl), 5000);
     updateEditControlsByMode();
     return true;
@@ -344,7 +344,7 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
   }
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
-  journalApp_ = std::make_unique<JournalApp>(std::move(local));
+  journalApp_ = std::make_unique<JournalApp>(std::move(local), true);
   ui->statusbar->showMessage("Режим: local", 3000);
   updateEditControlsByMode();
   return true;

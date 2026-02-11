@@ -14,7 +14,8 @@ struct MonthSnapshot {
 class JournalApp {
  public:
   // Инициализирует слой сценариев с конкретным хранилищем.
-  explicit JournalApp(std::unique_ptr<IJournalStorage> storage);
+  explicit JournalApp(std::unique_ptr<IJournalStorage> storage,
+                      bool allowBootstrapWrites = true);
 
   // Читает состояние выбранного месяца и запоминает его как текущий.
   MonthSnapshot loadMonth(int year, int month);
@@ -27,6 +28,7 @@ class JournalApp {
 
  private:
   std::unique_ptr<IJournalStorage> storage_;
+  bool allowBootstrapWrites_;
   int currentYear_;
   int currentMonth_;
 };
