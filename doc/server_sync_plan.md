@@ -43,3 +43,54 @@
 3. Добавить auth/token и TLS для серверного доступа.
 4. Подготовить резервное копирование и мониторинг.
 
+## Docker команды (libsql server)
+Рабочая директория:
+```powershell
+cd D:\Work\libsql-server
+```
+
+Проверка Docker:
+```powershell
+docker --version
+docker compose version
+```
+
+Запуск сервера в фоне:
+```powershell
+docker compose up -d
+```
+
+Статус контейнера:
+```powershell
+docker compose ps
+```
+
+Просмотр логов:
+```powershell
+docker compose logs -f
+```
+
+Остановка контейнера (без удаления):
+```powershell
+docker compose stop
+```
+
+Запуск после stop:
+```powershell
+docker compose start
+```
+
+Пересоздание контейнера:
+```powershell
+docker compose up -d --force-recreate
+```
+
+Остановка и удаление контейнера/сети:
+```powershell
+docker compose down
+```
+
+Полная очистка с удалением данных сервера (только для reset PoC):
+```powershell
+docker compose down -v
+```
