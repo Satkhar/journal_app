@@ -22,6 +22,7 @@ add_executable(journal_app
     ./App/Src/JournalApp.cpp
     ./App/Src/JournalLocal.cpp
     ./App/Src/JournalRemote.cpp
+    ./App/Src/SyncService.cpp
     ./App/Src/SqliteConnect.cpp
     ./App/Src/checkTableManager.cpp
     ./App/Src/dbManager.cpp
@@ -34,6 +35,7 @@ add_executable(journal_app
     ./App/Inc/JournalApp.hpp
     ./App/Inc/JournalLocal.hpp
     ./App/Inc/JournalRemote.hpp
+    ./App/Inc/SyncService.hpp
     ./App/Inc/IJournalStorage.hpp
     ./App/Inc/SqliteConnect.hpp
     ./App/Inc/dbManager.hpp

@@ -17,6 +17,7 @@
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
 #include "SqliteConnect.hpp"
+#include "SyncService.hpp"
 #include "config.h"
 
 //---------------------------------------------------------------
@@ -455,18 +456,16 @@ void MainWindow::pushCurrentMonthToServer() {
           ? serverUrlEdit_->text().trimmed()
           : QString(JOURNAL_DEFAULT_SERVER_URL);
 
-  auto remote = std::make_unique<JournalRemote>(serverUrl, JOURNAL_REMOTE_TIMEOUT_MS);
   QString error;
-  if (!remote->connect(&error)) {
-    ui->statusbar->showMessage(
-        QString("Push error: %1").arg(error.isEmpty() ? serverUrl : error), 6000);
-    return;
-  }
-
   updateCalendarVariables(ui->calendarWidget);
   const auto data = collectMonthFromTable();
-  if (!remote->saveMonth(static_cast<int>(year), static_cast<int>(month), data)) {
-    ui->statusbar->showMessage("Push error: не удалось сохранить месяц на сервер.", 6000);
+  SyncService sync(JOURNAL_REMOTE_TIMEOUT_MS);
+  if (!sync.pushMonthToServer(serverUrl, static_cast<int>(year), static_cast<int>(month), data,
+                              &error)) {
+    ui->statusbar->showMessage(
+        QString("Push error: %1")
+            .arg(error.isEmpty() ? "не удалось сохранить месяц на сервер" : error),
+        6000);
     return;
   }
 
