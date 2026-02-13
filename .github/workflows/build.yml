@@ -4,6 +4,13 @@ on:
   push:
     branches: ["main", "master"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      package_windows:
+        description: "Build and upload ready-to-run Windows app artifact"
+        required: true
+        default: true
+        type: boolean
 
 jobs:
   build-linux:
@@ -49,3 +56,53 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release -j
+
+  package-windows-portable:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_windows }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-tools
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Bundle Qt Runtime
+        run: |
+          mkdir -p dist/journal_app
+          cp build/journal_app.exe dist/journal_app/
+          if command -v windeployqt6 >/dev/null 2>&1; then
+            DEPLOY=windeployqt6
+          else
+            DEPLOY=windeployqt
+          fi
+          $DEPLOY --no-translations --release dist/journal_app/journal_app.exe
+
+      - name: Create zip package
+        shell: powershell
+        run: |
+          Compress-Archive -Path dist/journal_app/* -DestinationPath dist/journal_app-windows-portable.zip -Force
+
+      - name: Upload packaged app
+        uses: actions/upload-artifact@v4
+        with:
+          name: journal_app-windows-portable
+          path: dist/journal_app-windows-portable.zip
