@@ -63,6 +63,13 @@
              </widget>
             </item>
             <item>
+             <widget class="QPushButton" name="btnPullServer">
+              <property name="text">
+               <string>Pull from Server</string>
+              </property>
+             </widget>
+            </item>
+            <item>
              <widget class="QPushButton" name="btnSaveCurTable">
               <property name="text">
                <string>Save Current Table</string>

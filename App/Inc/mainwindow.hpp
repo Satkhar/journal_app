@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include <QCalendarWidget>
+#include <QLabel>
 #include <QLineEdit>
 #include <QStringList>
 #include <QTableWidget>
@@ -28,6 +29,7 @@ class MainWindow : public QMainWindow {
  private:
   Ui::MainWindow* ui;
   std::unique_ptr<JournalApp> journalApp_;
+  QLabel* modeBadgeLabel_;
   QLineEdit* serverUrlEdit_;
   QPushButton* connectLocalBtn_;
   QPushButton* connectRemoteBtn_;
@@ -55,8 +57,11 @@ class MainWindow : public QMainWindow {
   bool setupStorage(const QString& mode, const QString& serverUrl);
   void connectLocalFromUi();
   void connectRemoteFromUi();
+  void updateModeBadge();
   void updateEditControlsByMode();
+  void readLocalMonthToTable();
   void pushCurrentMonthToServer();
+  void pullCurrentMonthFromServer();
 
   // Ищет колонку по тексту даты в служебной строке.
   int searchDate(QTableWidget* tableWidget, const QString& dateLabel) const;

@@ -41,6 +41,7 @@ class Ui_MainWindow
   QVBoxLayout *verticalLayout_2;
   QPushButton *btnReadBase;
   QPushButton *btnCreateTable;
+  QPushButton *btnPullServer;
   QPushButton *btnSaveCurTable;
   QSpacerItem *verticalSpacer;
   QCalendarWidget *calendarWidget;
@@ -99,6 +100,11 @@ class Ui_MainWindow
 
     verticalLayout_2->addWidget(btnCreateTable);
 
+    btnPullServer = new QPushButton(centralwidget);
+    btnPullServer->setObjectName("btnPullServer");
+
+    verticalLayout_2->addWidget(btnPullServer);
+
     btnSaveCurTable = new QPushButton(centralwidget);
     btnSaveCurTable->setObjectName("btnSaveCurTable");
 
@@ -148,6 +154,8 @@ class Ui_MainWindow
         QCoreApplication::translate("MainWindow", "Read Base", nullptr));
     btnCreateTable->setText(
         QCoreApplication::translate("MainWindow", "Push to Server", nullptr));
+    btnPullServer->setText(
+        QCoreApplication::translate("MainWindow", "Pull from Server", nullptr));
     btnSaveCurTable->setText(QCoreApplication::translate(
         "MainWindow", "Save Current Table", nullptr));
   }  // retranslateUi

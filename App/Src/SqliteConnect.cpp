@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QUuid>
 #include <QVariant>
 #include <QtGlobal>
 
@@ -26,12 +27,14 @@ SqliteConnect::~SqliteConnect() {
 //---------------------------------------------------------------
 
 bool SqliteConnect::open(const QString& dbPath) {
-  connectionName_ = "journal_connection";
-  if (QSqlDatabase::contains(connectionName_)) {
-    db_ = QSqlDatabase::database(connectionName_);
-  } else {
-    db_ = QSqlDatabase::addDatabase("QSQLITE", connectionName_);
+  // Важно: имя подключения должно быть уникальным для каждого объекта.
+  // Иначе временный SqliteConnect (например, в Pull/Read Base) может удалить
+  // общее connection и сломать активное рабочее подключение окна.
+  if (connectionName_.isEmpty()) {
+    connectionName_ = QString("journal_connection_%1")
+                          .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
   }
+  db_ = QSqlDatabase::addDatabase("QSQLITE", connectionName_);
 
   db_.setDatabaseName(dbPath);
   if (!db_.open()) {

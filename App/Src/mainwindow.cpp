@@ -25,6 +25,7 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
       ui(new Ui::MainWindow),
+      modeBadgeLabel_(nullptr),
       serverUrlEdit_(nullptr),
       connectLocalBtn_(nullptr),
       connectRemoteBtn_(nullptr),
@@ -52,9 +53,11 @@ MainWindow::MainWindow(QWidget* parent)
   if (!setupStorage(storageMode == "server" ? "server" : "local",
                     serverUrlEdit_->text().trimmed())) {
     ui->statusbar->showMessage("Storage не подключен. Выберите Local или Remote.");
+    updateModeBadge();
   } else {
     activeStorageMode_ = (storageMode == "server") ? "server" : "local";
     activeServerUrl_ = serverUrlEdit_->text().trimmed();
+    updateModeBadge();
     updateEditControlsByMode();
     refreshMonth();
   }
@@ -95,8 +98,7 @@ MainWindow::MainWindow(QWidget* parent)
 
   // Явное обновление данных на экране из БД.
   connect(ui->btnReadBase, &QPushButton::clicked, this, [this]() {
-    refreshMonth();
-    ui->statusbar->showMessage("Данные обновлены");
+    readLocalMonthToTable();
   });
 
   // Сохраняем текущее состояние чекбоксов таблицы в БД.
@@ -118,6 +120,11 @@ MainWindow::MainWindow(QWidget* parent)
   // Отправка локального состояния месяца на сервер.
   connect(ui->btnCreateTable, &QPushButton::clicked, this, [this]() {
     pushCurrentMonthToServer();
+  });
+
+  // Подтянуть месяц с сервера в локальную БД.
+  connect(ui->btnPullServer, &QPushButton::clicked, this, [this]() {
+    pullCurrentMonthFromServer();
   });
 
   // При смене страницы календаря пересоздаем сетку дней и загружаем месяц.
@@ -296,6 +303,7 @@ void MainWindow::setupStorageControls() {
     return;
   }
 
+  auto* storagePanelLayout = new QVBoxLayout();
   auto* controlsLayout = new QHBoxLayout();
   controlsLayout->addWidget(new QLabel("Server URL:", this));
 
@@ -309,7 +317,21 @@ void MainWindow::setupStorageControls() {
   connectRemoteBtn_ = new QPushButton("Remote", this);
   controlsLayout->addWidget(connectRemoteBtn_);
 
-  layout->insertLayout(1, controlsLayout);
+  modeBadgeLabel_ = new QLabel("Mode: DISCONNECTED", this);
+  modeBadgeLabel_->setObjectName("modeBadgeLabel");
+  modeBadgeLabel_->setMinimumWidth(250);
+  modeBadgeLabel_->setMaximumWidth(250);
+  modeBadgeLabel_->setStyleSheet(
+      "QLabel#modeBadgeLabel {"
+      "  padding: 4px 8px;"
+      "  border: 1px solid #666;"
+      "  border-radius: 6px;"
+      "  font-weight: 600;"
+      "}");
+
+  storagePanelLayout->addLayout(controlsLayout);
+  storagePanelLayout->addWidget(modeBadgeLabel_, 0, Qt::AlignLeft);
+  layout->insertLayout(1, storagePanelLayout);
 
   connect(connectLocalBtn_, &QPushButton::clicked, this,
           [this]() { connectLocalFromUi(); });
@@ -381,6 +403,7 @@ void MainWindow::connectLocalFromUi() {
   if (ok) {
     activeStorageMode_ = "local";
     activeServerUrl_.clear();
+    updateModeBadge();
     updateEditControlsByMode();
     refreshMonth();
   } else if (journalApp_) {
@@ -423,11 +446,54 @@ void MainWindow::connectRemoteFromUi() {
   if (ok) {
     activeStorageMode_ = "server";
     activeServerUrl_ = serverUrl;
+    updateModeBadge();
     updateEditControlsByMode();
     refreshMonth();
   } else if (journalApp_) {
     ui->statusbar->showMessage("Переподключение не выполнено, старое подключение сохранено.", 5000);
   }
+}
+
+void MainWindow::updateModeBadge() {
+  if (!modeBadgeLabel_) {
+    return;
+  }
+
+  if (activeStorageMode_ == "server") {
+    modeBadgeLabel_->setText("Mode: REMOTE (read-only)");
+    modeBadgeLabel_->setStyleSheet(
+        "QLabel#modeBadgeLabel {"
+        "  padding: 4px 8px;"
+        "  border: 1px solid #ad7f00;"
+        "  background: #fff4cc;"
+        "  border-radius: 6px;"
+        "  font-weight: 600;"
+        "}");
+    return;
+  }
+
+  if (activeStorageMode_ == "local") {
+    modeBadgeLabel_->setText("Mode: LOCAL");
+    modeBadgeLabel_->setStyleSheet(
+        "QLabel#modeBadgeLabel {"
+        "  padding: 4px 8px;"
+        "  border: 1px solid #2b7a0b;"
+        "  background: #ddffdd;"
+        "  border-radius: 6px;"
+        "  font-weight: 600;"
+        "}");
+    return;
+  }
+
+  modeBadgeLabel_->setText("Mode: DISCONNECTED");
+  modeBadgeLabel_->setStyleSheet(
+      "QLabel#modeBadgeLabel {"
+      "  padding: 4px 8px;"
+      "  border: 1px solid #666;"
+      "  background: #efefef;"
+      "  border-radius: 6px;"
+      "  font-weight: 600;"
+      "}");
 }
 
 void MainWindow::updateEditControlsByMode() {
@@ -436,7 +502,25 @@ void MainWindow::updateEditControlsByMode() {
   ui->btnDel->setEnabled(isLocalMode);
   ui->btnSaveCurTable->setEnabled(isLocalMode);
   ui->btnCreateTable->setEnabled(isLocalMode);
+  ui->btnPullServer->setEnabled(isLocalMode);
   ui->lineEdit->setEnabled(isLocalMode);
+}
+
+void MainWindow::readLocalMonthToTable() {
+  auto sqlite = std::make_unique<SqliteConnect>();
+  if (!sqlite->open(DB_PATH)) {
+    ui->statusbar->showMessage("Read Base error: не удалось открыть локальную БД.", 6000);
+    return;
+  }
+
+  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
+  JournalApp localReader(std::move(local), true);
+
+  updateCalendarVariables(ui->calendarWidget);
+  const MonthSnapshot snapshot =
+      localReader.loadMonth(static_cast<int>(year), static_cast<int>(month));
+  renderMonth(snapshot);
+  ui->statusbar->showMessage("Read Base: локальные данные загружены.", 4000);
 }
 
 void MainWindow::pushCurrentMonthToServer() {
@@ -470,6 +554,41 @@ void MainWindow::pushCurrentMonthToServer() {
   }
 
   ui->statusbar->showMessage(QString("Push OK -> %1").arg(serverUrl), 5000);
+}
+
+void MainWindow::pullCurrentMonthFromServer() {
+  if (activeStorageMode_ != "local") {
+    ui->statusbar->showMessage(
+        "Pull доступен только из local режима. Переключитесь на Local.", 5000);
+    return;
+  }
+
+  const QString serverUrl =
+      serverUrlEdit_ && !serverUrlEdit_->text().trimmed().isEmpty()
+          ? serverUrlEdit_->text().trimmed()
+          : QString(JOURNAL_DEFAULT_SERVER_URL);
+
+  auto sqlite = std::make_unique<SqliteConnect>();
+  if (!sqlite->open(DB_PATH)) {
+    ui->statusbar->showMessage("Pull error: не удалось открыть локальную БД.", 6000);
+    return;
+  }
+  JournalLocal local(std::move(sqlite));
+
+  QString error;
+  updateCalendarVariables(ui->calendarWidget);
+  SyncService sync(JOURNAL_REMOTE_TIMEOUT_MS);
+  if (!sync.pullMonthToLocal(serverUrl, static_cast<int>(year), static_cast<int>(month), local,
+                             &error)) {
+    ui->statusbar->showMessage(
+        QString("Pull error: %1")
+            .arg(error.isEmpty() ? "не удалось получить месяц с сервера" : error),
+        6000);
+    return;
+  }
+
+  refreshMonth();
+  ui->statusbar->showMessage(QString("Pull OK <- %1").arg(serverUrl), 5000);
 }
 
 //---------------------------------------------------------------

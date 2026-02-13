@@ -32,6 +32,13 @@ bool SyncService::pullMonthToLocal(const QString& serverUrl, int year, int month
   }
 
   const std::vector<AttendanceRecord> remoteData = remote->getMonth(year, month);
+  if (!remote->lastError().isEmpty()) {
+    if (errorMessage) {
+      *errorMessage = remote->lastError();
+    }
+    return false;
+  }
+
   if (!localStorage.saveMonth(year, month, remoteData)) {
     if (errorMessage && errorMessage->isEmpty()) {
       *errorMessage = "Failed to save remote month to local storage";
@@ -41,4 +48,3 @@ bool SyncService::pullMonthToLocal(const QString& serverUrl, int year, int month
 
   return true;
 }
-

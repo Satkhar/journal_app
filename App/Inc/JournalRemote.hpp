@@ -11,6 +11,7 @@ class JournalRemote : public IJournalStorage {
   explicit JournalRemote(const QString& baseUrl, int timeoutMs = 5000);
 
   bool connect(QString* errorMessage = nullptr);
+  QString lastError() const;
 
   QStringList getUsersForMonth(int year, int month) override;
   std::vector<AttendanceRecord> getMonth(int year, int month) override;
@@ -22,6 +23,7 @@ class JournalRemote : public IJournalStorage {
  private:
   QString baseUrl_;
   int timeoutMs_;
+  QString lastError_;
   QNetworkAccessManager network_;
 
   bool ensureSchema(QString* errorMessage = nullptr);

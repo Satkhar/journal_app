@@ -14,10 +14,16 @@ JournalRemote::JournalRemote(const QString& baseUrl, int timeoutMs)
     : baseUrl_(baseUrl), timeoutMs_(timeoutMs) {}
 
 bool JournalRemote::connect(QString* errorMessage) {
+  lastError_.clear();
   return ensureSchema(errorMessage);
 }
 
+QString JournalRemote::lastError() const {
+  return lastError_;
+}
+
 QStringList JournalRemote::getUsersForMonth(int year, int month) {
+  lastError_.clear();
   QStringList users;
   QJsonArray results;
 
@@ -27,6 +33,7 @@ QStringList JournalRemote::getUsersForMonth(int year, int month) {
 
   QString error;
   if (!executePipeline({sql}, &results, &error)) {
+    lastError_ = error;
     return users;
   }
 
@@ -48,6 +55,7 @@ QStringList JournalRemote::getUsersForMonth(int year, int month) {
 }
 
 std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month) {
+  lastError_.clear();
   std::vector<AttendanceRecord> records;
   QJsonArray results;
 
@@ -58,6 +66,7 @@ std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month) {
 
   QString error;
   if (!executePipeline({sql}, &results, &error)) {
+    lastError_ = error;
     return records;
   }
 
@@ -86,6 +95,7 @@ std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month) {
 
 bool JournalRemote::saveMonth(int year, int month,
                               const std::vector<AttendanceRecord>& data) {
+  lastError_.clear();
   QList<QString> statements;
   statements.push_back("BEGIN");
   statements.push_back(
@@ -103,6 +113,7 @@ bool JournalRemote::saveMonth(int year, int month,
   QJsonArray results;
   QString error;
   if (!executePipeline(statements, &results, &error)) {
+    lastError_ = error;
     QList<QString> rollback;
     rollback.push_back("ROLLBACK");
     executePipeline(rollback, nullptr, nullptr);
@@ -113,6 +124,7 @@ bool JournalRemote::saveMonth(int year, int month,
 }
 
 bool JournalRemote::addUser(int year, int month, const QString& name) {
+  lastError_.clear();
   const QString trimmed = name.trimmed();
   if (trimmed.isEmpty()) {
     return false;
@@ -126,6 +138,7 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
                .arg(sqlQuote(trimmed))
                .arg(monthPattern(year, month))},
           &results, &error)) {
+    lastError_ = error;
     return false;
   }
 
@@ -146,6 +159,7 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
   statements.push_back("COMMIT");
 
   if (!executePipeline(statements, &results, &error)) {
+    lastError_ = error;
     QList<QString> rollback;
     rollback.push_back("ROLLBACK");
     executePipeline(rollback, nullptr, nullptr);
@@ -156,6 +170,7 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
 }
 
 bool JournalRemote::deleteUser(int year, int month, const QString& name) {
+  lastError_.clear();
   const QString trimmed = name.trimmed();
   if (trimmed.isEmpty()) {
     return false;
@@ -163,22 +178,31 @@ bool JournalRemote::deleteUser(int year, int month, const QString& name) {
 
   QJsonArray results;
   QString error;
-  return executePipeline(
+  const bool ok = executePipeline(
       {QString("DELETE FROM users WHERE name = %1 AND date LIKE '%2'")
            .arg(sqlQuote(trimmed))
            .arg(monthPattern(year, month))},
       &results, &error);
+  if (!ok) {
+    lastError_ = error;
+  }
+  return ok;
 }
 
 bool JournalRemote::ensureSchema(QString* errorMessage) {
+  lastError_.clear();
   QJsonArray results;
-  return executePipeline(
+  const bool ok = executePipeline(
       {"CREATE TABLE IF NOT EXISTS users ("
        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
        "name TEXT NOT NULL, "
        "date TEXT NOT NULL, "
        "is_checked INTEGER NOT NULL)"},
       &results, errorMessage);
+  if (!ok && errorMessage) {
+    lastError_ = *errorMessage;
+  }
+  return ok;
 }
 
 QString JournalRemote::monthPattern(int year, int month) const {
