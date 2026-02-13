@@ -14,6 +14,9 @@ struct MonthSnapshot {
 class JournalApp {
  public:
   // Инициализирует слой сценариев с конкретным хранилищем.
+  // allowBootstrapWrites=true: разрешает стартовую инициализацию пустого месяца
+  // (добавление Alice и первичное заполнение отметок).
+  // allowBootstrapWrites=false: чтение месяца не должно ничего записывать.
   explicit JournalApp(std::unique_ptr<IJournalStorage> storage,
                       bool allowBootstrapWrites = true);
 
@@ -28,6 +31,7 @@ class JournalApp {
 
  private:
   std::unique_ptr<IJournalStorage> storage_;
+  // Флаг управляет старым MVP-поведением "автосидинг пустого месяца".
   bool allowBootstrapWrites_;
   int currentYear_;
   int currentMonth_;

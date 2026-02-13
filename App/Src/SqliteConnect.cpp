@@ -14,6 +14,10 @@ SqliteConnect::SqliteConnect() = default;
 //---------------------------------------------------------------
 
 SqliteConnect::~SqliteConnect() {
+  // Порядок важен:
+  // 1) закрыть db_;
+  // 2) сбросить handle db_ в пустой QSqlDatabase;
+  // 3) удалить зарегистрированное имя подключения из глобального пула Qt.
   if (db_.isOpen()) {
     db_.close();
   }
@@ -38,6 +42,7 @@ bool SqliteConnect::open(const QString& dbPath) {
 
   db_.setDatabaseName(dbPath);
   if (!db_.open()) {
+    qWarning() << "SqliteConnect::open failed:" << db_.lastError().text();
     return false;
   }
 
@@ -137,7 +142,9 @@ bool SqliteConnect::saveMonth(int year, int month,
   QElapsedTimer totalTimer;
   totalTimer.start();
 
-  // Полная перезапись месяца в транзакции: delete + batch insert.
+  // Полная перезапись месяца в транзакции:
+  // delete за месяц + insert всех записей из UI-среза.
+  // Такой подход удобен для PoC и повторяемого состояния.
   if (!db_.transaction()) {
     qWarning() << "SqliteConnect::saveMonth transaction start failed";
     return false;
@@ -177,6 +184,9 @@ bool SqliteConnect::saveMonth(int year, int month,
   QElapsedTimer commitTimer;
   commitTimer.start();
   const bool committed = db_.commit();
+  if (!committed) {
+    qWarning() << "SqliteConnect::saveMonth commit failed:" << db_.lastError().text();
+  }
   qInfo() << "SqliteConnect::saveMonth commit stage ms:" << commitTimer.elapsed();
   qInfo() << "SqliteConnect::saveMonth total ms:" << totalTimer.elapsed();
   return committed;

@@ -14,6 +14,8 @@ JournalRemote::JournalRemote(const QString& baseUrl, int timeoutMs)
     : baseUrl_(baseUrl), timeoutMs_(timeoutMs) {}
 
 bool JournalRemote::connect(QString* errorMessage) {
+  // connect() в этом классе не держит persistent socket:
+  // это "логический connect" = проверить доступность endpoint + схему.
   lastError_.clear();
   return ensureSchema(errorMessage);
 }
@@ -42,6 +44,8 @@ QStringList JournalRemote::getUsersForMonth(int year, int month) {
   }
 
   const QJsonObject result = results.at(0).toObject();
+  // Формат libsql результата:
+  // result.rows = [ [ {"type":"text","value":"Alice"} ], ... ]
   const QJsonArray rows = result.value("rows").toArray();
   for (const QJsonValue& rowValue : rows) {
     const QJsonArray row = rowValue.toArray();
@@ -85,6 +89,7 @@ std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month) {
     const QString userName = row.at(0).toObject().value("value").toString();
     const QString fullDate = row.at(1).toObject().value("value").toString();
     const int day = fullDate.left(2).toInt();
+    // libsql может вернуть integer как строку "0"/"1".
     const bool isChecked = row.at(2).toObject().value("value").toString() == "1";
 
     records.push_back({userName, day, isChecked});
@@ -97,6 +102,7 @@ bool JournalRemote::saveMonth(int year, int month,
                               const std::vector<AttendanceRecord>& data) {
   lastError_.clear();
   QList<QString> statements;
+  // Для PoC: атомарная полная перезапись месяца.
   statements.push_back("BEGIN");
   statements.push_back(
       QString("DELETE FROM users WHERE date LIKE '%1'").arg(monthPattern(year, month)));
@@ -116,6 +122,7 @@ bool JournalRemote::saveMonth(int year, int month,
     lastError_ = error;
     QList<QString> rollback;
     rollback.push_back("ROLLBACK");
+    // Rollback "best effort": если не сработает, ошибка уже зафиксирована выше.
     executePipeline(rollback, nullptr, nullptr);
     return false;
   }
@@ -144,6 +151,7 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
 
   if (!results.isEmpty() &&
       !results.at(0).toObject().value("rows").toArray().isEmpty()) {
+    // Пользователь уже существует в этом месяце.
     return false;
   }
 
@@ -206,6 +214,8 @@ bool JournalRemote::ensureSchema(QString* errorMessage) {
 }
 
 QString JournalRemote::monthPattern(int year, int month) const {
+  // Формат даты на remote: dd.MM.yyyy.
+  // Для фильтра месяца в LIKE используем "__.MM.YYYY".
   return QString("__.%1.%2")
       .arg(month, 2, 10, QLatin1Char('0'))
       .arg(year, 4, 10, QLatin1Char('0'));
@@ -225,6 +235,7 @@ int JournalRemote::daysInMonth(int year, int month) const {
 bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
                                     QJsonArray* outResults,
                                     QString* errorMessage) {
+  // Преобразуем список SQL-команд в libsql JSON pipeline.
   QJsonArray requests;
   for (const QString& sql : sqlStatements) {
     QJsonObject stmt;
@@ -245,6 +256,8 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
   QNetworkReply* reply =
       network_.post(request, QJsonDocument(root).toJson(QJsonDocument::Compact));
 
+  // Синхронное ожидание ответа (через локальный event loop),
+  // чтобы сохранить простой синхронный интерфейс IJournalStorage.
   QEventLoop loop;
   QTimer timer;
   timer.setSingleShot(true);
@@ -300,6 +313,8 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
   }
 
   if (outResults) {
+    // Возвращаем только "result" из каждого response, чтобы вызывающий код
+    // работал с упрощенной структурой rows/cols.
     *outResults = QJsonArray();
     for (const QJsonValue& resultValue : results) {
       const QJsonObject response =
