@@ -1,10 +1,8 @@
 #include "dbManager.hpp"
 
-DatabaseManager::DatabaseManager()
-{
+DatabaseManager::DatabaseManager() {}
 
-}
-
+//---------------------------------------------------------------
 
 // void DatabaseManager::setDatabase(const QString &dbPath)
 // {
@@ -18,6 +16,8 @@ DatabaseManager::DatabaseManager()
 //       // return false;
 //     }
 // }
+
+//---------------------------------------------------------------
 
 bool DatabaseManager::createConnection(const QString &dbPath)
 {
@@ -47,6 +47,8 @@ bool DatabaseManager::createConnection(const QString &dbPath)
   return true;
 }
 
+//---------------------------------------------------------------
+
 bool DatabaseManager::isDatabaseEmpty()
 {
   QSqlQuery query;
@@ -59,7 +61,8 @@ bool DatabaseManager::isDatabaseEmpty()
   return !query.next();// Если нет записей, база пуста
 }
 
-DatabaseManager::~DatabaseManager()
-{
-  
-}
+//---------------------------------------------------------------
+
+DatabaseManager::~DatabaseManager() {}
+
+//---------------------------------------------------------------

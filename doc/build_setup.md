@@ -60,6 +60,19 @@ cmake --build build --config Release -j
 1. `ubuntu-latest` с установкой `qt6-base-dev` и сборкой через CMake.
 2. `windows-latest` через `msys2/setup-msys2` (GCC + Qt6 + Ninja).
 
+### Готовое приложение (portable .zip)
+
+В workflow добавлен отдельный ручной сценарий (`workflow_dispatch`), который:
+1. собирает Windows-версию в Release;
+2. подтягивает Qt runtime через `windeployqt`;
+3. публикует готовый артефакт `journal_app-windows-portable.zip`.
+
+Как запускать:
+1. GitHub -> `Actions` -> workflow `Build`.
+2. Нажать `Run workflow`.
+3. Оставить `package_windows=true` и запустить.
+4. После завершения открыть запуск workflow и скачать артефакт `journal_app-windows-portable`.
+
 ## 6. Важные замечания
 
 1. Зависимости должны устанавливаться в окружении (локально или в CI), а не через `execute_process()` внутри `CMakeLists.txt`.
