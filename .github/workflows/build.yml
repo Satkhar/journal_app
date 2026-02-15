@@ -1,4 +1,4 @@
-name: Build
+name: Build And Release
 
 on:
   push:
@@ -7,13 +7,42 @@ on:
   workflow_dispatch:
     inputs:
       package_windows:
-        description: "Build and upload ready-to-run Windows app artifact"
+        description: "Build Windows package"
         required: true
         default: true
         type: boolean
+      package_linux:
+        description: "Build Linux package"
+        required: true
+        default: true
+        type: boolean
+      create_release:
+        description: "Create GitHub Release from built packages"
+        required: true
+        default: true
+        type: boolean
+      release_tag:
+        description: "Release tag (for example v1.0.0)"
+        required: true
+        default: "v0.1.0"
+        type: string
+      release_name:
+        description: "Release title"
+        required: true
+        default: "Journal App Release"
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
 
 jobs:
   build-linux:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,6 +60,7 @@ jobs:
         run: cmake --build build --config Release -j
 
   build-windows-mingw:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: windows-latest
     defaults:
       run:
@@ -57,7 +87,37 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j
 
-  package-windows-portable:
+  package-linux:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_linux }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake qt6-base-dev qt6-base-dev-tools qt6-tools-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Create Linux package
+        run: |
+          mkdir -p dist
+          cp build/journal_app dist/
+          tar -czf dist/journal_app-linux.tar.gz -C dist journal_app
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: journal_app-linux-package
+          path: dist/journal_app-linux.tar.gz
+
+  package-windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_windows }}
     runs-on: windows-latest
     defaults:
@@ -96,13 +156,33 @@ jobs:
           fi
           $DEPLOY --no-translations --release dist/journal_app/journal_app.exe
 
-      - name: Create zip package
+      - name: Create Windows package
         shell: powershell
         run: |
           Compress-Archive -Path dist/journal_app/* -DestinationPath dist/journal_app-windows-portable.zip -Force
 
-      - name: Upload packaged app
+      - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: journal_app-windows-portable
+          name: journal_app-windows-package
           path: dist/journal_app-windows-portable.zip
+
+  release:
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.create_release && (needs.package-linux.result == 'success' || needs.package-windows.result == 'success') }}
+    needs: [package-linux, package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_name }}
+          prerelease: ${{ inputs.prerelease }}
+          files: |
+            release-assets/**/*.zip
+            release-assets/**/*.tar.gz
