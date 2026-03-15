@@ -46,6 +46,7 @@ bool SqliteConnect::open(const QString& dbPath) {
     return false;
   }
 
+  // После успешного open сразу гарантируем наличие таблицы users.
   return ensureSchema();
 }
 
@@ -200,6 +201,7 @@ bool SqliteConnect::addUser(int year, int month, const QString& name) {
     return false;
   }
 
+  // Проверяем существование по месяцу, потому что один пользователь хранится многими строками.
   QSqlQuery existsQuery(db_);
   existsQuery.prepare("SELECT 1 FROM users WHERE name = :name AND date LIKE :month LIMIT 1");
   existsQuery.bindValue(":name", trimmed);
@@ -249,6 +251,7 @@ bool SqliteConnect::deleteUser(int year, int month, const QString& name) {
     return false;
   }
 
+  // Одним DELETE убираем сразу все строки пользователя за выбранный месяц.
   QSqlQuery query(db_);
   query.prepare("DELETE FROM users WHERE name = :name AND date LIKE :month");
   query.bindValue(":name", trimmed);

@@ -6,6 +6,7 @@
 // для управления основной таблицей:
 class MainTableManager {
 public:
+  // Legacy helper: основная актуальная логика таблицы перенесена в MainWindow.
   // Создает менеджер основной таблицы.
   MainTableManager();
   // Освобождает ресурсы менеджера.
@@ -33,6 +34,7 @@ public:
   void addCheckBox(int row, int column, bool is_checked);
 
 private:
+  // Менеджер не владеет таблицей, а работает с переданным виджетом.
   QTableWidget *tableWidget; // = nullptr;
   int month;
   int year;

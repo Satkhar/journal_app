@@ -23,5 +23,6 @@ class JournalLocal : public IJournalStorage {
   bool deleteUser(int year, int month, const QString& name) override;
 
  private:
+  // Владеем конкретным SQLite-адаптером и проксируем вызовы дальше.
   std::unique_ptr<SqliteConnect> sqlite_;
 };

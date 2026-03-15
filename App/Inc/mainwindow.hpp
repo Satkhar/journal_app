@@ -21,6 +21,8 @@ class MainWindow : public QMainWindow {
   Q_OBJECT
 
  public:
+  // MainWindow связывает три слоя:
+  // UI widgets -> JournalApp use-case -> local/remote storage adapters.
   // Инициализирует UI и связывает кнопки с use-case слоем.
   explicit MainWindow(QWidget* parent = nullptr);
   // Освобождает ресурсы окна.
@@ -43,6 +45,7 @@ class MainWindow : public QMainWindow {
   QString activeServerUrl_;
   bool isConnectingStorage_;
 
+  // Кэш указателя на главную таблицу и числовые параметры месяца из календаря.
   QTableWidget* baseTableWidget;
   uint32_t day_in_month;
   uint32_t month;

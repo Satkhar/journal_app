@@ -23,6 +23,7 @@ class SqliteConnect {
   bool deleteUser(int year, int month, const QString& name);
 
  private:
+  // Qt хранит соединения в глобальном пуле по имени; db_ это handle на него.
   QSqlDatabase db_;
   QString connectionName_;
 

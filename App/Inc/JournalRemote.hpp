@@ -24,8 +24,11 @@ class JournalRemote : public IJournalStorage {
   bool deleteUser(int year, int month, const QString& name) override;
 
  private:
+  // Базовый URL сервера libsql/http endpoint.
   QString baseUrl_;
+  // Таймаут локального event loop ожидания ответа.
   int timeoutMs_;
+  // Последняя диагностическая ошибка для pull/read сценариев.
   QString lastError_;
   QNetworkAccessManager network_;
 

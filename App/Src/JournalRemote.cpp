@@ -29,6 +29,7 @@ QStringList JournalRemote::getUsersForMonth(int year, int month) {
   QStringList users;
   QJsonArray results;
 
+  // Remote storage хранит одну строку на (user, day), поэтому users берем через DISTINCT.
   const QString sql =
       QString("SELECT DISTINCT name FROM users WHERE date LIKE '%1' ORDER BY name ASC")
           .arg(monthPattern(year, month));
@@ -63,6 +64,7 @@ std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month) {
   std::vector<AttendanceRecord> records;
   QJsonArray results;
 
+  // Возвращаем плоский список записей; группировка по пользователям делается уже в UI.
   const QString sql = QString(
       "SELECT name, date, is_checked FROM users WHERE date LIKE '%1' ORDER BY "
       "name ASC, date ASC")
@@ -102,7 +104,7 @@ bool JournalRemote::saveMonth(int year, int month,
                               const std::vector<AttendanceRecord>& data) {
   lastError_.clear();
   QList<QString> statements;
-  // Для PoC: атомарная полная перезапись месяца.
+  // Для PoC sync проще поддерживать атомарной полной перезаписью месяца.
   statements.push_back("BEGIN");
   statements.push_back(
       QString("DELETE FROM users WHERE date LIKE '%1'").arg(monthPattern(year, month)));
@@ -137,6 +139,7 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
     return false;
   }
 
+  // Сначала проверяем наличие пользователя, чтобы не удвоить дневные строки месяца.
   QJsonArray results;
   QString error;
   if (!executePipeline(
@@ -158,6 +161,7 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
   QList<QString> statements;
   statements.push_back("BEGIN");
   const int maxDay = daysInMonth(year, month);
+  // Как и в local storage, создаем набор строк сразу на все дни месяца.
   for (int day = 1; day <= maxDay; ++day) {
     statements.push_back(
         QString("INSERT INTO users(name, date, is_checked) VALUES(%1, %2, 0)")
@@ -200,6 +204,7 @@ bool JournalRemote::deleteUser(int year, int month, const QString& name) {
 bool JournalRemote::ensureSchema(QString* errorMessage) {
   lastError_.clear();
   QJsonArray results;
+  // Схема создается лениво, чтобы пустой сервер поднимался без ручной миграции.
   const bool ok = executePipeline(
       {"CREATE TABLE IF NOT EXISTS users ("
        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -253,6 +258,7 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
   QNetworkRequest request(QUrl(baseUrl_ + "/v2/pipeline"));
   request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
+  // Один HTTP POST может содержать несколько SQL-команд в нужном порядке.
   QNetworkReply* reply =
       network_.post(request, QJsonDocument(root).toJson(QJsonDocument::Compact));
 
@@ -290,6 +296,8 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
   const QByteArray body = reply->readAll();
   reply->deleteLater();
 
+  // После этого блока считаем, что сеть сработала успешно;
+  // дальше валидируем уже протокол и JSON-структуру ответа.
   QJsonParseError parseError;
   const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
   if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
@@ -327,6 +335,7 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
 }
 
 QString JournalRemote::sqlQuote(const QString& value) {
+  // Минимальная защита для простого SQL-конструктора без prepared statements.
   QString escaped = value;
   escaped.replace("'", "''");
   return QString("'%1'").arg(escaped);

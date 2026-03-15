@@ -58,7 +58,7 @@ bool JournalApp::addUser(const QString& name) {
   QElapsedTimer timer;
   timer.start();
 
-  // Без выбранного месяца изменение запрещено.
+  // Защита от вызова "в никуда": UI обязан сначала открыть месяц через loadMonth().
   if (currentYear_ == 0 || currentMonth_ == 0) {
     qWarning() << "addUser called without selected month";
     return false;
@@ -74,6 +74,7 @@ bool JournalApp::deleteUser(const QString& name) {
   QElapsedTimer timer;
   timer.start();
 
+  // deleteUser использует тот же запомненный контекст месяца, что и addUser.
   if (currentYear_ == 0 || currentMonth_ == 0) {
     qWarning() << "deleteUser called without selected month";
     return false;
@@ -90,7 +91,7 @@ bool JournalApp::saveMonth(int year, int month,
   QElapsedTimer timer;
   timer.start();
 
-  // Сохранение работает в явном контексте переданного месяца.
+  // После saveMonth этот месяц становится "текущим" для последующих add/delete.
   currentYear_ = year;
   currentMonth_ = month;
   const bool ok = storage_->saveMonth(year, month, data);

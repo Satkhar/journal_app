@@ -6,7 +6,7 @@ JournalLocal::JournalLocal(std::unique_ptr<SqliteConnect> sqlite)
 //---------------------------------------------------------------
 
 QStringList JournalLocal::getUsersForMonth(int year, int month) {
-  // Адаптер доменного интерфейса к конкретной реализации SQLite.
+  // Это тонкая прослойка-адаптер: доменный интерфейс тот же, реализация локальная.
   return sqlite_->getUsersForMonth(year, month);
 }
 
@@ -20,6 +20,7 @@ std::vector<AttendanceRecord> JournalLocal::getMonth(int year, int month) {
 
 bool JournalLocal::saveMonth(int year, int month,
                              const std::vector<AttendanceRecord>& data) {
+  // Вся логика транзакций живет в SqliteConnect, здесь только делегирование.
   return sqlite_->saveMonth(year, month, data);
 }
 

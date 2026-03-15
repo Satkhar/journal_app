@@ -36,6 +36,7 @@ MainWindow::MainWindow(QWidget* parent)
       day_in_month(0),
       month(0),
       year(0) {
+  // setupUi создает виджеты из сгенерированного файла journal_app.h.
   ui->setupUi(this);
 
   // Подготавливаем пустой UI-каркас таблиц до загрузки данных из БД.
@@ -58,6 +59,8 @@ MainWindow::MainWindow(QWidget* parent)
     ui->statusbar->showMessage("Storage не подключен. Выберите Local или Remote.");
     updateModeBadge();
   } else {
+    // active* поля нужны отдельно от journalApp_, чтобы UI понимал текущий режим
+    // и не делал лишние reconnect при повторном выборе того же источника.
     activeStorageMode_ = (storageMode == "server") ? "server" : "local";
     activeServerUrl_ = serverUrlEdit_->text().trimmed();
     updateModeBadge();
@@ -346,6 +349,7 @@ void MainWindow::setupStorageControls() {
   storagePanelLayout->addWidget(modeBadgeLabel_, 0, Qt::AlignLeft);
   layout->insertLayout(1, storagePanelLayout);
 
+  // Кнопки подключаем к отдельным методам, чтобы не раздувать setupStorageControls.
   connect(connectLocalBtn_, &QPushButton::clicked, this,
           [this]() { connectLocalFromUi(); });
   connect(connectRemoteBtn_, &QPushButton::clicked, this,
@@ -368,6 +372,8 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
     }
 
     // allowBootstrapWrites=false -> никаких неявных записей при loadMonth().
+    // allowBootstrapWrites=false: в remote read-only режиме loadMonth не должен
+    // автоматически создавать Alice или что-либо записывать на сервер.
     journalApp_ = std::make_unique<JournalApp>(std::move(remote), false);
     ui->statusbar->showMessage(QString("Режим: server (%1)").arg(targetUrl), 5000);
     updateEditControlsByMode();
@@ -382,6 +388,8 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
     return false;
   }
 
+  // Цепочка владения после этого:
+  // journalApp_ -> JournalApp -> JournalLocal -> SqliteConnect.
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   journalApp_ = std::make_unique<JournalApp>(std::move(local), true);
   ui->statusbar->showMessage("Режим: local", 3000);
@@ -391,6 +399,7 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
 
 void MainWindow::connectLocalFromUi() {
   if (isConnectingStorage_) {
+    // Защита от повторного клика, пока предыдущее подключение еще не завершилось.
     return;
   }
 
@@ -434,6 +443,7 @@ void MainWindow::connectRemoteFromUi() {
   }
 
   const QString serverUrlRaw = serverUrlEdit_ ? serverUrlEdit_->text().trimmed() : QString();
+  // Пустой input в UI трактуем как "используй дефолтный сервер из config/env".
   const QString serverUrl =
       serverUrlRaw.isEmpty() ? QString(JOURNAL_DEFAULT_SERVER_URL) : serverUrlRaw;
 
@@ -475,6 +485,7 @@ void MainWindow::updateModeBadge() {
     return;
   }
 
+  // Цвет бейджа отражает не просто источник данных, а разрешенный режим работы UI.
   if (activeStorageMode_ == "server") {
     modeBadgeLabel_->setText("Mode: REMOTE (read-only)");
     modeBadgeLabel_->setStyleSheet(
@@ -534,6 +545,7 @@ void MainWindow::readLocalMonthToTable() {
   }
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
+  // Отдельный JournalApp нужен только как временный use-case для чтения local snapshot.
   JournalApp localReader(std::move(local), true);
 
   updateCalendarVariables(ui->calendarWidget);
@@ -555,6 +567,7 @@ void MainWindow::pushCurrentMonthToServer() {
     return;
   }
 
+  // Push всегда берет текущее содержимое таблицы, а не перечитывает БД перед отправкой.
   const QString serverUrl =
       serverUrlEdit_ && !serverUrlEdit_->text().trimmed().isEmpty()
           ? serverUrlEdit_->text().trimmed()
@@ -584,6 +597,7 @@ void MainWindow::pullCurrentMonthFromServer() {
     return;
   }
 
+  // Pull пишет в local DB, поэтому сам UI должен оставаться в local режиме.
   const QString serverUrl =
       serverUrlEdit_ && !serverUrlEdit_->text().trimmed().isEmpty()
           ? serverUrlEdit_->text().trimmed()
@@ -617,6 +631,7 @@ void MainWindow::pullCurrentMonthFromServer() {
 
 int MainWindow::searchDate(QTableWidget* tableWidget, const QString& dateLabel) const {
   const int startColumn = 2;
+  // Колонки 0 и 1 заняты служебными полями ID/Name, даты начинаются с 2.
   for (int column = startColumn; column < static_cast<int>(day_in_month) + startColumn;
        ++column) {
     QTableWidgetItem* dataItem = tableWidget->item(0, column);
@@ -646,6 +661,7 @@ void MainWindow::updateCalendarVariables(QCalendarWidget* calendarWidget) {
   day_in_month = static_cast<uint32_t>(QDate(static_cast<int>(year), static_cast<int>(month), 1)
                                            .daysInMonth());
 
+  // Размеры календаря нормализуем здесь, чтобы это не дублировалось в UI-сценариях.
   calendarWidget->setMinimumSize(QSize(200, 150));
   calendarWidget->setMaximumSize(QSize(400, 300));
   calendarWidget->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);

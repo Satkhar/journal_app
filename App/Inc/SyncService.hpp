@@ -8,6 +8,7 @@
 
 class SyncService {
  public:
+  // Это отдельный сервис синхронизации, чтобы UI не собирал сетевой сценарий вручную.
   // timeoutMs задает таймаут сетевых операций remote storage.
   explicit SyncService(int timeoutMs = 5000);
 

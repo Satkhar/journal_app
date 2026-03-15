@@ -44,6 +44,8 @@ bool SyncService::pullMonthToLocal(const QString& serverUrl, int year, int month
     return false;
   }
 
+  // Запись в local storage выполняется уже через переданный адаптер:
+  // SyncService не знает, SQLite это или другой локальный backend.
   if (!localStorage.saveMonth(year, month, remoteData)) {
     if (errorMessage && errorMessage->isEmpty()) {
       *errorMessage = "Failed to save remote month to local storage";
