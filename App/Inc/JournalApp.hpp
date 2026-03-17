@@ -12,21 +12,18 @@ struct MonthSnapshot {
 };
 
 class JournalApp {
- public:
-  // Инициализирует слой сценариев с конкретным хранилищем.
+public:
   explicit JournalApp(std::unique_ptr<IJournalStorage> storage,
                       bool allowBootstrapWrites = true);
 
-  // Читает состояние выбранного месяца и запоминает его как текущий.
   MonthSnapshot loadMonth(int year, int month);
-  // Добавляет пользователя в текущий месяц.
-  bool addUser(const QString& name);
-  // Удаляет пользователя из текущего месяца.
-  bool deleteUser(const QString& name);
-  // Сохраняет состояние таблицы за указанный месяц.
-  bool saveMonth(int year, int month, const std::vector<AttendanceRecord>& data);
+  
+  bool addUser(const QString &name);
+  bool deleteUser(const QString &name);
+  bool saveMonth(int year, int month,
+                 const std::vector<AttendanceRecord> &data);
 
- private:
+private:
   std::unique_ptr<IJournalStorage> storage_;
   bool allowBootstrapWrites_;
   int currentYear_;
