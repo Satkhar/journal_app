@@ -6,7 +6,7 @@
 # - modernize-*      : рекомендации по более современному C++.
 # - performance-*    : подсказки по производительности.
 # - readability-*    : улучшение читаемости и единообразия кода.
-Checks: "-*,clang-analyzer-*,modernize-*,performance-*,readability-*"
+Checks: "-*,clang-analyzer-*,modernize-*,performance-*,readability-*,-modernize-use-trailing-return-type"
 
 # Тонкая настройка отдельных проверок.
 # Здесь задаются правила именования для readability-identifier-naming-*.

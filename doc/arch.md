@@ -2,102 +2,179 @@
 
 ## Цель
 
-Сделать приложение по предложенной архитектуре с минимальной трудоемкостью для MVP:
+Текущая архитектура разделяет приложение на:
 
-1. Перенести на архитектуру с локальной реализацией. (Qt + SQLite). Рефакторинг.
-2. Прикрутить сервер, с минимальным функционалом для MVP.
+1. `UI` слой на Qt Widgets.
+2. `Use-case` слой с операциями над месяцем.
+3. `Storage` абстракцию с двумя реализациями:
+   `local` через SQLite и `remote` через HTTP/libsql.
+4. Отдельный `SyncService` для явных сценариев `push/pull`.
 
-## Этап 1: Переделать на локальную архитектуру
+## Актуальная схема
 
 ```mermaid
 flowchart LR
   UI[MainWindow / Qt Widgets] --> APP[JournalApp]
-  APP --> REPO[JournalLocal]
-  REPO --> SQLITE[SqliteConnect]
-  SQLITE --> DB[(SQLite: data.db)]
+  APP --> ST[IJournalStorage]
+  ST --> LOCAL[JournalLocal]
+  ST --> REMOTE[JournalRemote]
+  LOCAL --> SQLITE[SqliteConnect]
+  SQLITE --> LDB[(Local DB: SQLite)]
+  REMOTE --> API[libsql HTTP API]
+  API --> RDB[(Remote DB: SQLite)]
+
+  UI --> SYNC[SyncService]
+  SYNC --> ST
 ```
 
-### Подробнее
+### Что означает схема
 
-1. `MainWindow` Лицо. Только собирает ввод и показывает данные.
-2. `JournalApp` содержит сценарии:
-- `loadMonth(...)`
+1. `MainWindow` отвечает за ввод пользователя, обновление виджетов и запуск сценариев.
+2. `JournalApp` содержит прикладные операции:
+   `loadMonth(...)`, `addUser(...)`, `deleteUser(...)`, `saveMonth(...)`.
+3. `IJournalStorage` задает единый контракт для доступа к данным месяца.
+4. `JournalLocal` адаптирует этот контракт к SQLite через `SqliteConnect`.
+5. `JournalRemote` адаптирует тот же контракт к remote server по HTTP.
+6. `SyncService` вызывается из UI отдельно от `JournalApp` и работает через storage-контракт.
+
+## Роли классов
+
+### `MainWindow`
+
+- Инициализирует UI.
+- Создает и переключает активный storage: `local` или `remote`.
+- Вызывает `JournalApp` для обычных пользовательских операций.
+- Вызывает `SyncService` для `Push to Server` и `Pull from Server`.
+
+### `JournalApp`
+
+- Это use-case слой между UI и storage.
+- Не знает, работает ли он с SQLite или с remote backend.
+- Работает через интерфейс `IJournalStorage`.
+- Хранит текущий открытый месяц, чтобы `addUser/deleteUser` работали в контексте выбранного месяца.
+
+### `IJournalStorage`
+
+Единый интерфейс для всех хранилищ:
+
+- `getUsersForMonth(...)`
+- `getMonth(...)`
+- `saveMonth(...)`
 - `addUser(...)`
 - `deleteUser(...)`
-- `saveMonth(...)`
-3. `JournalLocal` запись/чтение данных.
-4. `SqliteConnect` — реализация доступа к локальной БД.
 
-## Этап 2: Архитектура для сдачи (добавление сервера)
+### `JournalLocal`
+
+- Реализация `IJournalStorage` для локальной БД.
+- Почти вся SQL-логика делегируется в `SqliteConnect`.
+
+### `SqliteConnect`
+
+- Низкоуровневый адаптер работы с SQLite.
+- Открывает соединение.
+- Гарантирует наличие схемы.
+- Выполняет чтение/сохранение месяца.
+- Добавляет и удаляет пользователя в рамках месяца.
+
+### `JournalRemote`
+
+- Реализация `IJournalStorage` для remote server.
+- Отправляет SQL через HTTP pipeline API.
+- Умеет читать и сохранять месяц на сервере.
+- Поддерживает `connect()` как логическую проверку доступности сервера и схемы.
+
+### `SyncService`
+
+- Отдельный сервис синхронизации.
+- `pushMonthToServer(...)` отправляет локальный снимок месяца на сервер.
+- `pullMonthToLocal(...)` читает месяц с сервера и сохраняет его в local storage.
+
+## Потоки выполнения
+
+### Обычная работа в local или remote
 
 ```mermaid
-flowchart LR
-  UI[MainWindow / Qt Widgets] --> APP[JournalApp]
-  APP --> REPO[JournalLocal]
+sequenceDiagram
+  actor User
+  participant UI as MainWindow
+  participant APP as JournalApp
+  participant ST as IJournalStorage
 
-  REPO --> L[SqliteConnect]
-  L --> LDB[(Local DB: SQLite)]
-
-  APP --> SYNC[Sync]
-  SYNC --> REMOTE[ServerConnect]
-  REMOTE --> API[Server API]
-  API --> SDB[(Server DB)]
+  User->>UI: Открыть месяц / Add / Delete / Save
+  UI->>APP: вызвать use-case
+  APP->>ST: loadMonth/addUser/deleteUser/saveMonth
+  ST-->>APP: данные или результат
+  APP-->>UI: snapshot / bool
 ```
 
-### Что добавляем
+### Push на сервер
 
-1. `Sync` для кнопки `Sync`, принудительная синхронизация локальной БД с сервером.
-2. `ServerConnect` для работы с сервером (запись/чтение данных). По сути коннект с API сервера.
-3. Локальная БД остается для офлайна и скорости.
+```mermaid
+sequenceDiagram
+  actor User
+  participant UI as MainWindow
+  participant SYNC as SyncService
+  participant REM as JournalRemote
 
-Стрелки в этих диаграммах
-- `-->` архитектурная зависимость (кто от кого зависит в коде).
-
-## Минимальные интерфейсы (чтобы не переделывать дважды)
-
-```cpp
-struct IJournalStorage {
-  virtual ~IJournalStorage() = default;
-  virtual std::vector<User> getUsers() = 0;
-  virtual std::vector<Attendance> getMonth(int year, int month) = 0;
-  virtual void saveMonth(int year, int month,
-                         const std::vector<Attendance>& data) = 0;
-  virtual void addUser(const std::string& name) = 0;
-  virtual void deleteUser(const std::string& name) = 0;
-};
+  User->>UI: Push to Server
+  UI->>UI: collectMonthFromTable()
+  UI->>SYNC: pushMonthToServer(...)
+  SYNC->>REM: connect()
+  SYNC->>REM: saveMonth(...)
+  REM-->>SYNC: result
+  SYNC-->>UI: result
 ```
 
-На этапе 1 реализуется только `JournalLocal` (внутри использует `SqliteConnect`).
-На этапе 2 добавляется `ServerConnect`, а `Sync` использует оба источника.
+### Pull с сервера
 
-## Минимальная структура проекта
+```mermaid
+sequenceDiagram
+  actor User
+  participant UI as MainWindow
+  participant SYNC as SyncService
+  participant REM as JournalRemote
+  participant LOC as JournalLocal
 
-```text
-journal_app/
-  App/
-    Src/
-      main.cpp
-      mainwindow.cpp
-      JournalApp.cpp
-      JournalLocal.cpp
-      SqliteConnect.cpp
-      Sync.cpp                  
-      ServerConnect.cpp         
-    Inc/
-      mainwindow.hpp
-      JournalApp.hpp
-      IJournalStorage.hpp
-      JournalLocal.hpp
-      SqliteConnect.hpp
-      Sync.hpp                  
-      ServerConnect.hpp         
+  User->>UI: Pull from Server
+  UI->>SYNC: pullMonthToLocal(...)
+  SYNC->>REM: connect()
+  SYNC->>REM: getMonth(...)
+  REM-->>SYNC: remote month
+  SYNC->>LOC: saveMonth(...)
+  LOC-->>SYNC: result
+  SYNC-->>UI: result
 ```
 
-## План работ
+## Архитектурные идеи, которые уже есть в коде
 
-1. Вынести SQL из `MainWindow` в `JournalLocal`/`SqliteConnect`.
-2. Вынести операции кнопок в `JournalApp`.
-3. Оставить `MainWindow` только как UI-слой.
-4. Проверить проект в локальном варианте (после рефакторинга).
-5. Добавить `ServerConnect`.
-6. Добавить `Sync` (кнопка для ручной синхронизации).
+1. `Adapter`
+   `JournalLocal` и `JournalRemote` приводят разные источники данных к одному интерфейсу `IJournalStorage`.
+
+2. `Strategy`
+   `JournalApp` работает с той реализацией `IJournalStorage`, которую ему передали.
+
+3. `Dependency Injection`
+   Конкретный storage передается в `JournalApp` извне, а не создается внутри него.
+
+4. `Service`
+   `SyncService` вынесен в отдельный объект, потому что это отдельный сценарий синхронизации, а не обязанность UI или storage.
+
+5. `Observer`
+   На уровне UI используется Qt signal/slot механизм через `connect(...)`.
+
+## Важное уточнение
+
+В проекте есть legacy-файлы:
+
+- `mainTableManager.*`
+- `dbManager.*`
+- `checkTableManager.*`
+
+Они отражают более ранний этап разработки, но не являются ядром текущей архитектуры. Актуальный поток работы проходит через:
+
+- `MainWindow`
+- `JournalApp`
+- `IJournalStorage`
+- `JournalLocal` / `JournalRemote`
+- `SqliteConnect`
+- `SyncService`
