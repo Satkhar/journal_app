@@ -44,3 +44,8 @@
 /.PVS-Studio
 
 /.cache
+
+#debug
+
+/debug
+/home-pc
