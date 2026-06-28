@@ -18,6 +18,8 @@ class IJournalStorage {
  public:
   virtual ~IJournalStorage() = default;
 
+  // Интерфейс storage намеренно месяц-ориентированный:
+  // UI и use-case работают со снимком месяца, а не с одиночными днями.
   // Возвращает список пользователей, у которых есть записи за месяц.
   virtual QStringList getUsersForMonth(int year, int month) = 0;
   // Возвращает все отметки пользователей за месяц.

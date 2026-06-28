@@ -10,6 +10,7 @@
 // для работы с базой данных:
 class DatabaseManager {
 public:
+  // Legacy manager: часть обязанностей перенесена в SqliteConnect.
   // Создает объект менеджера БД без активного соединения.
   DatabaseManager();
   // Закрывает ресурсы менеджера.

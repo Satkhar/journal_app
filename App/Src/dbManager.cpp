@@ -21,6 +21,7 @@ DatabaseManager::DatabaseManager() {}
 
 bool DatabaseManager::createConnection(const QString &dbPath)
 {
+  // Legacy-способ открыть SQLite через default connection Qt.
   db = QSqlDatabase::addDatabase("QSQLITE");
   db.setDatabaseName(dbPath);
 
@@ -52,7 +53,7 @@ bool DatabaseManager::createConnection(const QString &dbPath)
 bool DatabaseManager::isDatabaseEmpty()
 {
   QSqlQuery query;
-  // берем данные
+  // Простейшая проверка: если SELECT вернул хотя бы одну строку, база не пуста.
   if (!query.exec("SELECT * FROM users"))
   {
     qDebug() << "Ошибка выполнения запроса:" << query.lastError().text();

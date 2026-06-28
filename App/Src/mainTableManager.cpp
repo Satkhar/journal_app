@@ -9,6 +9,7 @@ MainTableManager::MainTableManager() { tableWidget = nullptr; }
 //---------------------------------------------------------------
 
 void MainTableManager::setTableWidget(QTableWidget *tableWidget) {
+  // Сохраняем внешний виджет; жизненный цикл остается у вызывающего кода.
   this->tableWidget = tableWidget;
 }
 
@@ -16,6 +17,7 @@ void MainTableManager::setTableWidget(QTableWidget *tableWidget) {
 
 void MainTableManager::updToDefaultTable()
 {
+  // Legacy-метод для тестового заполнения таблицы до появления MonthSnapshot/JournalApp.
   QString data;
 
   // запись даты (дд.мм) в таблицу
@@ -55,6 +57,7 @@ void MainTableManager::updToDefaultTable()
 
 void MainTableManager::writeTable()
 {
+  // Legacy-путь прямой записи из UI в БД; в актуальном коде это делает JournalApp/SqliteConnect.
   QElapsedTimer timer_write_table;
   timer_write_table.start();
 
@@ -119,6 +122,7 @@ void MainTableManager::writeTable()
 //---------------------------------------------------------------
 
 MainTableManager::~MainTableManager() {
+  // Виджет таблицы принадлежит UI и здесь не удаляется.
   // if (tableWidget) {
   //   delete tableWidget; // Освобождаем память, если tableWidget был создан
   //                       // динамически
