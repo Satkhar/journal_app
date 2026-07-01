@@ -14,8 +14,15 @@ struct MonthSnapshot {
   std::vector<AttendanceRecord> attendance;
 };
 
+struct CopyUsersResult {
+  bool ok;
+  int copied;
+  int skipped;
+  QString errorMessage;
+};
+
 class JournalApp {
- public:
+public:
   // Это use-case слой между UI и конкретным storage.
   // UI не знает, SQLite это или remote HTTP-адаптер.
   // Инициализирует слой сценариев с конкретным хранилищем.
@@ -27,6 +34,8 @@ class JournalApp {
 
   MonthSnapshot loadMonth(int year, int month);
   bool saveActiveDays(int year, int month, const QVector<int>& days);
+  CopyUsersResult copyUsersFromMonth(int fromYear, int fromMonth, int toYear,
+                                     int toMonth, bool copyActiveDays);
   
   bool addUser(const QString &name);
   bool deleteUser(const QString &name);

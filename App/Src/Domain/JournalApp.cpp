@@ -71,6 +71,57 @@ bool JournalApp::saveActiveDays(int year, int month, const QVector<int>& days) {
 
 //---------------------------------------------------------------
 
+CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
+                                               int toYear, int toMonth,
+                                               bool copyActiveDays) {
+  QElapsedTimer timer;
+  timer.start();
+
+  if (fromYear == toYear && fromMonth == toMonth) {
+    return {false, 0, 0, "Месяц-источник совпадает с текущим месяцем"};
+  }
+
+  const QStringList sourceUsers = storage_->getUsersForMonth(fromYear, fromMonth);
+  if (sourceUsers.isEmpty()) {
+    return {true, 0, 0, QString()};
+  }
+
+  if (copyActiveDays) {
+    const QVector<int> sourceDays = storage_->getActiveDays(fromYear, fromMonth);
+    if (!storage_->saveActiveDays(toYear, toMonth, sourceDays)) {
+      return {false, 0, 0, "Не удалось перенести дни учета"};
+    }
+  }
+
+  QStringList targetUsers = storage_->getUsersForMonth(toYear, toMonth);
+  int copied = 0;
+  int skipped = 0;
+
+  for (const QString& user : sourceUsers) {
+    if (targetUsers.contains(user)) {
+      ++skipped;
+      continue;
+    }
+
+    if (!storage_->addUser(toYear, toMonth, user)) {
+      return {false, copied, skipped,
+              QString("Не удалось перенести пользователя: %1").arg(user)};
+    }
+
+    targetUsers.push_back(user);
+    ++copied;
+  }
+
+  currentYear_ = toYear;
+  currentMonth_ = toMonth;
+  qInfo() << "copyUsersFromMonth:" << fromYear << fromMonth << "->" << toYear
+          << toMonth << "copied:" << copied << "skipped:" << skipped
+          << "copy days:" << copyActiveDays << "ms:" << timer.elapsed();
+  return {true, copied, skipped, QString()};
+}
+
+//---------------------------------------------------------------
+
 bool JournalApp::addUser(const QString& name) {
   QElapsedTimer timer;
   timer.start();

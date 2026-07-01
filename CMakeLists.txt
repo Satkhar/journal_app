@@ -25,6 +25,7 @@ add_executable(journal_app
     ./App/Src/Sync/SyncService.cpp
     ./App/Src/Ui/mainwindow.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
+    ./App/Src/Ui/CopyUsersDialog.cpp
 
 
 
@@ -37,6 +38,7 @@ add_executable(journal_app
     ./App/Inc/Sync/SyncService.hpp
     ./App/Inc/Ui/mainwindow.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
+    ./App/Inc/Ui/CopyUsersDialog.hpp
 
     ./journal_app.ui
     )

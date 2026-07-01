@@ -47,6 +47,7 @@ class MainWindow : public QMainWindow {
   QPushButton* connectLocalBtn_;
   QPushButton* connectRemoteBtn_;
   QPushButton* configureMonthBtn_;
+  QPushButton* copyUsersBtn_;
 
   // Текущее активное подключение (используется для защиты от лишних reconnect).
   QString activeStorageMode_;
@@ -83,6 +84,8 @@ class MainWindow : public QMainWindow {
   void connectRemoteFromUi();
   // Открывает диалог выбора дней учета для текущего месяца.
   void configureMonthDays();
+  // Переносит пользователей из другого месяца в текущий.
+  void copyUsersFromMonth();
   // Обновляет визуальный индикатор режима.
   void updateModeBadge();
   // Включает/выключает кнопки редактирования в зависимости от режима.

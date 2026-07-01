@@ -15,6 +15,7 @@
 #include <memory>
 #include <QHash>
 
+#include "CopyUsersDialog.hpp"
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
 #include "MonthDaysDialog.hpp"
@@ -51,6 +52,7 @@ MainWindow::MainWindow(QWidget* parent)
       connectLocalBtn_(nullptr),
       connectRemoteBtn_(nullptr),
       configureMonthBtn_(nullptr),
+      copyUsersBtn_(nullptr),
       activeStorageMode_(),
       activeServerUrl_(),
       isConnectingStorage_(false),
@@ -422,10 +424,15 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout) {
   configureMonthBtn_ = new QPushButton("Настроить дни", this);
   monthLayout->addWidget(configureMonthBtn_);
 
+  copyUsersBtn_ = new QPushButton("Перенести пользователей", this);
+  monthLayout->addWidget(copyUsersBtn_);
+
   parentLayout->insertWidget(1, monthGroup_);
 
   connect(configureMonthBtn_, &QPushButton::clicked, this,
           [this]() { configureMonthDays(); });
+  connect(copyUsersBtn_, &QPushButton::clicked, this,
+          [this]() { copyUsersFromMonth(); });
 }
 
 void MainWindow::setupDataPanel(QVBoxLayout* parentLayout) {
@@ -600,6 +607,41 @@ void MainWindow::configureMonthDays() {
   ui->statusbar->showMessage("Настройка месяца сохранена.", 4000);
 }
 
+void MainWindow::copyUsersFromMonth() {
+  if (activeStorageMode_ == "server") {
+    ui->statusbar->showMessage("Перенос пользователей доступен только в local режиме.", 5000);
+    return;
+  }
+
+  if (!journalApp_) {
+    ui->statusbar->showMessage("Сервис не инициализирован");
+    return;
+  }
+
+  updateCalendarVariables(ui->calendarWidget);
+  CopyUsersDialog dialog(static_cast<int>(year), static_cast<int>(month), this);
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  const CopyUsersResult result = journalApp_->copyUsersFromMonth(
+      dialog.sourceYear(), dialog.sourceMonth(), static_cast<int>(year),
+      static_cast<int>(month), dialog.copyActiveDays());
+
+  if (!result.ok) {
+    ui->statusbar->showMessage(
+        QString("Перенос не выполнен: %1").arg(result.errorMessage), 6000);
+    return;
+  }
+
+  refreshMonth();
+  ui->statusbar->showMessage(
+      QString("Перенос завершен. Добавлено: %1, пропущено: %2")
+          .arg(result.copied)
+          .arg(result.skipped),
+      5000);
+}
+
 void MainWindow::updateModeBadge() {
   if (!modeBadgeLabel_) {
     return;
@@ -655,6 +697,9 @@ void MainWindow::updateEditControlsByMode() {
   ui->lineEdit->setEnabled(isLocalMode);
   if (configureMonthBtn_) {
     configureMonthBtn_->setEnabled(isLocalMode);
+  }
+  if (copyUsersBtn_) {
+    copyUsersBtn_->setEnabled(isLocalMode);
   }
 }
 
