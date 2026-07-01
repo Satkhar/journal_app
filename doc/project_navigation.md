@@ -31,28 +31,40 @@ journal_app/
     Inc/                      # публичные заголовки проекта
       config.h                # DB_PATH, режим/URL сервера по умолчанию, timeout
       journal_app.h           # сгенерированный/зафиксированный UI header
-      mainwindow.hpp          # главный Qt UI-контроллер
-      JournalApp.hpp          # use-case слой приложения
-      IJournalStorage.hpp     # общий контракт локального и remote storage
-      JournalLocal.hpp        # адаптер IJournalStorage -> SqliteConnect
-      JournalRemote.hpp       # remote storage через libsql HTTP pipeline
-      SyncService.hpp         # push/pull месяца между local и remote
-      SqliteConnect.hpp       # низкоуровневый SQLite storage
-      dbManager.hpp           # устаревший DB manager
-      mainTableManager.hpp    # устаревший manager UI-таблицы
-      checkTableManager.hpp   # устаревшая заготовка manager чекбокс-таблицы
+      Domain/
+        IJournalStorage.hpp   # общий контракт local/remote storage и модели
+        JournalApp.hpp        # use-case слой приложения
+      Storage/
+        JournalLocal.hpp      # адаптер IJournalStorage -> SqliteConnect
+        JournalRemote.hpp     # remote storage через libsql HTTP pipeline
+        SqliteConnect.hpp     # низкоуровневый SQLite storage
+      Sync/
+        SyncService.hpp       # push/pull месяца между local и remote
+      Ui/
+        mainwindow.hpp        # главный Qt UI-контроллер
+        MonthDaysDialog.hpp   # диалог выбора дней учета месяца
+      Legacy/
+        dbManager.hpp         # устаревший DB manager
+        mainTableManager.hpp  # устаревший manager UI-таблицы
+        checkTableManager.hpp # устаревшая заготовка manager чекбокс-таблицы
 
     Src/
       main.cpp                # QApplication, MainWindow, Windows UTF-8 console
-      mainwindow.cpp          # UI wiring, таблица, режимы local/remote, sync buttons
-      JournalApp.cpp          # сценарии load/add/delete/save для выбранного месяца
-      JournalLocal.cpp        # тонкий adapter к SqliteConnect
-      JournalRemote.cpp       # SQL-over-HTTP к libsql/sqld /v2/pipeline
-      SyncService.cpp         # push local->server и pull server->local
-      SqliteConnect.cpp       # SQLite schema и CRUD месяца
-      dbManager.cpp           # устаревший код старого доступа к БД
-      mainTableManager.cpp    # устаревший код старого управления таблицей
-      checkTableManager.cpp   # устаревшая почти пустая реализация
+      Domain/
+        JournalApp.cpp        # сценарии load/add/delete/save для выбранного месяца
+      Storage/
+        JournalLocal.cpp      # тонкий adapter к SqliteConnect
+        JournalRemote.cpp     # SQL-over-HTTP к libsql/sqld /v2/pipeline
+        SqliteConnect.cpp     # SQLite schema и CRUD месяца
+      Sync/
+        SyncService.cpp       # push local->server и pull server->local
+      Ui/
+        mainwindow.cpp        # UI wiring, таблица, режимы local/remote, sync buttons
+        MonthDaysDialog.cpp   # календарный диалог выбора дней учета
+      Legacy/
+        dbManager.cpp         # устаревший код старого доступа к БД
+        mainTableManager.cpp  # устаревший код старого управления таблицей
+        checkTableManager.cpp # устаревшая почти пустая реализация
 
   doc/
     arch.md                   # архитектурный план MVP и server stage
@@ -66,13 +78,13 @@ journal_app/
 ## Главный поток выполнения
 
 1. `App/Src/main.cpp` создает `QApplication`, `MainWindow` и запускает event loop.
-2. `MainWindow` в `App/Src/mainwindow.cpp`:
+2. `MainWindow` в `App/Src/Ui/mainwindow.cpp`:
    - загружает UI из `journal_app.ui` через `Ui::MainWindow`;
    - создает таблицы `bigTable` и скрытую `checkTable`;
    - создает controls для выбора `Local` / `Remote`;
    - инициализирует `JournalApp` с нужной реализацией `IJournalStorage`;
    - связывает кнопки с add/delete/read/save/push/pull действиями.
-3. `JournalApp` в `App/Src/JournalApp.cpp` хранит выбранный месяц и вызывает
+3. `JournalApp` в `App/Src/Domain/JournalApp.cpp` хранит выбранный месяц и вызывает
    storage-методы. При пустом local месяце может создать стартового пользователя
    `Alice`; для remote режима bootstrap-запись отключена.
 4. `IJournalStorage` задает общий контракт:
@@ -93,12 +105,12 @@ journal_app/
 
 ### UI слой
 
-Основной файл: `App/Src/mainwindow.cpp`.
+Основной файл: `App/Src/Ui/mainwindow.cpp`.
 
 Здесь находятся:
 - создание и перерисовка таблицы месяца (`createEmptyTable`, `renderMonth`);
 - чтение чекбоксов из таблицы (`collectMonthFromTable`);
-- диалог настройки дней месяца (`MonthDaysDialog`, `configureMonthDays`);
+- вызов диалога настройки дней месяца (`configureMonthDays`);
 - обработчики кнопок `Add`, `Delete`, `Read Base`, `Save Current Table`,
   push/pull серверной синхронизации;
 - переключение режимов storage (`setupStorage`, `connectLocalFromUi`,
@@ -107,14 +119,16 @@ journal_app/
 
 При изменениях в UX, кнопках, календаре, таблице или статусах обычно начинать с:
 - `journal_app.ui`
-- `App/Inc/mainwindow.hpp`
-- `App/Src/mainwindow.cpp`
+- `App/Inc/Ui/mainwindow.hpp`
+- `App/Src/Ui/mainwindow.cpp`
+- `App/Inc/Ui/MonthDaysDialog.hpp`
+- `App/Src/Ui/MonthDaysDialog.cpp`
 
 ### Use-case слой
 
 Основные файлы:
-- `App/Inc/JournalApp.hpp`
-- `App/Src/JournalApp.cpp`
+- `App/Inc/Domain/JournalApp.hpp`
+- `App/Src/Domain/JournalApp.cpp`
 
 Здесь должны жить сценарии приложения, не привязанные к конкретному UI-виджету:
 загрузить месяц, добавить пользователя, удалить пользователя, сохранить месяц.
@@ -124,7 +138,7 @@ journal_app/
 
 ### Storage contract и модели
 
-Основной файл: `App/Inc/IJournalStorage.hpp`.
+Основной файл: `App/Inc/Domain/IJournalStorage.hpp`.
 
 Здесь определены:
 - `AttendanceRecord`: `userName`, `day`, `isChecked`;
@@ -138,10 +152,10 @@ journal_app/
 ### Local SQLite storage
 
 Основные файлы:
-- `App/Inc/SqliteConnect.hpp`
-- `App/Src/SqliteConnect.cpp`
-- `App/Inc/JournalLocal.hpp`
-- `App/Src/JournalLocal.cpp`
+- `App/Inc/Storage/SqliteConnect.hpp`
+- `App/Src/Storage/SqliteConnect.cpp`
+- `App/Inc/Storage/JournalLocal.hpp`
+- `App/Src/Storage/JournalLocal.cpp`
 
 Текущая SQLite-схема создается автоматически:
 
@@ -177,8 +191,8 @@ CREATE TABLE IF NOT EXISTS month_days (
 ### Remote storage
 
 Основные файлы:
-- `App/Inc/JournalRemote.hpp`
-- `App/Src/JournalRemote.cpp`
+- `App/Inc/Storage/JournalRemote.hpp`
+- `App/Src/Storage/JournalRemote.cpp`
 - `doc/docker_setup.md`
 - `doc/server_sync_plan.md`
 
@@ -206,9 +220,9 @@ remote SQL начинать с `JournalRemote.cpp`.
 ### Синхронизация
 
 Основные файлы:
-- `App/Inc/SyncService.hpp`
-- `App/Src/SyncService.cpp`
-- `App/Src/mainwindow.cpp` (`pushCurrentMonthToServer`, `pullCurrentMonthFromServer`)
+- `App/Inc/Sync/SyncService.hpp`
+- `App/Src/Sync/SyncService.cpp`
+- `App/Src/Ui/mainwindow.cpp` (`pushCurrentMonthToServer`, `pullCurrentMonthFromServer`)
 
 Текущая стратегия простая: полная перезапись месяца.
 - Push: собранные из UI local данные сохраняются на сервер.
@@ -221,13 +235,14 @@ remote SQL начинать с `JournalRemote.cpp`.
 
 Активные файлы текущей архитектуры:
 - `main.cpp`
-- `mainwindow.*`
-- `JournalApp.*`
-- `IJournalStorage.hpp`
-- `JournalLocal.*`
-- `JournalRemote.*`
-- `SyncService.*`
-- `SqliteConnect.*`
+- `Ui/mainwindow.*`
+- `Ui/MonthDaysDialog.*`
+- `Domain/JournalApp.*`
+- `Domain/IJournalStorage.hpp`
+- `Storage/JournalLocal.*`
+- `Storage/JournalRemote.*`
+- `Sync/SyncService.*`
+- `Storage/SqliteConnect.*`
 - `config.h`
 - `journal_app.ui`
 
@@ -246,38 +261,42 @@ UI, CMake или будущих ветках.
 ```text
 Новая кнопка или изменение UI:
   journal_app.ui
-  App/Inc/mainwindow.hpp
-  App/Src/mainwindow.cpp
+  App/Inc/Ui/mainwindow.hpp
+  App/Src/Ui/mainwindow.cpp
+  App/Inc/Ui/MonthDaysDialog.hpp
+  App/Src/Ui/MonthDaysDialog.cpp
 
 Настройка дней учета месяца:
-  App/Src/mainwindow.cpp
-  App/Inc/IJournalStorage.hpp
-  App/Inc/JournalApp.hpp
-  App/Src/JournalApp.cpp
-  App/Inc/SqliteConnect.hpp
-  App/Src/SqliteConnect.cpp
+  App/Src/Ui/mainwindow.cpp
+  App/Inc/Ui/MonthDaysDialog.hpp
+  App/Src/Ui/MonthDaysDialog.cpp
+  App/Inc/Domain/IJournalStorage.hpp
+  App/Inc/Domain/JournalApp.hpp
+  App/Src/Domain/JournalApp.cpp
+  App/Inc/Storage/SqliteConnect.hpp
+  App/Src/Storage/SqliteConnect.cpp
 
 Изменить поведение add/delete/save/load:
-  App/Inc/JournalApp.hpp
-  App/Src/JournalApp.cpp
-  App/Inc/IJournalStorage.hpp, если меняется контракт
+  App/Inc/Domain/JournalApp.hpp
+  App/Src/Domain/JournalApp.cpp
+  App/Inc/Domain/IJournalStorage.hpp, если меняется контракт
 
 Изменить локальную БД или схему:
   App/Inc/config.h
-  App/Inc/SqliteConnect.hpp
-  App/Src/SqliteConnect.cpp
-  App/Src/JournalLocal.cpp
+  App/Inc/Storage/SqliteConnect.hpp
+  App/Src/Storage/SqliteConnect.cpp
+  App/Src/Storage/JournalLocal.cpp
 
 Изменить remote/server работу:
-  App/Inc/JournalRemote.hpp
-  App/Src/JournalRemote.cpp
+  App/Inc/Storage/JournalRemote.hpp
+  App/Src/Storage/JournalRemote.cpp
   doc/docker_setup.md
   doc/server_sync_plan.md
 
 Изменить sync local <-> server:
-  App/Inc/SyncService.hpp
-  App/Src/SyncService.cpp
-  App/Src/mainwindow.cpp
+  App/Inc/Sync/SyncService.hpp
+  App/Src/Sync/SyncService.cpp
+  App/Src/Ui/mainwindow.cpp
 
 Изменить сборку или зависимости:
   CMakeLists.txt
