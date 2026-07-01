@@ -10,6 +10,7 @@
 #include <QProcessEnvironment>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 
 #include <memory>
@@ -63,6 +64,8 @@ MainWindow::MainWindow(QWidget* parent)
       year(0) {
   // setupUi создает виджеты из сгенерированного файла journal_app.h.
   ui->setupUi(this);
+  setMinimumSize(QSize(1050, 720));
+  resize(QSize(1200, 780));
 
   // Подготавливаем пустой UI-каркас таблиц до загрузки данных из БД.
   createEmptyTable();
@@ -353,10 +356,15 @@ void MainWindow::createEmptyTable() {
 
   tableWidget->resizeColumnsToContents();
   tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+  tableWidget->setMinimumHeight(260);
+  tableWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
   QGridLayout* layout = ui->centralwidget->findChild<QGridLayout*>("gridLayout");
   if (layout) {
-    layout->addWidget(tableWidget);
+    layout->addWidget(tableWidget, 1, 0);
+    layout->setRowStretch(0, 0);
+    layout->setRowStretch(1, 1);
+    layout->setColumnStretch(0, 1);
   }
 
   baseTableWidget = tableWidget;
