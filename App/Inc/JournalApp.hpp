@@ -1,12 +1,15 @@
 #pragma once
 
 #include <memory>
+#include <QVector>
 
 #include "IJournalStorage.hpp"
 
 struct MonthSnapshot {
   // Список строк таблицы (пользователи).
   QStringList users;
+  // Дни месяца, которые входят в учет посещаемости.
+  QVector<int> activeDays;
   // Отметки по дням для всех пользователей.
   std::vector<AttendanceRecord> attendance;
 };
@@ -23,6 +26,7 @@ class JournalApp {
                       bool allowBootstrapWrites = true);
 
   MonthSnapshot loadMonth(int year, int month);
+  bool saveActiveDays(int year, int month, const QVector<int>& days);
   
   bool addUser(const QString &name);
   bool deleteUser(const QString &name);

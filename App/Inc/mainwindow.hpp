@@ -8,6 +8,7 @@
 #include <QStringList>
 #include <QTableWidget>
 #include <QPushButton>
+#include <QVector>
 
 #include <memory>
 #include <vector>
@@ -39,6 +40,7 @@ class MainWindow : public QMainWindow {
   QLineEdit* serverUrlEdit_;
   QPushButton* connectLocalBtn_;
   QPushButton* connectRemoteBtn_;
+  QPushButton* configureMonthBtn_;
 
   // Текущее активное подключение (используется для защиты от лишних reconnect).
   QString activeStorageMode_;
@@ -47,6 +49,7 @@ class MainWindow : public QMainWindow {
 
   // Кэш указателя на главную таблицу и числовые параметры месяца из календаря.
   QTableWidget* baseTableWidget;
+  QVector<int> activeDays_;
   uint32_t day_in_month;
   uint32_t month;
   uint32_t year;
@@ -69,6 +72,8 @@ class MainWindow : public QMainWindow {
   // Обработчики кнопок Local/Remote.
   void connectLocalFromUi();
   void connectRemoteFromUi();
+  // Открывает диалог выбора дней учета для текущего месяца.
+  void configureMonthDays();
   // Обновляет визуальный индикатор режима.
   void updateModeBadge();
   // Включает/выключает кнопки редактирования в зависимости от режима.

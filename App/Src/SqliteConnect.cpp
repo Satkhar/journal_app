@@ -5,9 +5,12 @@
 #include <QElapsedTimer>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QSet>
 #include <QUuid>
 #include <QVariant>
 #include <QtGlobal>
+
+#include <algorithm>
 
 SqliteConnect::SqliteConnect() = default;
 
@@ -55,11 +58,52 @@ bool SqliteConnect::open(const QString& dbPath) {
 bool SqliteConnect::ensureSchema() {
   QSqlQuery query(db_);
   // Нормализованная схема: одна запись на (user, day).
-  return query.exec("CREATE TABLE IF NOT EXISTS users ("
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                    "name TEXT NOT NULL, "
-                    "date TEXT NOT NULL, "
-                    "is_checked INTEGER NOT NULL)");
+  if (!query.exec("CREATE TABLE IF NOT EXISTS users ("
+                  "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                  "name TEXT NOT NULL, "
+                  "date TEXT NOT NULL, "
+                  "is_checked INTEGER NOT NULL)")) {
+    return false;
+  }
+
+  return query.exec("CREATE TABLE IF NOT EXISTS month_days ("
+                    "year INTEGER NOT NULL, "
+                    "month INTEGER NOT NULL, "
+                    "day INTEGER NOT NULL, "
+                    "PRIMARY KEY(year, month, day))");
+}
+
+//---------------------------------------------------------------
+
+QVector<int> SqliteConnect::fullMonthDays(int year, int month) const {
+  QVector<int> days;
+  const int maxDay = daysInMonth(year, month);
+  days.reserve(maxDay);
+  for (int day = 1; day <= maxDay; ++day) {
+    days.push_back(day);
+  }
+  return days;
+}
+
+//---------------------------------------------------------------
+
+QVector<int> SqliteConnect::normalizeDays(int year, int month,
+                                          const QVector<int>& days) const {
+  QSet<int> uniqueDays;
+  const int maxDay = daysInMonth(year, month);
+  for (int day : days) {
+    if (day >= 1 && day <= maxDay) {
+      uniqueDays.insert(day);
+    }
+  }
+
+  QVector<int> normalized;
+  normalized.reserve(uniqueDays.size());
+  for (int day : uniqueDays) {
+    normalized.push_back(day);
+  }
+  std::sort(normalized.begin(), normalized.end());
+  return normalized;
 }
 
 //---------------------------------------------------------------
@@ -107,6 +151,130 @@ QStringList SqliteConnect::getUsersForMonth(int year, int month) {
   }
 
   return users;
+}
+
+//---------------------------------------------------------------
+
+QVector<int> SqliteConnect::getActiveDays(int year, int month) {
+  QVector<int> days;
+
+  QSqlQuery query(db_);
+  query.prepare(
+      "SELECT day FROM month_days WHERE year = :year AND month = :month ORDER BY day ASC");
+  query.bindValue(":year", year);
+  query.bindValue(":month", month);
+
+  if (!query.exec()) {
+    qWarning() << "SqliteConnect::getActiveDays query failed:" << query.lastError().text();
+    return fullMonthDays(year, month);
+  }
+
+  while (query.next()) {
+    days.push_back(query.value(0).toInt());
+  }
+
+  // Пустая настройка трактуется как отсутствие настройки: старое поведение.
+  if (days.isEmpty()) {
+    return fullMonthDays(year, month);
+  }
+
+  return normalizeDays(year, month, days);
+}
+
+//---------------------------------------------------------------
+
+bool SqliteConnect::saveActiveDays(int year, int month, const QVector<int>& days) {
+  const QVector<int> normalizedDays = normalizeDays(year, month, days);
+  if (normalizedDays.isEmpty()) {
+    qWarning() << "SqliteConnect::saveActiveDays rejected empty days list";
+    return false;
+  }
+
+  const QStringList users = getUsersForMonth(year, month);
+
+  if (!db_.transaction()) {
+    qWarning() << "SqliteConnect::saveActiveDays transaction start failed";
+    return false;
+  }
+
+  QSqlQuery deleteConfigQuery(db_);
+  deleteConfigQuery.prepare("DELETE FROM month_days WHERE year = :year AND month = :month");
+  deleteConfigQuery.bindValue(":year", year);
+  deleteConfigQuery.bindValue(":month", month);
+  if (!deleteConfigQuery.exec()) {
+    qWarning() << "SqliteConnect::saveActiveDays config delete failed:"
+               << deleteConfigQuery.lastError().text();
+    db_.rollback();
+    return false;
+  }
+
+  QSqlQuery insertConfigQuery(db_);
+  insertConfigQuery.prepare(
+      "INSERT INTO month_days(year, month, day) VALUES(:year, :month, :day)");
+  for (int day : normalizedDays) {
+    insertConfigQuery.bindValue(":year", year);
+    insertConfigQuery.bindValue(":month", month);
+    insertConfigQuery.bindValue(":day", day);
+    if (!insertConfigQuery.exec()) {
+      qWarning() << "SqliteConnect::saveActiveDays config insert failed:"
+                 << insertConfigQuery.lastError().text();
+      db_.rollback();
+      return false;
+    }
+  }
+
+  QStringList activeDayNumbers;
+  for (int day : normalizedDays) {
+    activeDayNumbers.push_back(QString::number(day));
+  }
+
+  QSqlQuery deleteInactiveQuery(db_);
+  deleteInactiveQuery.prepare(
+      QString("DELETE FROM users WHERE date LIKE :month AND "
+              "CAST(substr(date, 1, 2) AS INTEGER) NOT IN (%1)")
+          .arg(activeDayNumbers.join(", ")));
+  deleteInactiveQuery.bindValue(":month", monthPattern(year, month));
+  if (!deleteInactiveQuery.exec()) {
+    qWarning() << "SqliteConnect::saveActiveDays inactive delete failed:"
+               << deleteInactiveQuery.lastError().text();
+    db_.rollback();
+    return false;
+  }
+
+  QSqlQuery existsQuery(db_);
+  QSqlQuery insertAttendanceQuery(db_);
+  insertAttendanceQuery.prepare(
+      "INSERT INTO users(name, date, is_checked) VALUES(:name, :date, 0)");
+
+  for (const QString& user : users) {
+    for (int day : normalizedDays) {
+      existsQuery.prepare(
+          "SELECT 1 FROM users WHERE name = :name AND date = :date LIMIT 1");
+      existsQuery.bindValue(":name", user);
+      existsQuery.bindValue(":date", dayString(year, month, day));
+      if (!existsQuery.exec()) {
+        qWarning() << "SqliteConnect::saveActiveDays exists check failed:"
+                   << existsQuery.lastError().text();
+        db_.rollback();
+        return false;
+      }
+
+      if (existsQuery.next()) {
+        continue;
+      }
+
+      insertAttendanceQuery.bindValue(":name", user);
+      insertAttendanceQuery.bindValue(":date", dayString(year, month, day));
+      if (!insertAttendanceQuery.exec()) {
+        qWarning() << "SqliteConnect::saveActiveDays attendance insert failed:"
+                   << insertAttendanceQuery.lastError().text();
+        db_.rollback();
+        return false;
+      }
+    }
+  }
+
+  return db_.commit();
 }
 
 //---------------------------------------------------------------
@@ -227,8 +395,8 @@ bool SqliteConnect::addUser(int year, int month, const QString& name) {
       "INSERT INTO users(name, date, is_checked) VALUES(:name, :date, :checked)");
 
   // При добавлении создаем записи на каждый день месяца.
-  const int maxDay = daysInMonth(year, month);
-  for (int day = 1; day <= maxDay; ++day) {
+  const QVector<int> activeDays = getActiveDays(year, month);
+  for (int day : activeDays) {
     insertQuery.bindValue(":name", trimmed);
     insertQuery.bindValue(":date", dayString(year, month, day));
     insertQuery.bindValue(":checked", 0);

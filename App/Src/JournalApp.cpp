@@ -23,8 +23,9 @@ MonthSnapshot JournalApp::loadMonth(int year, int month) {
   MonthSnapshot snapshot;
   QElapsedTimer readTimer;
   readTimer.start();
-  // users и attendance читаются отдельно, чтобы UI отрисовал строки и отметки.
+  // users, activeDays и attendance читаются отдельно, чтобы UI отрисовал строки и отметки.
   snapshot.users = storage_->getUsersForMonth(year, month);
+  snapshot.activeDays = storage_->getActiveDays(year, month);
   snapshot.attendance = storage_->getMonth(year, month);
   qInfo() << "loadMonth read stage ms:" << readTimer.elapsed();
 
@@ -34,6 +35,7 @@ MonthSnapshot JournalApp::loadMonth(int year, int month) {
     qInfo() << "Month is empty, creating default user Alice";
     if (storage_->addUser(year, month, "Alice")) {
       snapshot.users = storage_->getUsersForMonth(year, month);
+      snapshot.activeDays = storage_->getActiveDays(year, month);
       snapshot.attendance = storage_->getMonth(year, month);
 
       // Как и раньше: стартовое заполнение шахматкой по дням.
@@ -47,9 +49,24 @@ MonthSnapshot JournalApp::loadMonth(int year, int month) {
 
   qInfo() << "Month loaded:" << year << month
           << "users:" << snapshot.users.size()
+          << "active days:" << snapshot.activeDays.size()
           << "records:" << snapshot.attendance.size()
           << "total ms:" << totalTimer.elapsed();
   return snapshot;
+}
+
+//---------------------------------------------------------------
+
+bool JournalApp::saveActiveDays(int year, int month, const QVector<int>& days) {
+  QElapsedTimer timer;
+  timer.start();
+
+  currentYear_ = year;
+  currentMonth_ = month;
+  const bool ok = storage_->saveActiveDays(year, month, days);
+  qInfo() << "saveActiveDays:" << year << month << "days:" << days.size()
+          << "result:" << ok << "ms:" << timer.elapsed();
+  return ok;
 }
 
 //---------------------------------------------------------------

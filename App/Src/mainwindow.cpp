@@ -2,6 +2,8 @@
 
 #include <QCheckBox>
 #include <QDate>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QHeaderView>
@@ -9,16 +11,150 @@
 #include <QProcessEnvironment>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSet>
+#include <QTextCharFormat>
 #include <QVBoxLayout>
 
 #include <memory>
 #include <QHash>
+#include <algorithm>
 
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
 #include "SqliteConnect.hpp"
 #include "SyncService.hpp"
 #include "config.h"
+
+//---------------------------------------------------------------
+
+namespace {
+
+QVector<int> fullMonthDays(int year, int month) {
+  QVector<int> days;
+  const int maxDay = QDate(year, month, 1).daysInMonth();
+  days.reserve(maxDay);
+  for (int day = 1; day <= maxDay; ++day) {
+    days.push_back(day);
+  }
+  return days;
+}
+
+QVector<int> sortedDays(const QSet<int>& selectedDays) {
+  QVector<int> days;
+  days.reserve(selectedDays.size());
+  for (int day : selectedDays) {
+    days.push_back(day);
+  }
+  std::sort(days.begin(), days.end());
+  return days;
+}
+
+class MonthDaysDialog : public QDialog {
+ public:
+  MonthDaysDialog(int year, int month, const QVector<int>& activeDays,
+                  QWidget* parent = nullptr)
+      : QDialog(parent),
+        year_(year),
+        month_(month),
+        calendar_(new QCalendarWidget(this)),
+        buttons_(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                                      this)) {
+    setWindowTitle("Настроить месяц");
+
+    for (int day : activeDays) {
+      selectedDays_.insert(day);
+    }
+    if (selectedDays_.isEmpty()) {
+      for (int day : fullMonthDays(year_, month_)) {
+        selectedDays_.insert(day);
+      }
+    }
+
+    calendar_->setGridVisible(true);
+    calendar_->setMinimumDate(QDate(year_, month_, 1));
+    calendar_->setMaximumDate(QDate(year_, month_, 1).addMonths(1).addDays(-1));
+    calendar_->setSelectedDate(QDate(year_, month_, 1));
+    calendar_->setCurrentPage(year_, month_);
+
+    auto* selectAllButton = new QPushButton("Все дни", this);
+    auto* clearButton = new QPushButton("Очистить", this);
+
+    auto* actionsLayout = new QHBoxLayout();
+    actionsLayout->addWidget(selectAllButton);
+    actionsLayout->addWidget(clearButton);
+    actionsLayout->addStretch();
+
+    auto* layout = new QVBoxLayout(this);
+    layout->addWidget(calendar_);
+    layout->addLayout(actionsLayout);
+    layout->addWidget(buttons_);
+
+    connect(calendar_, &QCalendarWidget::clicked, this, [this](const QDate& date) {
+      if (date.year() != year_ || date.month() != month_) {
+        return;
+      }
+
+      const int day = date.day();
+      if (selectedDays_.contains(day)) {
+        selectedDays_.remove(day);
+      } else {
+        selectedDays_.insert(day);
+      }
+      updateCalendarFormat();
+    });
+
+    connect(selectAllButton, &QPushButton::clicked, this, [this]() {
+      selectedDays_.clear();
+      for (int day : fullMonthDays(year_, month_)) {
+        selectedDays_.insert(day);
+      }
+      updateCalendarFormat();
+    });
+
+    connect(clearButton, &QPushButton::clicked, this, [this]() {
+      selectedDays_.clear();
+      updateCalendarFormat();
+    });
+
+    connect(buttons_, &QDialogButtonBox::accepted, this, [this]() {
+      if (selectedDays_.isEmpty()) {
+        QMessageBox::warning(this, "Настроить месяц",
+                             "Выберите хотя бы один день учета.");
+        return;
+      }
+      accept();
+    });
+    connect(buttons_, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    updateCalendarFormat();
+  }
+
+  QVector<int> selectedDays() const { return sortedDays(selectedDays_); }
+
+ private:
+  void updateCalendarFormat() {
+    QTextCharFormat defaultFormat;
+    QTextCharFormat selectedFormat;
+    selectedFormat.setBackground(QColor("#cfe8ff"));
+    selectedFormat.setForeground(Qt::black);
+
+    for (int day : fullMonthDays(year_, month_)) {
+      calendar_->setDateTextFormat(QDate(year_, month_, day), defaultFormat);
+    }
+
+    for (int day : selectedDays_) {
+      calendar_->setDateTextFormat(QDate(year_, month_, day), selectedFormat);
+    }
+  }
+
+  int year_;
+  int month_;
+  QSet<int> selectedDays_;
+  QCalendarWidget* calendar_;
+  QDialogButtonBox* buttons_;
+};
+
+}  // namespace
 
 //---------------------------------------------------------------
 
@@ -29,10 +165,12 @@ MainWindow::MainWindow(QWidget* parent)
       serverUrlEdit_(nullptr),
       connectLocalBtn_(nullptr),
       connectRemoteBtn_(nullptr),
+      configureMonthBtn_(nullptr),
       activeStorageMode_(),
       activeServerUrl_(),
       isConnectingStorage_(false),
       baseTableWidget(nullptr),
+      activeDays_(),
       day_in_month(0),
       month(0),
       year(0) {
@@ -141,6 +279,7 @@ MainWindow::MainWindow(QWidget* parent)
           [this](int shownYear, int shownMonth) {
             Q_UNUSED(shownYear)
             Q_UNUSED(shownMonth)
+            activeDays_.clear();
             createEmptyTable();
             refreshMonth();
           });
@@ -174,23 +313,33 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot) {
     return;
   }
 
+  activeDays_ = snapshot.activeDays;
+  if (activeDays_.isEmpty()) {
+    activeDays_ = fullMonthDays(static_cast<int>(year), static_cast<int>(month));
+  }
+
   // Всегда заново рисуем служебные строки и все user-строки,
   // чтобы таблица была полностью консистентна snapshot.
   tableWidget->clearContents();
   tableWidget->setRowCount(2);
+  tableWidget->setColumnCount(2 + activeDays_.size());
 
   tableWidget->setItem(0, 0, new QTableWidgetItem("Дата"));
   tableWidget->setItem(1, 0, new QTableWidgetItem("День"));
+  tableWidget->setHorizontalHeaderItem(0, new QTableWidgetItem("ID"));
+  tableWidget->setHorizontalHeaderItem(1, new QTableWidgetItem("Name"));
 
-  for (uint32_t day = 1; day <= day_in_month; ++day) {
+  for (int index = 0; index < activeDays_.size(); ++index) {
+    const int day = activeDays_.at(index);
+    const int column = index + 2;
     const QString dateLabel = QString("%1.%2")
                                   .arg(day, 2, 10, QLatin1Char('0'))
                                   .arg(month, 2, 10, QLatin1Char('0'));
-    tableWidget->setItem(0, static_cast<int>(day) + 1, new QTableWidgetItem(dateLabel));
+    tableWidget->setItem(0, column, new QTableWidgetItem(dateLabel));
 
     const QDate date(static_cast<int>(year), static_cast<int>(month), static_cast<int>(day));
-    tableWidget->setItem(1, static_cast<int>(day) + 1,
-                         new QTableWidgetItem(kDaysOfWeek[date.dayOfWeek() - 1]));
+    tableWidget->setItem(1, column, new QTableWidgetItem(kDaysOfWeek[date.dayOfWeek() - 1]));
+    tableWidget->setHorizontalHeaderItem(column, new QTableWidgetItem(" "));
   }
 
   // Быстрый индекс: имя пользователя -> набор отмеченных дней.
@@ -206,12 +355,14 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot) {
     tableWidget->setItem(row, 0, new QTableWidgetItem(""));
     tableWidget->setItem(row, 1, new QTableWidgetItem(user));
 
-    for (uint32_t day = 1; day <= day_in_month; ++day) {
+    for (int index = 0; index < activeDays_.size(); ++index) {
+      const int day = activeDays_.at(index);
+      const int column = index + 2;
       bool checked = false;
-      if (markByUser.contains(user) && markByUser[user].contains(static_cast<int>(day))) {
-        checked = markByUser[user][static_cast<int>(day)];
+      if (markByUser.contains(user) && markByUser[user].contains(day)) {
+        checked = markByUser[user][day];
       }
-      addCheckBox(tableWidget, row, static_cast<int>(day) + 1, checked);
+      addCheckBox(tableWidget, row, column, checked);
     }
   }
 
@@ -240,10 +391,20 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const {
       continue;
     }
 
-    // Для каждого пользователя сохраняем отметки по всем дням месяца.
-    for (int day = 1; day <= static_cast<int>(day_in_month); ++day) {
+    // Для каждого пользователя сохраняем отметки только по отрисованным дням.
+    for (int column = 2; column < tableWidget->columnCount(); ++column) {
+      const QTableWidgetItem* dateItem = tableWidget->item(0, column);
+      if (!dateItem) {
+        continue;
+      }
+
+      const int day = dateItem->text().left(2).toInt();
+      if (day < 1 || day > static_cast<int>(day_in_month)) {
+        continue;
+      }
+
       QCheckBox* checkBox =
-          qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, day + 1));
+          qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, column));
 
       data.push_back({name, day, checkBox ? checkBox->isChecked() : false});
     }
@@ -290,13 +451,17 @@ void MainWindow::createEmptyTable() {
     delete oldTable;
   }
 
-  QTableWidget* tableWidget = new QTableWidget(2, 2 + static_cast<int>(day_in_month), this);
+  const QVector<int> tableDays = activeDays_.isEmpty()
+                                     ? fullMonthDays(static_cast<int>(year),
+                                                     static_cast<int>(month))
+                                     : activeDays_;
+  QTableWidget* tableWidget = new QTableWidget(2, 2 + tableDays.size(), this);
   tableWidget->setObjectName("bigTable");
 
   tableWidget->setHorizontalHeaderItem(0, new QTableWidgetItem("ID"));
   tableWidget->setHorizontalHeaderItem(1, new QTableWidgetItem("Name"));
-  for (uint32_t i = 0; i < day_in_month; ++i) {
-    tableWidget->setHorizontalHeaderItem(static_cast<int>(i) + 2, new QTableWidgetItem(" "));
+  for (int i = 0; i < tableDays.size(); ++i) {
+    tableWidget->setHorizontalHeaderItem(i + 2, new QTableWidgetItem(" "));
   }
 
   tableWidget->resizeColumnsToContents();
@@ -333,6 +498,9 @@ void MainWindow::setupStorageControls() {
   connectRemoteBtn_ = new QPushButton("Remote", this);
   controlsLayout->addWidget(connectRemoteBtn_);
 
+  configureMonthBtn_ = new QPushButton("Настроить месяц", this);
+  controlsLayout->addWidget(configureMonthBtn_);
+
   modeBadgeLabel_ = new QLabel("Mode: DISCONNECTED", this);
   modeBadgeLabel_->setObjectName("modeBadgeLabel");
   modeBadgeLabel_->setMinimumWidth(250);
@@ -354,6 +522,8 @@ void MainWindow::setupStorageControls() {
           [this]() { connectLocalFromUi(); });
   connect(connectRemoteBtn_, &QPushButton::clicked, this,
           [this]() { connectRemoteFromUi(); });
+  connect(configureMonthBtn_, &QPushButton::clicked, this,
+          [this]() { configureMonthDays(); });
 }
 
 bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
@@ -480,6 +650,40 @@ void MainWindow::connectRemoteFromUi() {
   }
 }
 
+void MainWindow::configureMonthDays() {
+  if (activeStorageMode_ == "server") {
+    ui->statusbar->showMessage("Настройка месяца доступна только в local режиме.", 5000);
+    return;
+  }
+
+  if (!journalApp_) {
+    ui->statusbar->showMessage("Сервис не инициализирован");
+    return;
+  }
+
+  updateCalendarVariables(ui->calendarWidget);
+  QVector<int> initialDays = activeDays_;
+  if (initialDays.isEmpty()) {
+    initialDays = fullMonthDays(static_cast<int>(year), static_cast<int>(month));
+  }
+
+  MonthDaysDialog dialog(static_cast<int>(year), static_cast<int>(month), initialDays, this);
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  const QVector<int> selectedDays = dialog.selectedDays();
+  if (!journalApp_->saveActiveDays(static_cast<int>(year), static_cast<int>(month),
+                                   selectedDays)) {
+    ui->statusbar->showMessage("Не удалось сохранить настройку месяца.", 6000);
+    return;
+  }
+
+  activeDays_ = selectedDays;
+  refreshMonth();
+  ui->statusbar->showMessage("Настройка месяца сохранена.", 4000);
+}
+
 void MainWindow::updateModeBadge() {
   if (!modeBadgeLabel_) {
     return;
@@ -533,6 +737,9 @@ void MainWindow::updateEditControlsByMode() {
   ui->btnCreateTable->setEnabled(isLocalMode);
   ui->btnPullServer->setEnabled(isLocalMode);
   ui->lineEdit->setEnabled(isLocalMode);
+  if (configureMonthBtn_) {
+    configureMonthBtn_->setEnabled(isLocalMode);
+  }
 }
 
 void MainWindow::readLocalMonthToTable() {

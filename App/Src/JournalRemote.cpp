@@ -59,6 +59,24 @@ QStringList JournalRemote::getUsersForMonth(int year, int month) {
   return users;
 }
 
+QVector<int> JournalRemote::getActiveDays(int year, int month) {
+  QVector<int> days;
+  const int maxDay = daysInMonth(year, month);
+  days.reserve(maxDay);
+  for (int day = 1; day <= maxDay; ++day) {
+    days.push_back(day);
+  }
+  return days;
+}
+
+bool JournalRemote::saveActiveDays(int year, int month, const QVector<int>& days) {
+  Q_UNUSED(year);
+  Q_UNUSED(month);
+  Q_UNUSED(days);
+  lastError_ = "Remote month day configuration is not implemented";
+  return false;
+}
+
 std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month) {
   lastError_.clear();
   std::vector<AttendanceRecord> records;

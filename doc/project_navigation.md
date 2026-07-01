@@ -11,6 +11,10 @@
 месяца колонками. Данные можно хранить локально в SQLite или читать/писать через
 remote storage на базе libsql/sqld HTTP API.
 
+В local-режиме для каждого месяца можно настроить, какие дни входят в учет.
+Если настройка для месяца отсутствует, приложение показывает весь календарный
+месяц, как в старом поведении.
+
 Сборка описана в `CMakeLists.txt`. Проект ожидает GNU/GCC toolchain и Qt6
 компоненты `Core`, `Gui`, `Widgets`, `Sql`, `Network`.
 
@@ -73,6 +77,8 @@ journal_app/
    `Alice`; для remote режима bootstrap-запись отключена.
 4. `IJournalStorage` задает общий контракт:
    - `getUsersForMonth`
+   - `getActiveDays`
+   - `saveActiveDays`
    - `getMonth`
    - `saveMonth`
    - `addUser`
@@ -92,6 +98,7 @@ journal_app/
 Здесь находятся:
 - создание и перерисовка таблицы месяца (`createEmptyTable`, `renderMonth`);
 - чтение чекбоксов из таблицы (`collectMonthFromTable`);
+- диалог настройки дней месяца (`MonthDaysDialog`, `configureMonthDays`);
 - обработчики кнопок `Add`, `Delete`, `Read Base`, `Save Current Table`,
   push/pull серверной синхронизации;
 - переключение режимов storage (`setupStorage`, `connectLocalFromUi`,
@@ -121,6 +128,7 @@ journal_app/
 
 Здесь определены:
 - `AttendanceRecord`: `userName`, `day`, `isChecked`;
+- active days месяца через `QVector<int>`;
 - интерфейс `IJournalStorage`.
 
 Если меняется доменная форма данных, дата, поля записи или контракт хранения,
@@ -144,11 +152,24 @@ CREATE TABLE IF NOT EXISTS users (
   date TEXT NOT NULL,
   is_checked INTEGER NOT NULL
 )
+
+CREATE TABLE IF NOT EXISTS month_days (
+  year INTEGER NOT NULL,
+  month INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  PRIMARY KEY(year, month, day)
+)
 ```
 
 Локальная дата сейчас пишется в старом формате `dd.MM`, а чтение месяца ищет
 `__.MM%`, чтобы сохранить совместимость со старой БД. Путь к БД задан в
 `App/Inc/config.h` как `DB_PATH "test_data.db"`.
+
+`month_days` хранит выбранные дни учета для local-месяца. Если записей для
+`(year, month)` нет, `SqliteConnect::getActiveDays` возвращает полный месяц.
+`SqliteConnect::saveActiveDays` сохраняет настройку, удаляет attendance по
+выключенным дням и добавляет недостающие `false`-записи для существующих
+пользователей по новым включенным дням.
 
 Для задач про локальную БД, SQL, формат хранения и производительность сохранения
 месяца начинать с `SqliteConnect.cpp`.
@@ -228,6 +249,14 @@ UI, CMake или будущих ветках.
   App/Inc/mainwindow.hpp
   App/Src/mainwindow.cpp
 
+Настройка дней учета месяца:
+  App/Src/mainwindow.cpp
+  App/Inc/IJournalStorage.hpp
+  App/Inc/JournalApp.hpp
+  App/Src/JournalApp.cpp
+  App/Inc/SqliteConnect.hpp
+  App/Src/SqliteConnect.cpp
+
 Изменить поведение add/delete/save/load:
   App/Inc/JournalApp.hpp
   App/Src/JournalApp.cpp
@@ -266,6 +295,8 @@ UI, CMake или будущих ветках.
   содержит `JournalRemote`, `SyncService` и legacy managers.
 - Локальный и remote storage используют разные строковые форматы даты:
   local `dd.MM`, remote `dd.MM.yyyy`.
+- Настройка дней учета реализована только для local storage. Remote storage
+  пока возвращает полный месяц и не сохраняет `activeDays`.
 - Remote режим в UI помечен как `REMOTE (read-only)`, а edit controls
   отключаются, но `JournalRemote` сам реализует write-методы.
 - `dbManager.*`, `mainTableManager.*`, `checkTableManager.*` выглядят как

@@ -12,6 +12,18 @@ QStringList JournalLocal::getUsersForMonth(int year, int month) {
 
 //---------------------------------------------------------------
 
+QVector<int> JournalLocal::getActiveDays(int year, int month) {
+  return sqlite_->getActiveDays(year, month);
+}
+
+//---------------------------------------------------------------
+
+bool JournalLocal::saveActiveDays(int year, int month, const QVector<int>& days) {
+  return sqlite_->saveActiveDays(year, month, days);
+}
+
+//---------------------------------------------------------------
+
 std::vector<AttendanceRecord> JournalLocal::getMonth(int year, int month) {
   return sqlite_->getMonth(year, month);
 }
