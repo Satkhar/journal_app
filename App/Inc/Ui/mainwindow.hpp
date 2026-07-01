@@ -10,6 +10,9 @@
 #include <QPushButton>
 #include <QVector>
 
+class QGroupBox;
+class QVBoxLayout;
+
 #include <memory>
 #include <vector>
 
@@ -35,7 +38,10 @@ class MainWindow : public QMainWindow {
   Ui::MainWindow* ui;
   std::unique_ptr<JournalApp> journalApp_;
 
-  // Элементы панели подключения storage (создаются программно в setupStorageControls()).
+  // Элементы панели действий (создаются программно в setupActionPanels()).
+  QGroupBox* connectionGroup_;
+  QGroupBox* monthGroup_;
+  QGroupBox* dataGroup_;
   QLabel* modeBadgeLabel_;
   QLineEdit* serverUrlEdit_;
   QPushButton* connectLocalBtn_;
@@ -65,8 +71,11 @@ class MainWindow : public QMainWindow {
   void createCheckTable();
   // Создает пустую таблицу под выбранный месяц.
   void createEmptyTable();
-  // Создает панель выбора источника данных и URL сервера.
-  void setupStorageControls();
+  // Создает панели действий: подключение, текущий месяц, данные.
+  void setupActionPanels();
+  void setupConnectionPanel(QVBoxLayout* parentLayout);
+  void setupMonthPanel(QVBoxLayout* parentLayout);
+  void setupDataPanel(QVBoxLayout* parentLayout);
   // Переключает активный storage на local/server.
   bool setupStorage(const QString& mode, const QString& serverUrl);
   // Обработчики кнопок Local/Remote.

@@ -2,6 +2,7 @@
 
 #include <QCheckBox>
 #include <QDate>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QHeaderView>
@@ -42,6 +43,9 @@ QVector<int> fullMonthDays(int year, int month) {
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
       ui(new Ui::MainWindow),
+      connectionGroup_(nullptr),
+      monthGroup_(nullptr),
+      dataGroup_(nullptr),
       modeBadgeLabel_(nullptr),
       serverUrlEdit_(nullptr),
       connectLocalBtn_(nullptr),
@@ -61,8 +65,8 @@ MainWindow::MainWindow(QWidget* parent)
   // Подготавливаем пустой UI-каркас таблиц до загрузки данных из БД.
   createEmptyTable();
   createCheckTable();
-  // Панель выбора local/remote и серверного URL.
-  setupStorageControls();
+  // Панели действий: подключение, текущий месяц, данные.
+  setupActionPanels();
 
   const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
   const QString serverUrl =
@@ -356,16 +360,20 @@ void MainWindow::createEmptyTable() {
   baseTableWidget = tableWidget;
 }
 
-void MainWindow::setupStorageControls() {
+void MainWindow::setupActionPanels() {
   QVBoxLayout* layout = ui->centralwidget->findChild<QVBoxLayout*>("verticalLayout_3");
   if (!layout) {
     return;
   }
 
-  // Верхняя панель:
-  // строка 1 = URL + кнопки подключения
-  // строка 2 = визуальный бейдж текущего режима.
-  auto* storagePanelLayout = new QVBoxLayout();
+  setupConnectionPanel(layout);
+  setupMonthPanel(layout);
+  setupDataPanel(layout);
+}
+
+void MainWindow::setupConnectionPanel(QVBoxLayout* parentLayout) {
+  connectionGroup_ = new QGroupBox("Подключение", this);
+  auto* storagePanelLayout = new QVBoxLayout(connectionGroup_);
   auto* controlsLayout = new QHBoxLayout();
   controlsLayout->addWidget(new QLabel("Server URL:", this));
 
@@ -378,9 +386,6 @@ void MainWindow::setupStorageControls() {
 
   connectRemoteBtn_ = new QPushButton("Remote", this);
   controlsLayout->addWidget(connectRemoteBtn_);
-
-  configureMonthBtn_ = new QPushButton("Настроить месяц", this);
-  controlsLayout->addWidget(configureMonthBtn_);
 
   modeBadgeLabel_ = new QLabel("Mode: DISCONNECTED", this);
   modeBadgeLabel_->setObjectName("modeBadgeLabel");
@@ -396,15 +401,45 @@ void MainWindow::setupStorageControls() {
 
   storagePanelLayout->addLayout(controlsLayout);
   storagePanelLayout->addWidget(modeBadgeLabel_, 0, Qt::AlignLeft);
-  layout->insertLayout(1, storagePanelLayout);
+  parentLayout->insertWidget(0, connectionGroup_);
 
-  // Кнопки подключаем к отдельным методам, чтобы не раздувать setupStorageControls.
   connect(connectLocalBtn_, &QPushButton::clicked, this,
           [this]() { connectLocalFromUi(); });
   connect(connectRemoteBtn_, &QPushButton::clicked, this,
           [this]() { connectRemoteFromUi(); });
+}
+
+void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout) {
+  monthGroup_ = new QGroupBox("Текущий месяц", this);
+  auto* monthLayout = new QVBoxLayout(monthGroup_);
+
+  auto* userButtonsLayout = new QHBoxLayout();
+  userButtonsLayout->addWidget(ui->btnAdd);
+  userButtonsLayout->addWidget(ui->btnDel);
+  monthLayout->addLayout(userButtonsLayout);
+  monthLayout->addWidget(ui->lineEdit);
+
+  configureMonthBtn_ = new QPushButton("Настроить дни", this);
+  monthLayout->addWidget(configureMonthBtn_);
+
+  parentLayout->insertWidget(1, monthGroup_);
+
   connect(configureMonthBtn_, &QPushButton::clicked, this,
           [this]() { configureMonthDays(); });
+}
+
+void MainWindow::setupDataPanel(QVBoxLayout* parentLayout) {
+  dataGroup_ = new QGroupBox("Данные", this);
+  auto* dataLayout = new QVBoxLayout(dataGroup_);
+
+  ui->btnReadBase->setText("Прочитать месяц");
+  ui->btnSaveCurTable->setText("Сохранить месяц");
+  dataLayout->addWidget(ui->btnReadBase);
+  dataLayout->addWidget(ui->btnSaveCurTable);
+  dataLayout->addWidget(ui->btnCreateTable);
+  dataLayout->addWidget(ui->btnPullServer);
+
+  parentLayout->insertWidget(2, dataGroup_);
 }
 
 bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
