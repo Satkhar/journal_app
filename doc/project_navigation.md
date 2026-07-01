@@ -43,6 +43,7 @@ journal_app/
       Ui/
         mainwindow.hpp        # главный Qt UI-контроллер
         MonthDaysDialog.hpp   # диалог выбора дней учета месяца
+        CopyUsersDialog.hpp   # диалог выбора месяца-источника для переноса пользователей
 
     Src/
       main.cpp                # QApplication, MainWindow, Windows UTF-8 console
@@ -57,6 +58,7 @@ journal_app/
       Ui/
         mainwindow.cpp        # UI wiring, таблица, режимы local/remote, sync buttons
         MonthDaysDialog.cpp   # календарный диалог выбора дней учета
+        CopyUsersDialog.cpp   # диалог переноса пользователей из другого месяца
 
   doc/
     arch.md                   # архитектурный план MVP и server stage
@@ -73,9 +75,10 @@ journal_app/
 2. `MainWindow` в `App/Src/Ui/mainwindow.cpp`:
    - загружает UI из `journal_app.ui` через `Ui::MainWindow`;
    - создает таблицы `bigTable` и скрытую `checkTable`;
+   - создает панели действий `Подключение`, `Текущий месяц`, `Данные`;
    - создает controls для выбора `Local` / `Remote`;
    - инициализирует `JournalApp` с нужной реализацией `IJournalStorage`;
-   - связывает кнопки с add/delete/read/save/push/pull действиями.
+   - связывает кнопки с add/delete/read/save/push/pull/copy действиями.
 3. `JournalApp` в `App/Src/Domain/JournalApp.cpp` хранит выбранный месяц и вызывает
    storage-методы. При пустом local месяце может создать стартового пользователя
    `Alice`; для remote режима bootstrap-запись отключена.
@@ -102,7 +105,10 @@ journal_app/
 Здесь находятся:
 - создание и перерисовка таблицы месяца (`createEmptyTable`, `renderMonth`);
 - чтение чекбоксов из таблицы (`collectMonthFromTable`);
+- создание панелей действий (`setupActionPanels`, `setupConnectionPanel`,
+  `setupMonthPanel`, `setupDataPanel`);
 - вызов диалога настройки дней месяца (`configureMonthDays`);
+- вызов диалога переноса пользователей (`copyUsersFromMonth`);
 - обработчики кнопок `Add`, `Delete`, `Read Base`, `Save Current Table`,
   push/pull серверной синхронизации;
 - переключение режимов storage (`setupStorage`, `connectLocalFromUi`,
@@ -115,6 +121,8 @@ journal_app/
 - `App/Src/Ui/mainwindow.cpp`
 - `App/Inc/Ui/MonthDaysDialog.hpp`
 - `App/Src/Ui/MonthDaysDialog.cpp`
+- `App/Inc/Ui/CopyUsersDialog.hpp`
+- `App/Src/Ui/CopyUsersDialog.cpp`
 
 ### Use-case слой
 
@@ -229,6 +237,7 @@ remote SQL начинать с `JournalRemote.cpp`.
 - `main.cpp`
 - `Ui/mainwindow.*`
 - `Ui/MonthDaysDialog.*`
+- `Ui/CopyUsersDialog.*`
 - `Domain/JournalApp.*`
 - `Domain/IJournalStorage.hpp`
 - `Storage/JournalLocal.*`
@@ -260,6 +269,14 @@ remote SQL начинать с `JournalRemote.cpp`.
   App/Src/Domain/JournalApp.cpp
   App/Inc/Storage/SqliteConnect.hpp
   App/Src/Storage/SqliteConnect.cpp
+
+Перенос пользователей между месяцами:
+  App/Inc/Ui/CopyUsersDialog.hpp
+  App/Src/Ui/CopyUsersDialog.cpp
+  App/Inc/Ui/mainwindow.hpp
+  App/Src/Ui/mainwindow.cpp
+  App/Inc/Domain/JournalApp.hpp
+  App/Src/Domain/JournalApp.cpp
 
 Изменить поведение add/delete/save/load:
   App/Inc/Domain/JournalApp.hpp
