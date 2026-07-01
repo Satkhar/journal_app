@@ -172,12 +172,12 @@ Remote дата пишется в формате `dd.MM.yyyy`, а month pattern 
 `JournalRemote::sqlQuote`.
 
 Настройки по умолчанию:
-- `JOURNAL_DEFAULT_SERVER_URL`: `http://127.0.0.1:8080`
+- `JOURNAL_DEFAULT_SERVER_URL`: `http://127.0.0.1:7070`
 - `JOURNAL_REMOTE_TIMEOUT_MS`: `5000`
 
 Их можно переопределить переменными окружения:
 - `JOURNAL_STORAGE_MODE=local|server`
-- `JOURNAL_SERVER_URL=http://127.0.0.1:8080`
+- `JOURNAL_SERVER_URL=http://127.0.0.1:7070`
 
 Для задач про сервер, ошибки подключения, timeout, JSON protocol или формат
 remote SQL начинать с `JournalRemote.cpp`.

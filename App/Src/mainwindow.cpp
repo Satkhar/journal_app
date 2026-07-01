@@ -324,7 +324,7 @@ void MainWindow::setupStorageControls() {
   controlsLayout->addWidget(new QLabel("Server URL:", this));
 
   serverUrlEdit_ = new QLineEdit(this);
-  serverUrlEdit_->setPlaceholderText("http://127.0.0.1:8080");
+  serverUrlEdit_->setPlaceholderText("http://127.0.0.1:7070");
   controlsLayout->addWidget(serverUrlEdit_);
 
   connectLocalBtn_ = new QPushButton("Local", this);

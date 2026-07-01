@@ -49,7 +49,7 @@ services:
     image: ghcr.io/tursodatabase/libsql-server:latest
     platform: linux/amd64
     ports:
-      - "8080:8080"
+      - "7070:7070"
       - "5001:5001"
     environment:
       - SQLD_NODE=primary
@@ -103,11 +103,11 @@ docker compose down -v
 
 Для `JournalRemote` используйте:
 ```text
-http://127.0.0.1:8080
+http://127.0.0.1:7070
 ```
 или
 ```text
-http://localhost:8080
+http://localhost:7070
 ```
 
 ## 6. Где лежат данные сервера
@@ -138,5 +138,5 @@ docker compose ps
 ```powershell
 docker compose logs -f
 ```
-3. Убедиться, что порт `8080` не занят другим процессом.
+3. Убедиться, что порт `7070` не занят другим процессом.
 

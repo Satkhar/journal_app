@@ -8,7 +8,7 @@
 
 class JournalRemote : public IJournalStorage {
  public:
-  // baseUrl ожидается в формате http://host:port (например http://127.0.0.1:8080).
+  // baseUrl ожидается в формате http://host:port (например http://127.0.0.1:7070).
   explicit JournalRemote(const QString& baseUrl, int timeoutMs = 5000);
 
   // Проверка доступности сервера + ensureSchema.
