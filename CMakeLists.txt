@@ -25,9 +25,6 @@ add_executable(journal_app
     ./App/Src/Sync/SyncService.cpp
     ./App/Src/Ui/mainwindow.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
-    ./App/Src/Legacy/checkTableManager.cpp
-    ./App/Src/Legacy/dbManager.cpp
-    ./App/Src/Legacy/mainTableManager.cpp
 
 
 
@@ -40,9 +37,6 @@ add_executable(journal_app
     ./App/Inc/Sync/SyncService.hpp
     ./App/Inc/Ui/mainwindow.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
-    ./App/Inc/Legacy/dbManager.hpp
-    ./App/Inc/Legacy/checkTableManager.hpp
-    ./App/Inc/Legacy/mainTableManager.hpp
 
     ./journal_app.ui
     )
@@ -60,13 +54,11 @@ target_include_directories(journal_app PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Storage
     ${CMAKE_SOURCE_DIR}/App/Inc/Sync
     ${CMAKE_SOURCE_DIR}/App/Inc/Ui
-    ${CMAKE_SOURCE_DIR}/App/Inc/Legacy
     ${CMAKE_SOURCE_DIR}/App/Src
     ${CMAKE_SOURCE_DIR}/App/Src/Domain
     ${CMAKE_SOURCE_DIR}/App/Src/Storage
     ${CMAKE_SOURCE_DIR}/App/Src/Sync
-    ${CMAKE_SOURCE_DIR}/App/Src/Ui
-    ${CMAKE_SOURCE_DIR}/App/Src/Legacy)
+    ${CMAKE_SOURCE_DIR}/App/Src/Ui)
 
 # Указываем флаги компилятора для поддержки UTF-8
 if(MSVC)

@@ -43,10 +43,6 @@ journal_app/
       Ui/
         mainwindow.hpp        # главный Qt UI-контроллер
         MonthDaysDialog.hpp   # диалог выбора дней учета месяца
-      Legacy/
-        dbManager.hpp         # устаревший DB manager
-        mainTableManager.hpp  # устаревший manager UI-таблицы
-        checkTableManager.hpp # устаревшая заготовка manager чекбокс-таблицы
 
     Src/
       main.cpp                # QApplication, MainWindow, Windows UTF-8 console
@@ -61,10 +57,6 @@ journal_app/
       Ui/
         mainwindow.cpp        # UI wiring, таблица, режимы local/remote, sync buttons
         MonthDaysDialog.cpp   # календарный диалог выбора дней учета
-      Legacy/
-        dbManager.cpp         # устаревший код старого доступа к БД
-        mainTableManager.cpp  # устаревший код старого управления таблицей
-        checkTableManager.cpp # устаревшая почти пустая реализация
 
   doc/
     arch.md                   # архитектурный план MVP и server stage
@@ -231,7 +223,7 @@ remote SQL начинать с `JournalRemote.cpp`.
 Конфликтов, ревизий и merge-логики сейчас нет; они описаны как будущий шаг в
 `doc/server_sync_plan.md`.
 
-## Что считается активным, а что наследием
+## Что считается активным
 
 Активные файлы текущей архитектуры:
 - `main.cpp`
@@ -246,15 +238,8 @@ remote SQL начинать с `JournalRemote.cpp`.
 - `config.h`
 - `journal_app.ui`
 
-Устаревшие или переходные файлы:
-- `dbManager.*`
-- `mainTableManager.*`
-- `checkTableManager.*`
-
-Они все еще включены в `CMakeLists.txt`, но основной runtime-поток идет через
+Основной runtime-поток идет через
 `MainWindow -> JournalApp -> IJournalStorage -> JournalLocal/JournalRemote`.
-Перед удалением legacy-файлов нужно сначала проверить, нет ли скрытых ссылок в
-UI, CMake или будущих ветках.
 
 ## Типовые точки входа для будущих задач
 
@@ -311,13 +296,11 @@ UI, CMake или будущих ветках.
 - `README.md` говорит, что данные хранятся в файловой системе; фактически
   активный путь использует SQLite и optional remote libsql.
 - `doc/arch.md` описывает план и минимальную структуру, но текущий проект уже
-  содержит `JournalRemote`, `SyncService` и legacy managers.
+  содержит `JournalRemote`, `SyncService` и настройку дней учета месяца.
 - Локальный и remote storage используют разные строковые форматы даты:
   local `dd.MM`, remote `dd.MM.yyyy`.
 - Настройка дней учета реализована только для local storage. Remote storage
   пока возвращает полный месяц и не сохраняет `activeDays`.
 - Remote режим в UI помечен как `REMOTE (read-only)`, а edit controls
   отключаются, но `JournalRemote` сам реализует write-методы.
-- `dbManager.*`, `mainTableManager.*`, `checkTableManager.*` выглядят как
-  остатки старой реализации и не являются основным путем разработки.
 
