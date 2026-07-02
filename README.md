@@ -41,7 +41,7 @@
 Для работы с проектом вам потребуется:
 - **CMake** (версия 3.10 или выше)
 - **C++ компилятор** (совместимый с C++17)
-- **MinGW** (14.2.0 для Windows) или любой другой компилятор C++ (например, GCC для Linux/macOS)
+- **MSYS2 MINGW64** с GCC/MinGW для Windows или GCC для Linux/macOS
 - **Qt6** для отображения интерфейса ??
 
 
@@ -66,13 +66,15 @@ sudo apt install qt6-base-dev
    ```
 
 3. **Генерация файлов сборки**
+   - Для Windows используйте терминал `MSYS2 MINGW64`; `cmake`, `gcc` и `Qt6`
+     должны быть из `C:/msys64/mingw64`.
    - Для Unix-систем (Linux/macOS):
      ```bash
      cmake ..
      ```
-   - Для Windows (с MinGW):
+   - Для Windows (`MSYS2 MINGW64`):
      ```bash
-     cmake -G "MinGW Makefiles" ..
+     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
      ```
 
 4. **Сборка проекта**
@@ -82,7 +84,7 @@ sudo apt install qt6-base-dev
      ```
    - Для Windows:
      ```bash
-     mingw32-make
+     cmake --build build -j
      ```
 
 5. **Запуск приложения**
