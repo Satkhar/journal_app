@@ -2,6 +2,7 @@
 
 #include <QCheckBox>
 #include <QDate>
+#include <QFontMetrics>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -36,6 +37,16 @@ QVector<int> fullMonthDays(int year, int month) {
     days.push_back(day);
   }
   return days;
+}
+
+void lockButtonTextWidth(QPushButton* button) {
+  if (!button) {
+    return;
+  }
+  const int textWidth = QFontMetrics(button->font()).horizontalAdvance(button->text());
+  const int width = std::max(button->sizeHint().width(), textWidth + 32);
+  button->setFixedWidth(width);
+  button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 }
 
 }  // namespace
@@ -392,10 +403,12 @@ void MainWindow::setupConnectionPanel(QVBoxLayout* parentLayout) {
   controlsLayout->addWidget(serverUrlEdit_);
 
   connectLocalBtn_ = new QPushButton("Local", this);
-  controlsLayout->addWidget(connectLocalBtn_);
+  lockButtonTextWidth(connectLocalBtn_);
+  controlsLayout->addWidget(connectLocalBtn_, 0, Qt::AlignLeft);
 
   connectRemoteBtn_ = new QPushButton("Remote", this);
-  controlsLayout->addWidget(connectRemoteBtn_);
+  lockButtonTextWidth(connectRemoteBtn_);
+  controlsLayout->addWidget(connectRemoteBtn_, 0, Qt::AlignLeft);
 
   modeBadgeLabel_ = new QLabel("Mode: DISCONNECTED", this);
   modeBadgeLabel_->setObjectName("modeBadgeLabel");
@@ -424,16 +437,21 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout) {
   auto* monthLayout = new QVBoxLayout(monthGroup_);
 
   auto* userButtonsLayout = new QHBoxLayout();
-  userButtonsLayout->addWidget(ui->btnAdd);
-  userButtonsLayout->addWidget(ui->btnDel);
+  lockButtonTextWidth(ui->btnAdd);
+  lockButtonTextWidth(ui->btnDel);
+  userButtonsLayout->addWidget(ui->btnAdd, 0, Qt::AlignLeft);
+  userButtonsLayout->addWidget(ui->btnDel, 0, Qt::AlignLeft);
+  userButtonsLayout->addStretch();
   monthLayout->addLayout(userButtonsLayout);
   monthLayout->addWidget(ui->lineEdit);
 
   configureMonthBtn_ = new QPushButton("Настроить дни", this);
-  monthLayout->addWidget(configureMonthBtn_);
+  lockButtonTextWidth(configureMonthBtn_);
+  monthLayout->addWidget(configureMonthBtn_, 0, Qt::AlignLeft);
 
   copyUsersBtn_ = new QPushButton("Перенести пользователей", this);
-  monthLayout->addWidget(copyUsersBtn_);
+  lockButtonTextWidth(copyUsersBtn_);
+  monthLayout->addWidget(copyUsersBtn_, 0, Qt::AlignLeft);
 
   parentLayout->insertWidget(1, monthGroup_);
 
@@ -449,10 +467,14 @@ void MainWindow::setupDataPanel(QVBoxLayout* parentLayout) {
 
   ui->btnReadBase->setText("Прочитать месяц");
   ui->btnSaveCurTable->setText("Сохранить месяц");
-  dataLayout->addWidget(ui->btnReadBase);
-  dataLayout->addWidget(ui->btnSaveCurTable);
-  dataLayout->addWidget(ui->btnCreateTable);
-  dataLayout->addWidget(ui->btnPullServer);
+  lockButtonTextWidth(ui->btnReadBase);
+  lockButtonTextWidth(ui->btnSaveCurTable);
+  lockButtonTextWidth(ui->btnCreateTable);
+  lockButtonTextWidth(ui->btnPullServer);
+  dataLayout->addWidget(ui->btnReadBase, 0, Qt::AlignLeft);
+  dataLayout->addWidget(ui->btnSaveCurTable, 0, Qt::AlignLeft);
+  dataLayout->addWidget(ui->btnCreateTable, 0, Qt::AlignLeft);
+  dataLayout->addWidget(ui->btnPullServer, 0, Qt::AlignLeft);
 
   parentLayout->insertWidget(2, dataGroup_);
 }

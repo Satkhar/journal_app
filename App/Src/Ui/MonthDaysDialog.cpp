@@ -4,6 +4,7 @@
 #include <QDate>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
+#include <QLayout>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTextCharFormat>
@@ -63,6 +64,8 @@ MonthDaysDialog::MonthDaysDialog(int year, int month,
 
   auto* selectAllButton = new QPushButton("Все дни", this);
   auto* clearButton = new QPushButton("Очистить", this);
+  selectAllButton->setMinimumWidth(selectAllButton->sizeHint().width());
+  clearButton->setMinimumWidth(clearButton->sizeHint().width());
 
   auto* actionsLayout = new QHBoxLayout();
   actionsLayout->addWidget(selectAllButton);
@@ -73,6 +76,12 @@ MonthDaysDialog::MonthDaysDialog(int year, int month,
   layout->addWidget(calendar_);
   layout->addLayout(actionsLayout);
   layout->addWidget(buttons_);
+  layout->setSizeConstraint(QLayout::SetMinimumSize);
+
+  for (QAbstractButton* button : buttons_->buttons()) {
+    button->setMinimumWidth(button->sizeHint().width());
+  }
+  setMinimumSize(sizeHint());
 
   connect(calendar_, &QCalendarWidget::clicked, this, [this](const QDate& date) {
     if (date.year() != year_ || date.month() != month_) {

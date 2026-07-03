@@ -5,6 +5,7 @@
 #include <QDate>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QLayout>
 #include <QVBoxLayout>
 
 CopyUsersDialog::CopyUsersDialog(int targetYear, int targetMonth,
@@ -29,6 +30,12 @@ CopyUsersDialog::CopyUsersDialog(int targetYear, int targetMonth,
   auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                        this);
   layout->addWidget(buttons);
+  layout->setSizeConstraint(QLayout::SetMinimumSize);
+
+  for (QAbstractButton* button : buttons->buttons()) {
+    button->setMinimumWidth(button->sizeHint().width());
+  }
+  setMinimumSize(sizeHint());
 
   connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
