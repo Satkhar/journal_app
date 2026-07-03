@@ -26,6 +26,7 @@ add_executable(journal_app
     ./App/Src/Ui/mainwindow.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/CopyUsersDialog.cpp
+    ./App/Src/Ui/UserProfileDialog.cpp
 
 
 
@@ -39,6 +40,7 @@ add_executable(journal_app
     ./App/Inc/Ui/mainwindow.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/CopyUsersDialog.hpp
+    ./App/Inc/Ui/UserProfileDialog.hpp
 
     ./journal_app.ui
     )

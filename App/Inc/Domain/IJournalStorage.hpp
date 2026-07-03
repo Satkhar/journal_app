@@ -15,6 +15,13 @@ struct AttendanceRecord {
   bool isChecked;
 };
 
+struct PersonProfile {
+  QString displayName;
+  int age;
+  QString profileUrl;
+  QString notes;
+};
+
 class IJournalStorage {
  public:
   virtual ~IJournalStorage() = default;
@@ -36,4 +43,8 @@ class IJournalStorage {
   virtual bool addUser(int year, int month, const QString& name) = 0;
   // Удаляет пользователя из выбранного месяца.
   virtual bool deleteUser(int year, int month, const QString& name) = 0;
+  // Читает/сохраняет карточку пользователя.
+  virtual bool getPersonProfile(const QString& name, PersonProfile* profile) = 0;
+  virtual bool updatePersonProfile(const QString& originalName,
+                                   const PersonProfile& profile) = 0;
 };

@@ -49,3 +49,16 @@ bool JournalLocal::deleteUser(int year, int month, const QString& name) {
 }
 
 //---------------------------------------------------------------
+
+bool JournalLocal::getPersonProfile(const QString& name, PersonProfile* profile) {
+  return sqlite_->getPersonProfile(name, profile);
+}
+
+//---------------------------------------------------------------
+
+bool JournalLocal::updatePersonProfile(const QString& originalName,
+                                       const PersonProfile& profile) {
+  return sqlite_->updatePersonProfile(originalName, profile);
+}
+
+//---------------------------------------------------------------

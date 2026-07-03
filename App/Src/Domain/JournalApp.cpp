@@ -169,3 +169,19 @@ bool JournalApp::saveMonth(int year, int month,
 }
 
 //---------------------------------------------------------------
+
+bool JournalApp::getPersonProfile(const QString& name, PersonProfile* profile) {
+  if (!profile) {
+    return false;
+  }
+  return storage_->getPersonProfile(name, profile);
+}
+
+//---------------------------------------------------------------
+
+bool JournalApp::updatePersonProfile(const QString& originalName,
+                                     const PersonProfile& profile) {
+  return storage_->updatePersonProfile(originalName, profile);
+}
+
+//---------------------------------------------------------------

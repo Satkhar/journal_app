@@ -96,6 +96,8 @@ class MainWindow : public QMainWindow {
   void pushCurrentMonthToServer();
   // Pull: читает месяц с сервера и сохраняет в локальную БД.
   void pullCurrentMonthFromServer();
+  // Открывает карточку пользователя из строки таблицы.
+  void openUserProfileFromRow(int row);
 
   // Ищет колонку по тексту даты в служебной строке.
   int searchDate(QTableWidget* tableWidget, const QString& dateLabel) const;

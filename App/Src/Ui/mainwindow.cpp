@@ -15,6 +15,7 @@
 #include <QVBoxLayout>
 
 #include <memory>
+#include <algorithm>
 #include <QHash>
 
 #include "CopyUsersDialog.hpp"
@@ -23,6 +24,7 @@
 #include "MonthDaysDialog.hpp"
 #include "SqliteConnect.hpp"
 #include "SyncService.hpp"
+#include "UserProfileDialog.hpp"
 #include "config.h"
 
 //---------------------------------------------------------------
@@ -369,6 +371,12 @@ void MainWindow::createEmptyTable() {
   tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
   tableWidget->setMinimumHeight(260);
   tableWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  connect(tableWidget, &QTableWidget::cellDoubleClicked, this,
+          [this](int row, int column) {
+            if (column == 1) {
+              openUserProfileFromRow(row);
+            }
+          });
 
   QGridLayout* layout = ui->centralwidget->findChild<QGridLayout*>("gridLayout");
   if (layout) {
@@ -452,6 +460,14 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout) {
   copyUsersBtn_ = new QPushButton("Перенести пользователей", this);
   lockButtonTextWidth(copyUsersBtn_);
   monthLayout->addWidget(copyUsersBtn_, 0, Qt::AlignLeft);
+
+  const int userInputWidth = std::max(
+      copyUsersBtn_->width(),
+      ui->btnAdd->width() + userButtonsLayout->spacing() + ui->btnDel->width());
+  ui->lineEdit->setFixedWidth(userInputWidth);
+  ui->lineEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+  monthLayout->removeWidget(ui->lineEdit);
+  monthLayout->insertWidget(1, ui->lineEdit, 0, Qt::AlignLeft);
 
   parentLayout->insertWidget(1, monthGroup_);
 
@@ -823,6 +839,47 @@ void MainWindow::pullCurrentMonthFromServer() {
 
   refreshMonth();
   ui->statusbar->showMessage(QString("Pull OK <- %1").arg(serverUrl), 5000);
+}
+
+void MainWindow::openUserProfileFromRow(int row) {
+  if (row < 2) {
+    return;
+  }
+
+  if (activeStorageMode_ == "server") {
+    ui->statusbar->showMessage("Карточка пользователя доступна только в local режиме.", 5000);
+    return;
+  }
+
+  QTableWidget* tableWidget = findChild<QTableWidget*>("bigTable");
+  if (!tableWidget) {
+    return;
+  }
+
+  QTableWidgetItem* nameItem = tableWidget->item(row, 1);
+  if (!nameItem || nameItem->text().trimmed().isEmpty() || !journalApp_) {
+    return;
+  }
+
+  const QString originalName = nameItem->text().trimmed();
+  PersonProfile profile;
+  if (!journalApp_->getPersonProfile(originalName, &profile)) {
+    ui->statusbar->showMessage("Не удалось открыть карточку пользователя.", 5000);
+    return;
+  }
+
+  UserProfileDialog dialog(profile, this);
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  if (!journalApp_->updatePersonProfile(originalName, dialog.profile())) {
+    ui->statusbar->showMessage("Не удалось сохранить карточку пользователя.", 5000);
+    return;
+  }
+
+  refreshMonth();
+  ui->statusbar->showMessage("Карточка пользователя сохранена.", 4000);
 }
 
 //---------------------------------------------------------------

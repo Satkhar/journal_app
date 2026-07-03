@@ -41,6 +41,9 @@ public:
   bool deleteUser(const QString &name);
   bool saveMonth(int year, int month,
                  const std::vector<AttendanceRecord> &data);
+  bool getPersonProfile(const QString& name, PersonProfile* profile);
+  bool updatePersonProfile(const QString& originalName,
+                           const PersonProfile& profile);
 
  private:
   // Единственный активный storage для текущего экземпляра JournalApp.

@@ -23,6 +23,8 @@ class SqliteConnect {
   bool saveMonth(int year, int month, const std::vector<AttendanceRecord>& data);
   bool addUser(int year, int month, const QString& name);
   bool deleteUser(int year, int month, const QString& name);
+  bool getPersonProfile(const QString& name, PersonProfile* profile);
+  bool updatePersonProfile(const QString& originalName, const PersonProfile& profile);
 
  private:
   // Qt хранит соединения в глобальном пуле по имени; db_ это handle на него.
@@ -31,6 +33,9 @@ class SqliteConnect {
 
   // Вспомогательные функции формирования SQL-данных.
   bool ensureSchema();
+  bool migrateLegacyUsers();
+  int ensurePerson(const QString& name);
+  int findPersonId(const QString& name);
   QVector<int> fullMonthDays(int year, int month) const;
   QVector<int> normalizeDays(int year, int month, const QVector<int>& days) const;
   QString monthPattern(int year, int month) const;

@@ -24,6 +24,9 @@ class JournalRemote : public IJournalStorage {
                  const std::vector<AttendanceRecord> &data) override;
   bool addUser(int year, int month, const QString &name) override;
   bool deleteUser(int year, int month, const QString &name) override;
+  bool getPersonProfile(const QString& name, PersonProfile* profile) override;
+  bool updatePersonProfile(const QString& originalName,
+                           const PersonProfile& profile) override;
 
  private:
   // Базовый URL сервера libsql/http endpoint.
@@ -34,7 +37,7 @@ class JournalRemote : public IJournalStorage {
   QString lastError_;
   QNetworkAccessManager network_;
 
-  // Создает таблицу users, если она отсутствует на сервере.
+  // Создает актуальную схему и переносит legacy users, если она есть.
   bool ensureSchema(QString* errorMessage = nullptr);
   // Формат month/day для SQL-фильтрации и вставки.
   QString monthPattern(int year, int month) const;

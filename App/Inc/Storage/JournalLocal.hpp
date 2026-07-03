@@ -17,6 +17,9 @@ public:
                  const std::vector<AttendanceRecord> &data) override;
   bool addUser(int year, int month, const QString &name) override;
   bool deleteUser(int year, int month, const QString &name) override;
+  bool getPersonProfile(const QString& name, PersonProfile* profile) override;
+  bool updatePersonProfile(const QString& originalName,
+                           const PersonProfile& profile) override;
 
  private:
   // Владеем конкретным SQLite-адаптером и проксируем вызовы дальше.

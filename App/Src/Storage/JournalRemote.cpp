@@ -29,9 +29,12 @@ QStringList JournalRemote::getUsersForMonth(int year, int month) {
   QStringList users;
   QJsonArray results;
 
-  // Remote storage хранит одну строку на (user, day), поэтому users берем через DISTINCT.
   const QString sql =
-      QString("SELECT DISTINCT name FROM users WHERE date LIKE '%1' ORDER BY name ASC")
+      QString("SELECT DISTINCT people.display_name "
+              "FROM people "
+              "JOIN attendance ON attendance.person_id = people.id "
+              "WHERE attendance.date LIKE '%1' "
+              "ORDER BY people.display_name ASC")
           .arg(monthPattern(year, month));
 
   QString error;
@@ -82,10 +85,12 @@ std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month) {
   std::vector<AttendanceRecord> records;
   QJsonArray results;
 
-  // Возвращаем плоский список записей; группировка по пользователям делается уже в UI.
   const QString sql = QString(
-      "SELECT name, date, is_checked FROM users WHERE date LIKE '%1' ORDER BY "
-      "name ASC, date ASC")
+      "SELECT people.display_name, attendance.date, attendance.is_checked "
+      "FROM attendance "
+      "JOIN people ON people.id = attendance.person_id "
+      "WHERE attendance.date LIKE '%1' "
+      "ORDER BY people.display_name ASC, attendance.date ASC")
                           .arg(monthPattern(year, month));
 
   QString error;
@@ -125,11 +130,16 @@ bool JournalRemote::saveMonth(int year, int month,
   // Для PoC sync проще поддерживать атомарной полной перезаписью месяца.
   statements.push_back("BEGIN");
   statements.push_back(
-      QString("DELETE FROM users WHERE date LIKE '%1'").arg(monthPattern(year, month)));
+      QString("DELETE FROM attendance WHERE date LIKE '%1'").arg(monthPattern(year, month)));
 
   for (const AttendanceRecord& record : data) {
     statements.push_back(
-        QString("INSERT INTO users(name, date, is_checked) VALUES(%1, %2, %3)")
+        QString("INSERT OR IGNORE INTO people(display_name) VALUES(%1)")
+            .arg(sqlQuote(record.userName))
+    );
+    statements.push_back(
+        QString("INSERT OR REPLACE INTO attendance(person_id, date, is_checked) "
+                "VALUES((SELECT id FROM people WHERE display_name = %1), %2, %3)")
             .arg(sqlQuote(record.userName))
             .arg(sqlQuote(dayString(year, month, record.day)))
             .arg(record.isChecked ? "1" : "0"));
@@ -162,7 +172,10 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
   QString error;
   if (!executePipeline(
           {QString(
-               "SELECT 1 FROM users WHERE name = %1 AND date LIKE '%2' LIMIT 1")
+               "SELECT 1 "
+               "FROM attendance "
+               "JOIN people ON people.id = attendance.person_id "
+               "WHERE people.display_name = %1 AND attendance.date LIKE '%2' LIMIT 1")
                .arg(sqlQuote(trimmed))
                .arg(monthPattern(year, month))},
           &results, &error)) {
@@ -178,11 +191,14 @@ bool JournalRemote::addUser(int year, int month, const QString& name) {
 
   QList<QString> statements;
   statements.push_back("BEGIN");
+  statements.push_back(
+      QString("INSERT OR IGNORE INTO people(display_name) VALUES(%1)").arg(sqlQuote(trimmed)));
   const int maxDay = daysInMonth(year, month);
   // Как и в local storage, создаем набор строк сразу на все дни месяца.
   for (int day = 1; day <= maxDay; ++day) {
     statements.push_back(
-        QString("INSERT INTO users(name, date, is_checked) VALUES(%1, %2, 0)")
+        QString("INSERT INTO attendance(person_id, date, is_checked) "
+                "VALUES((SELECT id FROM people WHERE display_name = %1), %2, 0)")
             .arg(sqlQuote(trimmed))
             .arg(sqlQuote(dayString(year, month, day))));
   }
@@ -209,7 +225,9 @@ bool JournalRemote::deleteUser(int year, int month, const QString& name) {
   QJsonArray results;
   QString error;
   const bool ok = executePipeline(
-      {QString("DELETE FROM users WHERE name = %1 AND date LIKE '%2'")
+      {QString("DELETE FROM attendance "
+               "WHERE person_id = (SELECT id FROM people WHERE display_name = %1) "
+               "AND date LIKE '%2'")
            .arg(sqlQuote(trimmed))
            .arg(monthPattern(year, month))},
       &results, &error);
@@ -219,21 +237,169 @@ bool JournalRemote::deleteUser(int year, int month, const QString& name) {
   return ok;
 }
 
+bool JournalRemote::getPersonProfile(const QString& name, PersonProfile* profile) {
+  lastError_.clear();
+  if (!profile) {
+    return false;
+  }
+
+  const QString trimmed = name.trimmed();
+  if (trimmed.isEmpty()) {
+    return false;
+  }
+
+  QJsonArray results;
+  QString error;
+  if (!executePipeline(
+          {QString("INSERT OR IGNORE INTO people(display_name) VALUES(%1)")
+               .arg(sqlQuote(trimmed)),
+           QString("SELECT display_name, age, profile_url, notes "
+                   "FROM people WHERE display_name = %1 LIMIT 1")
+               .arg(sqlQuote(trimmed))},
+          &results, &error)) {
+    lastError_ = error;
+    return false;
+  }
+
+  if (results.size() < 2) {
+    return false;
+  }
+
+  const QJsonArray rows = results.at(1).toObject().value("rows").toArray();
+  if (rows.isEmpty()) {
+    return false;
+  }
+
+  const QJsonArray row = rows.at(0).toArray();
+  if (row.size() < 4) {
+    return false;
+  }
+
+  profile->displayName = row.at(0).toObject().value("value").toString();
+  profile->age = row.at(1).toObject().value("value").toString().toInt();
+  profile->profileUrl = row.at(2).toObject().value("value").toString();
+  profile->notes = row.at(3).toObject().value("value").toString();
+  return true;
+}
+
+bool JournalRemote::updatePersonProfile(const QString& originalName,
+                                        const PersonProfile& profile) {
+  lastError_.clear();
+  const QString oldName = originalName.trimmed();
+  const QString newName = profile.displayName.trimmed();
+  if (oldName.isEmpty() || newName.isEmpty()) {
+    return false;
+  }
+
+  QList<QString> statements;
+  statements.push_back("BEGIN");
+  statements.push_back(
+      QString("INSERT OR IGNORE INTO people(display_name) VALUES(%1)").arg(sqlQuote(oldName)));
+  statements.push_back(
+      QString("UPDATE people SET display_name = %1, age = %2, profile_url = %3, notes = %4 "
+              "WHERE display_name = %5")
+          .arg(sqlQuote(newName))
+          .arg(profile.age > 0 ? QString::number(profile.age) : "NULL")
+          .arg(sqlQuote(profile.profileUrl.trimmed()))
+          .arg(sqlQuote(profile.notes.trimmed()))
+          .arg(sqlQuote(oldName)));
+  statements.push_back("COMMIT");
+
+  QJsonArray results;
+  QString error;
+  if (!executePipeline(statements, &results, &error)) {
+    lastError_ = error;
+    executePipeline({"ROLLBACK"}, nullptr, nullptr);
+    return false;
+  }
+  return true;
+}
+
 bool JournalRemote::ensureSchema(QString* errorMessage) {
   lastError_.clear();
   QJsonArray results;
-  // Схема создается лениво, чтобы пустой сервер поднимался без ручной миграции.
-  const bool ok = executePipeline(
-      {"CREATE TABLE IF NOT EXISTS users ("
-       "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-       "name TEXT NOT NULL, "
-       "date TEXT NOT NULL, "
-       "is_checked INTEGER NOT NULL)"},
-      &results, errorMessage);
-  if (!ok && errorMessage) {
+  const QList<QString> schemaStatements = {
+      "CREATE TABLE IF NOT EXISTS people ("
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+      "display_name TEXT NOT NULL UNIQUE, "
+      "age INTEGER, "
+      "profile_url TEXT, "
+      "notes TEXT)",
+      "CREATE TABLE IF NOT EXISTS person_photos ("
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+      "person_id INTEGER NOT NULL, "
+      "file_path TEXT NOT NULL, "
+      "sort_order INTEGER NOT NULL DEFAULT 0, "
+      "FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE)",
+      "CREATE TABLE IF NOT EXISTS attendance ("
+      "person_id INTEGER NOT NULL, "
+      "date TEXT NOT NULL, "
+      "is_checked INTEGER NOT NULL, "
+      "PRIMARY KEY(person_id, date), "
+      "FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE)",
+      "CREATE TABLE IF NOT EXISTS month_days ("
+      "year INTEGER NOT NULL, "
+      "month INTEGER NOT NULL, "
+      "day INTEGER NOT NULL, "
+      "PRIMARY KEY(year, month, day))"};
+
+  const bool schemaOk = executePipeline(schemaStatements, &results, errorMessage);
+  if (!schemaOk && errorMessage) {
     lastError_ = *errorMessage;
+    return false;
   }
-  return ok;
+
+  QString error;
+  if (!executePipeline(
+          {"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users' LIMIT 1"},
+          &results, &error)) {
+    if (errorMessage) {
+      *errorMessage = error;
+    }
+    lastError_ = error;
+    return false;
+  }
+
+  if (results.isEmpty() || results.at(0).toObject().value("rows").toArray().isEmpty()) {
+    return true;
+  }
+
+  bool hasLegacyArchive = false;
+  if (!executePipeline({"SELECT name FROM sqlite_master WHERE type = 'table' "
+                        "AND name = 'users_legacy' LIMIT 1"},
+                       &results, &error)) {
+    if (errorMessage) {
+      *errorMessage = error;
+    }
+    lastError_ = error;
+    return false;
+  }
+  hasLegacyArchive =
+      !results.isEmpty() && !results.at(0).toObject().value("rows").toArray().isEmpty();
+
+  QList<QString> migrationStatements;
+  migrationStatements.push_back("BEGIN");
+  migrationStatements.push_back(
+      "INSERT OR IGNORE INTO people(display_name) "
+      "SELECT DISTINCT name FROM users WHERE TRIM(name) <> ''");
+  migrationStatements.push_back(
+      "INSERT OR REPLACE INTO attendance(person_id, date, is_checked) "
+      "SELECT people.id, users.date, users.is_checked "
+      "FROM users JOIN people ON people.display_name = users.name");
+  migrationStatements.push_back(hasLegacyArchive ? "DROP TABLE users"
+                                                 : "ALTER TABLE users RENAME TO users_legacy");
+  migrationStatements.push_back("COMMIT");
+
+  if (!executePipeline(migrationStatements, &results, &error)) {
+    executePipeline({"ROLLBACK"}, nullptr, nullptr);
+    if (errorMessage) {
+      *errorMessage = error;
+    }
+    lastError_ = error;
+    return false;
+  }
+
+  return true;
 }
 
 QString JournalRemote::monthPattern(int year, int month) const {
