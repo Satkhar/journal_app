@@ -50,3 +50,6 @@
 
 /debug
 /home-pc
+
+#data base
+*.db

@@ -5,35 +5,40 @@
 
 #include "IJournalStorage.hpp"
 
-class SqliteConnect {
- public:
-  // Создает объект без открытия соединения.
+class SqliteConnect
+{
+public:
   SqliteConnect();
-  // Закрывает соединение и освобождает зарегистрированное имя подключения.
   ~SqliteConnect();
 
-  // Инициализация подключения и схемы БД.
   bool open(const QString& dbPath);
+  QString lastError() const;
 
-  // CRUD-операции на уровне месяца.
-  QStringList getUsersForMonth(int year, int month);
+  std::vector<Participant> getParticipantsForMonth(int year, int month);
   QVector<int> getActiveDays(int year, int month);
   bool saveActiveDays(int year, int month, const QVector<int>& days);
   std::vector<AttendanceRecord> getMonth(int year, int month);
-  bool saveMonth(int year, int month, const std::vector<AttendanceRecord>& data);
-  bool addUser(int year, int month, const QString& name);
-  bool deleteUser(int year, int month, const QString& name);
+  bool saveAttendance(int year, int month,
+                      const std::vector<AttendanceRecord>& data);
+  bool addParticipantToMonth(int year, int month,
+                             const Participant& participant);
+  bool removeParticipantFromMonth(int year, int month, const ParticipantId& id);
+  bool replaceMonth(int year, int month, const MonthSnapshot& snapshot);
 
- private:
-  // Qt хранит соединения в глобальном пуле по имени; db_ это handle на него.
+private:
   QSqlDatabase db_;
   QString connectionName_;
+  QString lastError_;
 
-  // Вспомогательные функции формирования SQL-данных.
   bool ensureSchema();
+  bool createSchemaV2();
+  bool tableExists(const QString& tableName) const;
+  bool enableForeignKeys();
+  bool validateYearMonth(int year, int month) const;
+  bool validateSnapshot(int year, int month, const MonthSnapshot& snapshot);
   QVector<int> fullMonthDays(int year, int month) const;
-  QVector<int> normalizeDays(int year, int month, const QVector<int>& days) const;
-  QString monthPattern(int year, int month) const;
-  QString dayString(int year, int month, int day) const;
+  QVector<int> normalizeDays(int year, int month,
+                             const QVector<int>& days) const;
   int daysInMonth(int year, int month) const;
+  void setError(const QString& error);
 };

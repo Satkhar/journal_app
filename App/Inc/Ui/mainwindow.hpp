@@ -1,16 +1,17 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <QMainWindow>
 #include <QCalendarWidget>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMainWindow>
+#include <QPushButton>
 #include <QStringList>
 #include <QTableWidget>
-#include <QPushButton>
 #include <QVector>
 
 class QGroupBox;
+class SqliteConnect;
 class QVBoxLayout;
 
 #include <memory>
@@ -21,10 +22,11 @@ class QVBoxLayout;
 
 const QStringList kDaysOfWeek = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вск"};
 
-class MainWindow : public QMainWindow {
+class MainWindow : public QMainWindow
+{
   Q_OBJECT
 
- public:
+public:
   // MainWindow связывает три слоя:
   // UI widgets -> JournalApp use-case -> local/remote storage adapters.
   // Инициализирует UI и связывает кнопки с use-case слоем.
@@ -32,7 +34,7 @@ class MainWindow : public QMainWindow {
   // Освобождает ресурсы окна.
   ~MainWindow();
 
- private:
+private:
   // Основной активный use-case слой, который в данный момент привязан
   // либо к local storage, либо к remote storage (в режиме просмотра).
   Ui::MainWindow* ui;
@@ -79,6 +81,7 @@ class MainWindow : public QMainWindow {
   void setupDataPanel(QVBoxLayout* parentLayout);
   // Переключает активный storage на local/server.
   bool setupStorage(const QString& mode, const QString& serverUrl);
+  bool openLocalDatabase(SqliteConnect& sqlite);
   // Обработчики кнопок Local/Remote.
   void connectLocalFromUi();
   void connectRemoteFromUi();
@@ -100,9 +103,10 @@ class MainWindow : public QMainWindow {
   // Ищет колонку по тексту даты в служебной строке.
   int searchDate(QTableWidget* tableWidget, const QString& dateLabel) const;
   // Добавляет чекбокс в указанную ячейку.
-  void addCheckBox(QTableWidget* tableWidget, int row, int column, bool is_checked);
+  void addCheckBox(QTableWidget* tableWidget, int row, int column,
+                   bool is_checked);
   // Считывает текущий месяц/год/число дней из календаря.
   void updateCalendarVariables(QCalendarWidget* calendarWidget);
 };
 
-#endif  // MAINWINDOW_H
+#endif // MAINWINDOW_H

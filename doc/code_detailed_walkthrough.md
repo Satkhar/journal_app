@@ -1,3 +1,5 @@
+> **Статус:** документ описывает schema v1 и сохранен как historical reference. Актуальная доменная модель и schema v2: doc/arch.md. План карточек: doc/participant_profiles_plan.md.
+
 # Detailed Code Walkthrough
 
 Этот документ описывает текущее состояние кода максимально подробно:

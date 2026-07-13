@@ -1,51 +1,51 @@
 #include "JournalLocal.hpp"
 
 JournalLocal::JournalLocal(std::unique_ptr<SqliteConnect> sqlite)
-    : sqlite_(std::move(sqlite)) {}
-
-//---------------------------------------------------------------
-
-QStringList JournalLocal::getUsersForMonth(int year, int month) {
-  // Это тонкая прослойка-адаптер: доменный интерфейс тот же, реализация локальная.
-  return sqlite_->getUsersForMonth(year, month);
+    : sqlite_(std::move(sqlite))
+{
 }
 
-//---------------------------------------------------------------
+std::vector<Participant> JournalLocal::getParticipantsForMonth(int year,
+                                                               int month)
+{
+  return sqlite_->getParticipantsForMonth(year, month);
+}
 
-QVector<int> JournalLocal::getActiveDays(int year, int month) {
+QVector<int> JournalLocal::getActiveDays(int year, int month)
+{
   return sqlite_->getActiveDays(year, month);
 }
 
-//---------------------------------------------------------------
-
-bool JournalLocal::saveActiveDays(int year, int month, const QVector<int>& days) {
+bool JournalLocal::saveActiveDays(int year, int month, const QVector<int>& days)
+{
   return sqlite_->saveActiveDays(year, month, days);
 }
 
-//---------------------------------------------------------------
-
-std::vector<AttendanceRecord> JournalLocal::getMonth(int year, int month) {
+std::vector<AttendanceRecord> JournalLocal::getMonth(int year, int month)
+{
   return sqlite_->getMonth(year, month);
 }
 
-//---------------------------------------------------------------
-
-bool JournalLocal::saveMonth(int year, int month,
-                             const std::vector<AttendanceRecord>& data) {
-  // Вся логика транзакций живет в SqliteConnect, здесь только делегирование.
-  return sqlite_->saveMonth(year, month, data);
+bool JournalLocal::saveAttendance(int year, int month,
+                                  const std::vector<AttendanceRecord>& data)
+{
+  return sqlite_->saveAttendance(year, month, data);
 }
 
-//---------------------------------------------------------------
-
-bool JournalLocal::addUser(int year, int month, const QString& name) {
-  return sqlite_->addUser(year, month, name);
+bool JournalLocal::addParticipantToMonth(int year, int month,
+                                         const Participant& participant)
+{
+  return sqlite_->addParticipantToMonth(year, month, participant);
 }
 
-//---------------------------------------------------------------
-
-bool JournalLocal::deleteUser(int year, int month, const QString& name) {
-  return sqlite_->deleteUser(year, month, name);
+bool JournalLocal::removeParticipantFromMonth(int year, int month,
+                                              const ParticipantId& id)
+{
+  return sqlite_->removeParticipantFromMonth(year, month, id);
 }
 
-//---------------------------------------------------------------
+bool JournalLocal::replaceMonth(int year, int month,
+                                const MonthSnapshot& snapshot)
+{
+  return sqlite_->replaceMonth(year, month, snapshot);
+}

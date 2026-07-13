@@ -1,39 +1,28 @@
 #pragma once
 
-#include <QString>
-#include <QStringList>
 #include <QVector>
 
 #include <vector>
 
-struct AttendanceRecord {
-  // Имя пользователя (ключ строки в таблице).
-  QString userName;
-  // День месяца [1..31].
-  int day;
-  // Отметка посещаемости за день.
-  bool isChecked;
-};
+#include "JournalModels.hpp"
 
-class IJournalStorage {
- public:
+class IJournalStorage
+{
+public:
   virtual ~IJournalStorage() = default;
 
-  // Интерфейс storage намеренно месяц-ориентированный:
-  // UI и use-case работают со снимком месяца, а не с одиночными днями.
-  // Возвращает список пользователей, у которых есть записи за месяц.
-  virtual QStringList getUsersForMonth(int year, int month) = 0;
-  // Возвращает дни месяца, включенные в учет.
+  virtual std::vector<Participant> getParticipantsForMonth(int year,
+                                                           int month) = 0;
   virtual QVector<int> getActiveDays(int year, int month) = 0;
-  // Сохраняет дни месяца, включенные в учет.
-  virtual bool saveActiveDays(int year, int month, const QVector<int>& days) = 0;
-  // Возвращает все отметки пользователей за месяц.
+  virtual bool saveActiveDays(int year, int month,
+                              const QVector<int>& days) = 0;
   virtual std::vector<AttendanceRecord> getMonth(int year, int month) = 0;
-  // Полностью сохраняет срез месяца.
-  virtual bool saveMonth(int year, int month,
-                         const std::vector<AttendanceRecord>& data) = 0;
-  // Добавляет пользователя в месяц (как правило, заполняя все дни значением false).
-  virtual bool addUser(int year, int month, const QString& name) = 0;
-  // Удаляет пользователя из выбранного месяца.
-  virtual bool deleteUser(int year, int month, const QString& name) = 0;
+  virtual bool saveAttendance(int year, int month,
+                              const std::vector<AttendanceRecord>& data) = 0;
+  virtual bool addParticipantToMonth(int year, int month,
+                                     const Participant& participant) = 0;
+  virtual bool removeParticipantFromMonth(int year, int month,
+                                          const ParticipantId& id) = 0;
+  virtual bool replaceMonth(int year, int month,
+                            const MonthSnapshot& snapshot) = 0;
 };

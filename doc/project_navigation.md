@@ -1,3 +1,5 @@
+> **Статус:** документ описывает schema v1 и сохранен как historical reference. Актуальная доменная модель и schema v2: doc/arch.md. План карточек: doc/participant_profiles_plan.md.
+
 # Project Navigation
 
 Этот документ фиксирует текущую карту проекта для быстрой навигации перед
