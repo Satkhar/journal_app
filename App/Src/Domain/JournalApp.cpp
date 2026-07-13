@@ -15,10 +15,8 @@ Participant makeParticipant(const QString& displayName)
 
 } // namespace
 
-JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage,
-                       bool allowBootstrapWrites)
-    : storage_(std::move(storage)), allowBootstrapWrites_(allowBootstrapWrites),
-      currentYear_(0), currentMonth_(0)
+JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage)
+    : storage_(std::move(storage)), currentYear_(0), currentMonth_(0)
 {
 }
 
@@ -33,22 +31,6 @@ MonthSnapshot JournalApp::loadMonth(int year, int month)
   snapshot.participants = storage_->getParticipantsForMonth(year, month);
   snapshot.activeDays = storage_->getActiveDays(year, month);
   snapshot.attendance = storage_->getMonth(year, month);
-
-  if (allowBootstrapWrites_ && snapshot.participants.empty())
-  {
-    const Participant alice = makeParticipant("Alice");
-    if (storage_->addParticipantToMonth(year, month, alice))
-    {
-      snapshot.participants = storage_->getParticipantsForMonth(year, month);
-      snapshot.attendance = storage_->getMonth(year, month);
-      for (AttendanceRecord& record : snapshot.attendance)
-      {
-        record.isChecked = (record.day % 2) != 0;
-      }
-      storage_->saveAttendance(year, month, snapshot.attendance);
-      snapshot.attendance = storage_->getMonth(year, month);
-    }
-  }
 
   qInfo() << "Month loaded:" << year << month
           << "participants:" << snapshot.participants.size()
@@ -88,6 +70,16 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   }
 
   const auto target = storage_->getParticipantsForMonth(toYear, toMonth);
+  const auto activeProfiles = storage_->listParticipantProfiles(false);
+  if (!activeProfiles.has_value())
+  {
+    return {false, 0, 0, "Не удалось прочитать каталог участников"};
+  }
+  QSet<QString> activeProfileIds;
+  for (const ParticipantProfile& profile : *activeProfiles)
+  {
+    activeProfileIds.insert(profile.id.value);
+  }
   QSet<QString> targetIds;
   for (const Participant& participant : target)
   {
@@ -98,7 +90,8 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   int skipped = 0;
   for (const Participant& participant : source)
   {
-    if (targetIds.contains(participant.id.value))
+    if (!activeProfileIds.contains(participant.id.value) ||
+        targetIds.contains(participant.id.value))
     {
       ++skipped;
       continue;
@@ -121,7 +114,8 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
 bool JournalApp::addUser(const QString& name)
 {
   const QString trimmed = name.trimmed();
-  if (currentYear_ == 0 || currentMonth_ == 0 || trimmed.isEmpty())
+  if (currentYear_ == 0 || currentMonth_ == 0 || trimmed.isEmpty() ||
+      trimmed.size() > 200)
   {
     return false;
   }
@@ -144,4 +138,39 @@ bool JournalApp::saveAttendance(int year, int month,
   currentYear_ = year;
   currentMonth_ = month;
   return storage_->saveAttendance(year, month, data);
+}
+
+std::optional<ParticipantProfile>
+JournalApp::participantProfile(const ParticipantId& id)
+{
+  if (!id.isValid())
+  {
+    return std::nullopt;
+  }
+  return storage_->getParticipantProfile(id);
+}
+
+std::optional<std::vector<ParticipantProfile>>
+JournalApp::participantProfiles(bool includeArchived)
+{
+  return storage_->listParticipantProfiles(includeArchived);
+}
+
+bool JournalApp::updateParticipantProfile(const ParticipantProfile& profile)
+{
+  if (!profile.isValid())
+  {
+    return false;
+  }
+  return storage_->updateParticipantProfile(profile);
+}
+
+bool JournalApp::archiveParticipant(const ParticipantId& id)
+{
+  return id.isValid() && storage_->setParticipantArchived(id, true);
+}
+
+bool JournalApp::restoreParticipant(const ParticipantId& id)
+{
+  return id.isValid() && storage_->setParticipantArchived(id, false);
 }

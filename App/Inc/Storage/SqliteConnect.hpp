@@ -24,6 +24,12 @@ public:
                              const Participant& participant);
   bool removeParticipantFromMonth(int year, int month, const ParticipantId& id);
   bool replaceMonth(int year, int month, const MonthSnapshot& snapshot);
+  std::optional<ParticipantProfile>
+  getParticipantProfile(const ParticipantId& id);
+  std::optional<std::vector<ParticipantProfile>>
+  listParticipantProfiles(bool includeArchived);
+  bool updateParticipantProfile(const ParticipantProfile& profile);
+  bool setParticipantArchived(const ParticipantId& id, bool archived);
 
 private:
   QSqlDatabase db_;
@@ -31,7 +37,10 @@ private:
   QString lastError_;
 
   bool ensureSchema();
-  bool createSchemaV2();
+  bool createSchemaV3();
+  bool migrateSchemaV2ToV3();
+  bool createProfileValidationTriggers();
+  bool verifySchemaV3();
   bool tableExists(const QString& tableName) const;
   bool enableForeignKeys();
   bool validateYearMonth(int year, int month) const;

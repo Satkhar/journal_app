@@ -1,4 +1,4 @@
-> **Статус:** документ описывает schema v1 и сохранен как historical reference. Актуальная доменная модель и schema v2: doc/arch.md. План карточек: doc/participant_profiles_plan.md.
+> **Статус:** документ описывает schema v1 и сохранен как historical reference. Актуальная доменная модель и schema v3: doc/arch.md. План карточек: doc/participant_profiles_plan.md.
 
 # Detailed Code Walkthrough
 
@@ -29,10 +29,7 @@ UI не должен знать детали SQL/HTTP протоколов. Он
   - добавление/удаление пользователя;
   - сохранение месяца.
 
-Ключевой флаг:
-- `allowBootstrapWrites`:
-  - `true` для local режима: разрешает автоинициализацию пустого месяца (Alice);
-  - `false` для remote режима: запрещает неявные записи при чтении.
+Чтение месяца не выполняет неявных bootstrap-записей.
 
 ### 3. Абстракция storage (`IJournalStorage`)
 - Файл: `App/Inc/IJournalStorage.hpp`
@@ -140,8 +137,7 @@ UI не должен знать детали SQL/HTTP протоколов. Он
   - если `getMonth` вернул ошибку (`lastError` не пуст), локальная БД не переписывается.
 
 ### 3) Remote read-only как продуктовый режим
-- `JournalApp` создается с `allowBootstrapWrites=false` для remote.
-- Это блокирует неявные автозаписи при `loadMonth()`.
+- `JournalApp::loadMonth()` не выполняет неявных записей для local или remote.
 
 ## 5. Формат данных
 

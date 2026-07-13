@@ -5,6 +5,7 @@
 #include <QUuid>
 #include <QVector>
 
+#include <optional>
 #include <vector>
 
 struct ParticipantId
@@ -37,6 +38,26 @@ struct Participant
 {
   ParticipantId id;
   QString displayName;
+};
+
+struct Birthday
+{
+  int day;
+  int month;
+  std::optional<int> year;
+
+  bool isValid() const;
+};
+
+struct ParticipantProfile
+{
+  ParticipantId id;
+  QString displayName;
+  std::optional<Birthday> birthday;
+  QString notes;
+  bool archived = false;
+
+  bool isValid() const;
 };
 
 struct AttendanceRecord

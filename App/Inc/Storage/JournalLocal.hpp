@@ -23,6 +23,12 @@ public:
                                   const ParticipantId& id) override;
   bool replaceMonth(int year, int month,
                     const MonthSnapshot& snapshot) override;
+  std::optional<ParticipantProfile>
+  getParticipantProfile(const ParticipantId& id) override;
+  std::optional<std::vector<ParticipantProfile>>
+  listParticipantProfiles(bool includeArchived) override;
+  bool updateParticipantProfile(const ParticipantProfile& profile) override;
+  bool setParticipantArchived(const ParticipantId& id, bool archived) override;
 
 private:
   std::unique_ptr<SqliteConnect> sqlite_;

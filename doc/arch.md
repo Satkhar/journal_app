@@ -9,9 +9,9 @@ flowchart LR
   ST --> LOCAL[JournalLocal]
   ST --> REMOTE[JournalRemote]
   LOCAL --> SQLITE[SqliteConnect]
-  SQLITE --> LDB[(SQLite schema v2)]
+  SQLITE --> LDB[(SQLite schema v3)]
   REMOTE --> API[libsql HTTP API]
-  API --> RDB[(Remote schema v2)]
+  API --> RDB[(Remote schema v3)]
   UI --> SYNC[SyncService]
   SYNC --> ST
 ```
@@ -30,6 +30,12 @@ flowchart LR
 - `displayName` — редактируемое отображаемое имя.
 
 Имя не является ключом. Одинаковые имена допустимы.
+
+### `ParticipantProfile`
+
+Отдельная глобальная карточка: имя, nullable birthday, plain-text notes и
+`archived_at`. Birthday хранится как day/month и optional year; фиктивный год
+не используется. Archive не удаляет membership или attendance.
 
 ### `month_participants`
 
@@ -52,9 +58,10 @@ flowchart LR
 Snapshot применяется целиком только в sync-сценариях. Обычное сохранение UI
 делает upsert attendance и не меняет membership/profile.
 
-## SQLite schema v2
+## SQLite schema v3
 
-- `participants`;
+- `participants`: `birth_day`, `birth_month`, `birth_year`, `notes`,
+  `archived_at`;
 - `month_participants`;
 - `attendance`;
 - `month_days`.
@@ -65,7 +72,10 @@ Snapshot применяется целиком только в sync-сценар
 - `CHECK` для year/month/day/boolean;
 - unique primary keys;
 - индексы чтения месяца и истории участника;
-- `PRAGMA user_version = 2`.
+- `PRAGMA user_version = 3`.
+
+Schema v2 мигрирует в v3 транзакционно. Profile triggers проверяют имя, notes и
+календарную корректность birthday.
 
 `saveActiveDays()` не удаляет attendance выключенных дней. При повторном
 включении сохраненная отметка восстанавливается.
@@ -75,7 +85,7 @@ Snapshot применяется целиком только в sync-сценар
 Schema `users(name, date, is_checked)` и формат `dd.MM` больше не поддерживаются.
 Проект еще не имеет production DB, поэтому migration v1 не нужна. Unversioned DB с
 старыми таблицами отклоняется с явной ошибкой. Для продолжения файл dev-БД надо
-удалить; приложение создаст schema v2 заново.
+удалить; приложение создаст schema v3 заново.
 ## Sync contract
 
 Push/pull работают с `MonthSnapshot`, а не с `name + day`.
@@ -87,6 +97,7 @@ Push/pull работают с `MonthSnapshot`, а не с `name + day`.
 - Remote writes используют Hrana batch: DML идет по `ok`-conditions, rollback —
   по отрицанию успешного commit.
 - Pull читает participants/days/attendance одной read transaction.
+- Profile fields не входят в `MonthSnapshot` и не синхронизируются до этапа 4.
 
 Текущий HTTP-клиент синхронный и использует вложенный `QEventLoop`. Это PoC,
 не production transport. До синхронизации фото/персональных данных нужны async,

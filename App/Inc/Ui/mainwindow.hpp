@@ -50,6 +50,7 @@ private:
   QPushButton* connectRemoteBtn_;
   QPushButton* configureMonthBtn_;
   QPushButton* copyUsersBtn_;
+  QPushButton* participantsBtn_;
 
   // Текущее активное подключение (используется для защиты от лишних reconnect).
   QString activeStorageMode_;
@@ -89,6 +90,8 @@ private:
   void configureMonthDays();
   // Переносит пользователей из другого месяца в текущий.
   void copyUsersFromMonth();
+  void openParticipantProfile(const ParticipantId& id);
+  void openParticipantDirectory();
   // Обновляет визуальный индикатор режима.
   void updateModeBadge();
   // Включает/выключает кнопки редактирования в зависимости от режима.

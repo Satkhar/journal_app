@@ -19,6 +19,7 @@ set(CMAKE_AUTORCC ON)
 add_executable(journal_app 
     ./App/Src/main.cpp
     ./App/Src/Domain/JournalApp.cpp
+    ./App/Src/Domain/JournalModels.cpp
     ./App/Src/Storage/JournalLocal.cpp
     ./App/Src/Storage/JournalRemote.cpp
     ./App/Src/Storage/SqliteConnect.cpp
@@ -26,6 +27,8 @@ add_executable(journal_app
     ./App/Src/Ui/mainwindow.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/CopyUsersDialog.cpp
+    ./App/Src/Ui/ParticipantDialog.cpp
+    ./App/Src/Ui/ParticipantDirectoryDialog.cpp
 
 
 
@@ -40,6 +43,8 @@ add_executable(journal_app
     ./App/Inc/Ui/mainwindow.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/CopyUsersDialog.hpp
+    ./App/Inc/Ui/ParticipantDialog.hpp
+    ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
 
     ./journal_app.ui
     )
@@ -75,6 +80,7 @@ enable_testing()
 
 add_executable(journal_storage_tests
     ./Test/JournalStorageTests.cpp
+    ./App/Src/Domain/JournalModels.cpp
     ./App/Src/Storage/SqliteConnect.cpp
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Domain/IJournalStorage.hpp

@@ -2,6 +2,7 @@
 
 #include <QVector>
 
+#include <optional>
 #include <vector>
 
 #include "JournalModels.hpp"
@@ -25,4 +26,12 @@ public:
                                           const ParticipantId& id) = 0;
   virtual bool replaceMonth(int year, int month,
                             const MonthSnapshot& snapshot) = 0;
+
+  virtual std::optional<ParticipantProfile>
+  getParticipantProfile(const ParticipantId& id) = 0;
+  virtual std::optional<std::vector<ParticipantProfile>>
+  listParticipantProfiles(bool includeArchived) = 0;
+  virtual bool updateParticipantProfile(const ParticipantProfile& profile) = 0;
+  virtual bool setParticipantArchived(const ParticipantId& id,
+                                      bool archived) = 0;
 };

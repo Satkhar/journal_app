@@ -20,6 +20,8 @@
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
 #include "MonthDaysDialog.hpp"
+#include "ParticipantDialog.hpp"
+#include "ParticipantDirectoryDialog.hpp"
 #include "SqliteConnect.hpp"
 #include "SyncService.hpp"
 #include "config.h"
@@ -50,9 +52,9 @@ MainWindow::MainWindow(QWidget* parent)
       monthGroup_(nullptr), dataGroup_(nullptr), modeBadgeLabel_(nullptr),
       serverUrlEdit_(nullptr), connectLocalBtn_(nullptr),
       connectRemoteBtn_(nullptr), configureMonthBtn_(nullptr),
-      copyUsersBtn_(nullptr), activeStorageMode_(), activeServerUrl_(),
-      isConnectingStorage_(false), baseTableWidget(nullptr), activeDays_(),
-      day_in_month(0), month(0), year(0)
+      copyUsersBtn_(nullptr), participantsBtn_(nullptr), activeStorageMode_(),
+      activeServerUrl_(), isConnectingStorage_(false), baseTableWidget(nullptr),
+      activeDays_(), day_in_month(0), month(0), year(0)
 {
   // setupUi создает виджеты из сгенерированного файла journal_app.h.
   ui->setupUi(this);
@@ -225,6 +227,22 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     return;
   }
 
+  QSet<QString> archivedIds;
+  if (journalApp_)
+  {
+    const auto profiles = journalApp_->participantProfiles(true);
+    if (profiles.has_value())
+    {
+      for (const ParticipantProfile& profile : *profiles)
+      {
+        if (profile.archived)
+        {
+          archivedIds.insert(profile.id.value);
+        }
+      }
+    }
+  }
+
   activeDays_ = snapshot.activeDays;
   if (activeDays_.isEmpty())
   {
@@ -274,7 +292,10 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     idItem->setData(Qt::UserRole, participant.id.value);
     idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
     tableWidget->setItem(row, 0, idItem);
-    auto* nameItem = new QTableWidgetItem(participant.displayName);
+    auto* nameItem = new QTableWidgetItem(
+        archivedIds.contains(participant.id.value)
+            ? QString("[архив] %1").arg(participant.displayName)
+            : participant.displayName);
     nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
     tableWidget->setItem(row, 1, nameItem);
 
@@ -417,6 +438,22 @@ void MainWindow::createEmptyTable()
     layout->setColumnStretch(0, 1);
   }
 
+  connect(tableWidget, &QTableWidget::cellDoubleClicked, this,
+          [this, tableWidget](int row, int)
+          {
+            if (row < 2)
+            {
+              return;
+            }
+            const QTableWidgetItem* item = tableWidget->item(row, 0);
+            const ParticipantId id{item ? item->data(Qt::UserRole).toString()
+                                        : QString()};
+            if (id.isValid())
+            {
+              openParticipantProfile(id);
+            }
+          });
+
   baseTableWidget = tableWidget;
 }
 
@@ -489,12 +526,17 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout)
   copyUsersBtn_ = new QPushButton("Перенести пользователей", this);
   monthLayout->addWidget(copyUsersBtn_);
 
+  participantsBtn_ = new QPushButton("Все участники", this);
+  monthLayout->addWidget(participantsBtn_);
+
   parentLayout->insertWidget(1, monthGroup_);
 
   connect(configureMonthBtn_, &QPushButton::clicked, this,
           [this]() { configureMonthDays(); });
   connect(copyUsersBtn_, &QPushButton::clicked, this,
           [this]() { copyUsersFromMonth(); });
+  connect(participantsBtn_, &QPushButton::clicked, this,
+          [this]() { openParticipantDirectory(); });
 }
 
 void MainWindow::setupDataPanel(QVBoxLayout* parentLayout)
@@ -530,11 +572,7 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
                                .arg(error.isEmpty() ? targetUrl : error));
       return false;
     }
-
-    // allowBootstrapWrites=false -> никаких неявных записей при loadMonth().
-    // allowBootstrapWrites=false: в remote read-only режиме loadMonth не должен
-    // автоматически создавать Alice или что-либо записывать на сервер.
-    journalApp_ = std::make_unique<JournalApp>(std::move(remote), false);
+    journalApp_ = std::make_unique<JournalApp>(std::move(remote));
     ui->statusbar->showMessage(QString("Режим: server (%1)").arg(targetUrl),
                                5000);
     updateEditControlsByMode();
@@ -551,7 +589,7 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
   // Цепочка владения после этого:
   // journalApp_ -> JournalApp -> JournalLocal -> SqliteConnect.
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
-  journalApp_ = std::make_unique<JournalApp>(std::move(local), true);
+  journalApp_ = std::make_unique<JournalApp>(std::move(local));
   ui->statusbar->showMessage("Режим: local", 3000);
   updateEditControlsByMode();
   return true;
@@ -842,7 +880,7 @@ void MainWindow::readLocalMonthToTable()
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   // Отдельный JournalApp нужен только как временный use-case для чтения local
   // snapshot.
-  JournalApp localReader(std::move(local), true);
+  JournalApp localReader(std::move(local));
 
   updateCalendarVariables(ui->calendarWidget);
   const MonthSnapshot snapshot =
@@ -983,3 +1021,75 @@ void MainWindow::updateCalendarVariables(QCalendarWidget* calendarWidget)
 }
 
 //---------------------------------------------------------------
+
+void MainWindow::openParticipantProfile(const ParticipantId& id)
+{
+  if (!journalApp_)
+  {
+    return;
+  }
+  const auto loaded = journalApp_->participantProfile(id);
+  if (!loaded.has_value())
+  {
+    ui->statusbar->showMessage("Карточка участника не найдена");
+    return;
+  }
+
+  const bool editable = activeStorageMode_ == "local";
+  ParticipantDialog dialog(*loaded, editable, this);
+  if (dialog.exec() != QDialog::Accepted)
+  {
+    return;
+  }
+  if (dialog.action() == ParticipantDialog::Action::Save)
+  {
+    if (!journalApp_->updateParticipantProfile(dialog.profile()))
+    {
+      QMessageBox::warning(this, "Ошибка",
+                           "Не удалось сохранить карточку участника");
+      return;
+    }
+    ui->statusbar->showMessage("Карточка сохранена");
+  }
+  else if (dialog.action() == ParticipantDialog::Action::ToggleArchive)
+  {
+    const bool ok = dialog.targetArchived()
+                        ? journalApp_->archiveParticipant(id)
+                        : journalApp_->restoreParticipant(id);
+    if (!ok)
+    {
+      QMessageBox::warning(this, "Ошибка",
+                           "Не удалось изменить статус участника");
+      return;
+    }
+    ui->statusbar->showMessage(dialog.targetArchived()
+                                   ? "Участник архивирован"
+                                   : "Участник восстановлен");
+  }
+  refreshMonth();
+}
+
+void MainWindow::openParticipantDirectory()
+{
+  if (!journalApp_)
+  {
+    return;
+  }
+  const auto profiles = journalApp_->participantProfiles(true);
+  if (!profiles.has_value())
+  {
+    QMessageBox::warning(this, "Ошибка",
+                         "Не удалось прочитать каталог участников");
+    return;
+  }
+  ParticipantDirectoryDialog dialog(*profiles, this);
+  if (dialog.exec() != QDialog::Accepted)
+  {
+    return;
+  }
+  const auto id = dialog.selectedId();
+  if (id.has_value())
+  {
+    openParticipantProfile(*id);
+  }
+}

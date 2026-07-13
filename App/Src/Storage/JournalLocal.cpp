@@ -49,3 +49,26 @@ bool JournalLocal::replaceMonth(int year, int month,
 {
   return sqlite_->replaceMonth(year, month, snapshot);
 }
+
+std::optional<ParticipantProfile>
+JournalLocal::getParticipantProfile(const ParticipantId& id)
+{
+  return sqlite_->getParticipantProfile(id);
+}
+
+std::optional<std::vector<ParticipantProfile>>
+JournalLocal::listParticipantProfiles(bool includeArchived)
+{
+  return sqlite_->listParticipantProfiles(includeArchived);
+}
+
+bool JournalLocal::updateParticipantProfile(const ParticipantProfile& profile)
+{
+  return sqlite_->updateParticipantProfile(profile);
+}
+
+bool JournalLocal::setParticipantArchived(const ParticipantId& id,
+                                          bool archived)
+{
+  return sqlite_->setParticipantArchived(id, archived);
+}

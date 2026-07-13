@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "IJournalStorage.hpp"
 
@@ -15,8 +16,7 @@ struct CopyUsersResult
 class JournalApp
 {
 public:
-  explicit JournalApp(std::unique_ptr<IJournalStorage> storage,
-                      bool allowBootstrapWrites = true);
+  explicit JournalApp(std::unique_ptr<IJournalStorage> storage);
 
   MonthSnapshot loadMonth(int year, int month);
   bool saveActiveDays(int year, int month, const QVector<int>& days);
@@ -27,9 +27,15 @@ public:
   bool saveAttendance(int year, int month,
                       const std::vector<AttendanceRecord>& data);
 
+  std::optional<ParticipantProfile> participantProfile(const ParticipantId& id);
+  std::optional<std::vector<ParticipantProfile>>
+  participantProfiles(bool includeArchived);
+  bool updateParticipantProfile(const ParticipantProfile& profile);
+  bool archiveParticipant(const ParticipantId& id);
+  bool restoreParticipant(const ParticipantId& id);
+
 private:
   std::unique_ptr<IJournalStorage> storage_;
-  bool allowBootstrapWrites_;
   int currentYear_;
   int currentMonth_;
 };

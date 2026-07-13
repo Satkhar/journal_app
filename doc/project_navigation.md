@@ -1,4 +1,4 @@
-> **Статус:** документ описывает schema v1 и сохранен как historical reference. Актуальная доменная модель и schema v2: doc/arch.md. План карточек: doc/participant_profiles_plan.md.
+> **Статус:** документ описывает schema v1 и сохранен как historical reference. Актуальная доменная модель и schema v3: doc/arch.md. План карточек: doc/participant_profiles_plan.md.
 
 # Project Navigation
 
@@ -81,9 +81,7 @@ journal_app/
    - создает controls для выбора `Local` / `Remote`;
    - инициализирует `JournalApp` с нужной реализацией `IJournalStorage`;
    - связывает кнопки с add/delete/read/save/push/pull/copy действиями.
-3. `JournalApp` в `App/Src/Domain/JournalApp.cpp` хранит выбранный месяц и вызывает
-   storage-методы. При пустом local месяце может создать стартового пользователя
-   `Alice`; для remote режима bootstrap-запись отключена.
+3. `JournalApp` в `App/Src/Domain/JournalApp.cpp` хранит выбранный месяц, выполняет month/profile use cases и не делает bootstrap-записей.
 4. `IJournalStorage` задает общий контракт:
    - `getUsersForMonth`
    - `getActiveDays`
