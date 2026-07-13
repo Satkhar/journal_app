@@ -8,6 +8,10 @@
 #include <QStringList>
 #include <QTableWidget>
 #include <QPushButton>
+#include <QVector>
+
+class QGroupBox;
+class QVBoxLayout;
 
 #include <memory>
 #include <vector>
@@ -34,11 +38,16 @@ class MainWindow : public QMainWindow {
   Ui::MainWindow* ui;
   std::unique_ptr<JournalApp> journalApp_;
 
-  // Элементы панели подключения storage (создаются программно в setupStorageControls()).
+  // Элементы панели действий (создаются программно в setupActionPanels()).
+  QGroupBox* connectionGroup_;
+  QGroupBox* monthGroup_;
+  QGroupBox* dataGroup_;
   QLabel* modeBadgeLabel_;
   QLineEdit* serverUrlEdit_;
   QPushButton* connectLocalBtn_;
   QPushButton* connectRemoteBtn_;
+  QPushButton* configureMonthBtn_;
+  QPushButton* copyUsersBtn_;
 
   // Текущее активное подключение (используется для защиты от лишних reconnect).
   QString activeStorageMode_;
@@ -47,6 +56,7 @@ class MainWindow : public QMainWindow {
 
   // Кэш указателя на главную таблицу и числовые параметры месяца из календаря.
   QTableWidget* baseTableWidget;
+  QVector<int> activeDays_;
   uint32_t day_in_month;
   uint32_t month;
   uint32_t year;
@@ -62,13 +72,20 @@ class MainWindow : public QMainWindow {
   void createCheckTable();
   // Создает пустую таблицу под выбранный месяц.
   void createEmptyTable();
-  // Создает панель выбора источника данных и URL сервера.
-  void setupStorageControls();
+  // Создает панели действий: подключение, текущий месяц, данные.
+  void setupActionPanels();
+  void setupConnectionPanel(QVBoxLayout* parentLayout);
+  void setupMonthPanel(QVBoxLayout* parentLayout);
+  void setupDataPanel(QVBoxLayout* parentLayout);
   // Переключает активный storage на local/server.
   bool setupStorage(const QString& mode, const QString& serverUrl);
   // Обработчики кнопок Local/Remote.
   void connectLocalFromUi();
   void connectRemoteFromUi();
+  // Открывает диалог выбора дней учета для текущего месяца.
+  void configureMonthDays();
+  // Переносит пользователей из другого месяца в текущий.
+  void copyUsersFromMonth();
   // Обновляет визуальный индикатор режима.
   void updateModeBadge();
   // Включает/выключает кнопки редактирования в зависимости от режима.

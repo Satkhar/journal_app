@@ -25,7 +25,8 @@ pacman -S --needed \
   mingw-w64-x86_64-cmake \
   mingw-w64-x86_64-ninja \
   mingw-w64-x86_64-qt6-base \
-  mingw-w64-x86_64-qt6-tools
+  mingw-w64-x86_64-qt6-tools \
+  mingw-w64-x86_64-vulkan-headers
 ```
 
 ## 3. Проверка окружения
@@ -38,7 +39,7 @@ cmake --version
 qmake6 --version
 ```
 
-Важно: собирайте проект именно из окружения `MSYS2 MINGW64`, чтобы `gcc`, `cmake` и `Qt6` были из одной среды.
+Важно: собирайте проект именно из окружения `MSYS2 MINGW64`, чтобы `gcc`, `cmake`, `Qt6` и вспомогательные заголовки Qt-зависимостей были из одной среды. Не смешивайте standalone Windows CMake с Qt из `C:/msys64/mingw64`: поиск зависимостей Qt может уйти в неверные пути и сломаться на `WrapVulkanHeaders`.
 
 ## 4. Сборка проекта локально
 

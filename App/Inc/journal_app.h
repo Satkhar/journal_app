@@ -54,7 +54,7 @@ class Ui_MainWindow
     {
       MainWindow->setObjectName("MainWindow");
     }
-    MainWindow->resize(776, 532);
+    MainWindow->resize(1200, 780);
     centralwidget = new QWidget(MainWindow);
     centralwidget->setObjectName("centralwidget");
     gridLayout = new QGridLayout(centralwidget);
@@ -131,7 +131,7 @@ class Ui_MainWindow
     MainWindow->setCentralWidget(centralwidget);
     menubar = new QMenuBar(MainWindow);
     menubar->setObjectName("menubar");
-    menubar->setGeometry(QRect(0, 0, 776, 22));
+    menubar->setGeometry(QRect(0, 0, 1200, 22));
     MainWindow->setMenuBar(menubar);
     statusbar = new QStatusBar(MainWindow);
     statusbar->setObjectName("statusbar");

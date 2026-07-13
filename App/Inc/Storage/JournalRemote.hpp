@@ -17,6 +17,8 @@ class JournalRemote : public IJournalStorage {
   QString lastError() const;
 
   QStringList getUsersForMonth(int year, int month) override;
+  QVector<int> getActiveDays(int year, int month) override;
+  bool saveActiveDays(int year, int month, const QVector<int> &days) override;
   std::vector<AttendanceRecord> getMonth(int year, int month) override;
   bool saveMonth(int year, int month,
                  const std::vector<AttendanceRecord> &data) override;

@@ -1,18 +1,28 @@
 #pragma once
 
 #include <memory>
+#include <QVector>
 
 #include "IJournalStorage.hpp"
 
 struct MonthSnapshot {
   // Список строк таблицы (пользователи).
   QStringList users;
+  // Дни месяца, которые входят в учет посещаемости.
+  QVector<int> activeDays;
   // Отметки по дням для всех пользователей.
   std::vector<AttendanceRecord> attendance;
 };
 
+struct CopyUsersResult {
+  bool ok;
+  int copied;
+  int skipped;
+  QString errorMessage;
+};
+
 class JournalApp {
- public:
+public:
   // Это use-case слой между UI и конкретным storage.
   // UI не знает, SQLite это или remote HTTP-адаптер.
   // Инициализирует слой сценариев с конкретным хранилищем.
@@ -23,6 +33,9 @@ class JournalApp {
                       bool allowBootstrapWrites = true);
 
   MonthSnapshot loadMonth(int year, int month);
+  bool saveActiveDays(int year, int month, const QVector<int>& days);
+  CopyUsersResult copyUsersFromMonth(int fromYear, int fromMonth, int toYear,
+                                     int toMonth, bool copyActiveDays);
   
   bool addUser(const QString &name);
   bool deleteUser(const QString &name);

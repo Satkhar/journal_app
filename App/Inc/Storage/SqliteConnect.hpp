@@ -17,6 +17,8 @@ class SqliteConnect {
 
   // CRUD-операции на уровне месяца.
   QStringList getUsersForMonth(int year, int month);
+  QVector<int> getActiveDays(int year, int month);
+  bool saveActiveDays(int year, int month, const QVector<int>& days);
   std::vector<AttendanceRecord> getMonth(int year, int month);
   bool saveMonth(int year, int month, const std::vector<AttendanceRecord>& data);
   bool addUser(int year, int month, const QString& name);
@@ -29,6 +31,8 @@ class SqliteConnect {
 
   // Вспомогательные функции формирования SQL-данных.
   bool ensureSchema();
+  QVector<int> fullMonthDays(int year, int month) const;
+  QVector<int> normalizeDays(int year, int month, const QVector<int>& days) const;
   QString monthPattern(int year, int month) const;
   QString dayString(int year, int month, int day) const;
   int daysInMonth(int year, int month) const;

@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 #include <vector>
 
@@ -22,6 +23,10 @@ class IJournalStorage {
   // UI и use-case работают со снимком месяца, а не с одиночными днями.
   // Возвращает список пользователей, у которых есть записи за месяц.
   virtual QStringList getUsersForMonth(int year, int month) = 0;
+  // Возвращает дни месяца, включенные в учет.
+  virtual QVector<int> getActiveDays(int year, int month) = 0;
+  // Сохраняет дни месяца, включенные в учет.
+  virtual bool saveActiveDays(int year, int month, const QVector<int>& days) = 0;
   // Возвращает все отметки пользователей за месяц.
   virtual std::vector<AttendanceRecord> getMonth(int year, int month) = 0;
   // Полностью сохраняет срез месяца.

@@ -18,29 +18,27 @@ set(CMAKE_AUTORCC ON)
 
 add_executable(journal_app 
     ./App/Src/main.cpp
-    ./App/Src/mainwindow.cpp
-    ./App/Src/JournalApp.cpp
-    ./App/Src/JournalLocal.cpp
-    ./App/Src/JournalRemote.cpp
-    ./App/Src/SyncService.cpp
-    ./App/Src/SqliteConnect.cpp
-    ./App/Src/checkTableManager.cpp
-    ./App/Src/dbManager.cpp
-    ./App/Src/mainTableManager.cpp
+    ./App/Src/Domain/JournalApp.cpp
+    ./App/Src/Storage/JournalLocal.cpp
+    ./App/Src/Storage/JournalRemote.cpp
+    ./App/Src/Storage/SqliteConnect.cpp
+    ./App/Src/Sync/SyncService.cpp
+    ./App/Src/Ui/mainwindow.cpp
+    ./App/Src/Ui/MonthDaysDialog.cpp
+    ./App/Src/Ui/CopyUsersDialog.cpp
 
 
 
     ./App/Inc/journal_app.h
-    ./App/Inc/mainwindow.hpp
-    ./App/Inc/JournalApp.hpp
-    ./App/Inc/JournalLocal.hpp
-    ./App/Inc/JournalRemote.hpp
-    ./App/Inc/SyncService.hpp
-    ./App/Inc/IJournalStorage.hpp
-    ./App/Inc/SqliteConnect.hpp
-    ./App/Inc/dbManager.hpp
-    ./App/Inc/checkTableManager.hpp
-    ./App/Inc/mainTableManager.hpp
+    ./App/Inc/Domain/IJournalStorage.hpp
+    ./App/Inc/Domain/JournalApp.hpp
+    ./App/Inc/Storage/JournalLocal.hpp
+    ./App/Inc/Storage/JournalRemote.hpp
+    ./App/Inc/Storage/SqliteConnect.hpp
+    ./App/Inc/Sync/SyncService.hpp
+    ./App/Inc/Ui/mainwindow.hpp
+    ./App/Inc/Ui/MonthDaysDialog.hpp
+    ./App/Inc/Ui/CopyUsersDialog.hpp
 
     ./journal_app.ui
     )
@@ -54,7 +52,15 @@ target_link_libraries(journal_app PRIVATE
 
 target_include_directories(journal_app PRIVATE 
     ${CMAKE_SOURCE_DIR}/App/Inc
-    ${CMAKE_SOURCE_DIR}/App/Src)
+    ${CMAKE_SOURCE_DIR}/App/Inc/Domain
+    ${CMAKE_SOURCE_DIR}/App/Inc/Storage
+    ${CMAKE_SOURCE_DIR}/App/Inc/Sync
+    ${CMAKE_SOURCE_DIR}/App/Inc/Ui
+    ${CMAKE_SOURCE_DIR}/App/Src
+    ${CMAKE_SOURCE_DIR}/App/Src/Domain
+    ${CMAKE_SOURCE_DIR}/App/Src/Storage
+    ${CMAKE_SOURCE_DIR}/App/Src/Sync
+    ${CMAKE_SOURCE_DIR}/App/Src/Ui)
 
 # Указываем флаги компилятора для поддержки UTF-8
 if(MSVC)

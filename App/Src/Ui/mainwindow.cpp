@@ -2,6 +2,7 @@
 
 #include <QCheckBox>
 #include <QDate>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QHeaderView>
@@ -9,41 +10,68 @@
 #include <QProcessEnvironment>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 
 #include <memory>
 #include <QHash>
 
+#include "CopyUsersDialog.hpp"
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
+#include "MonthDaysDialog.hpp"
 #include "SqliteConnect.hpp"
 #include "SyncService.hpp"
 #include "config.h"
 
 //---------------------------------------------------------------
 
+namespace {
+
+QVector<int> fullMonthDays(int year, int month) {
+  QVector<int> days;
+  const int maxDay = QDate(year, month, 1).daysInMonth();
+  days.reserve(maxDay);
+  for (int day = 1; day <= maxDay; ++day) {
+    days.push_back(day);
+  }
+  return days;
+}
+
+}  // namespace
+
+//---------------------------------------------------------------
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
       ui(new Ui::MainWindow),
+      connectionGroup_(nullptr),
+      monthGroup_(nullptr),
+      dataGroup_(nullptr),
       modeBadgeLabel_(nullptr),
       serverUrlEdit_(nullptr),
       connectLocalBtn_(nullptr),
       connectRemoteBtn_(nullptr),
+      configureMonthBtn_(nullptr),
+      copyUsersBtn_(nullptr),
       activeStorageMode_(),
       activeServerUrl_(),
       isConnectingStorage_(false),
       baseTableWidget(nullptr),
+      activeDays_(),
       day_in_month(0),
       month(0),
       year(0) {
   // setupUi создает виджеты из сгенерированного файла journal_app.h.
   ui->setupUi(this);
+  setMinimumSize(QSize(1050, 720));
+  resize(QSize(1200, 780));
 
   // Подготавливаем пустой UI-каркас таблиц до загрузки данных из БД.
   createEmptyTable();
   createCheckTable();
-  // Панель выбора local/remote и серверного URL.
-  setupStorageControls();
+  // Панели действий: подключение, текущий месяц, данные.
+  setupActionPanels();
 
   const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
   const QString serverUrl =
@@ -141,6 +169,7 @@ MainWindow::MainWindow(QWidget* parent)
           [this](int shownYear, int shownMonth) {
             Q_UNUSED(shownYear)
             Q_UNUSED(shownMonth)
+            activeDays_.clear();
             createEmptyTable();
             refreshMonth();
           });
@@ -174,23 +203,33 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot) {
     return;
   }
 
+  activeDays_ = snapshot.activeDays;
+  if (activeDays_.isEmpty()) {
+    activeDays_ = fullMonthDays(static_cast<int>(year), static_cast<int>(month));
+  }
+
   // Всегда заново рисуем служебные строки и все user-строки,
   // чтобы таблица была полностью консистентна snapshot.
   tableWidget->clearContents();
   tableWidget->setRowCount(2);
+  tableWidget->setColumnCount(2 + activeDays_.size());
 
   tableWidget->setItem(0, 0, new QTableWidgetItem("Дата"));
   tableWidget->setItem(1, 0, new QTableWidgetItem("День"));
+  tableWidget->setHorizontalHeaderItem(0, new QTableWidgetItem("ID"));
+  tableWidget->setHorizontalHeaderItem(1, new QTableWidgetItem("Name"));
 
-  for (uint32_t day = 1; day <= day_in_month; ++day) {
+  for (int index = 0; index < activeDays_.size(); ++index) {
+    const int day = activeDays_.at(index);
+    const int column = index + 2;
     const QString dateLabel = QString("%1.%2")
                                   .arg(day, 2, 10, QLatin1Char('0'))
                                   .arg(month, 2, 10, QLatin1Char('0'));
-    tableWidget->setItem(0, static_cast<int>(day) + 1, new QTableWidgetItem(dateLabel));
+    tableWidget->setItem(0, column, new QTableWidgetItem(dateLabel));
 
     const QDate date(static_cast<int>(year), static_cast<int>(month), static_cast<int>(day));
-    tableWidget->setItem(1, static_cast<int>(day) + 1,
-                         new QTableWidgetItem(kDaysOfWeek[date.dayOfWeek() - 1]));
+    tableWidget->setItem(1, column, new QTableWidgetItem(kDaysOfWeek[date.dayOfWeek() - 1]));
+    tableWidget->setHorizontalHeaderItem(column, new QTableWidgetItem(" "));
   }
 
   // Быстрый индекс: имя пользователя -> набор отмеченных дней.
@@ -206,12 +245,14 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot) {
     tableWidget->setItem(row, 0, new QTableWidgetItem(""));
     tableWidget->setItem(row, 1, new QTableWidgetItem(user));
 
-    for (uint32_t day = 1; day <= day_in_month; ++day) {
+    for (int index = 0; index < activeDays_.size(); ++index) {
+      const int day = activeDays_.at(index);
+      const int column = index + 2;
       bool checked = false;
-      if (markByUser.contains(user) && markByUser[user].contains(static_cast<int>(day))) {
-        checked = markByUser[user][static_cast<int>(day)];
+      if (markByUser.contains(user) && markByUser[user].contains(day)) {
+        checked = markByUser[user][day];
       }
-      addCheckBox(tableWidget, row, static_cast<int>(day) + 1, checked);
+      addCheckBox(tableWidget, row, column, checked);
     }
   }
 
@@ -240,10 +281,20 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const {
       continue;
     }
 
-    // Для каждого пользователя сохраняем отметки по всем дням месяца.
-    for (int day = 1; day <= static_cast<int>(day_in_month); ++day) {
+    // Для каждого пользователя сохраняем отметки только по отрисованным дням.
+    for (int column = 2; column < tableWidget->columnCount(); ++column) {
+      const QTableWidgetItem* dateItem = tableWidget->item(0, column);
+      if (!dateItem) {
+        continue;
+      }
+
+      const int day = dateItem->text().left(2).toInt();
+      if (day < 1 || day > static_cast<int>(day_in_month)) {
+        continue;
+      }
+
       QCheckBox* checkBox =
-          qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, day + 1));
+          qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, column));
 
       data.push_back({name, day, checkBox ? checkBox->isChecked() : false});
     }
@@ -290,36 +341,49 @@ void MainWindow::createEmptyTable() {
     delete oldTable;
   }
 
-  QTableWidget* tableWidget = new QTableWidget(2, 2 + static_cast<int>(day_in_month), this);
+  const QVector<int> tableDays = activeDays_.isEmpty()
+                                     ? fullMonthDays(static_cast<int>(year),
+                                                     static_cast<int>(month))
+                                     : activeDays_;
+  QTableWidget* tableWidget = new QTableWidget(2, 2 + tableDays.size(), this);
   tableWidget->setObjectName("bigTable");
 
   tableWidget->setHorizontalHeaderItem(0, new QTableWidgetItem("ID"));
   tableWidget->setHorizontalHeaderItem(1, new QTableWidgetItem("Name"));
-  for (uint32_t i = 0; i < day_in_month; ++i) {
-    tableWidget->setHorizontalHeaderItem(static_cast<int>(i) + 2, new QTableWidgetItem(" "));
+  for (int i = 0; i < tableDays.size(); ++i) {
+    tableWidget->setHorizontalHeaderItem(i + 2, new QTableWidgetItem(" "));
   }
 
   tableWidget->resizeColumnsToContents();
   tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+  tableWidget->setMinimumHeight(260);
+  tableWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
   QGridLayout* layout = ui->centralwidget->findChild<QGridLayout*>("gridLayout");
   if (layout) {
-    layout->addWidget(tableWidget);
+    layout->addWidget(tableWidget, 1, 0);
+    layout->setRowStretch(0, 0);
+    layout->setRowStretch(1, 1);
+    layout->setColumnStretch(0, 1);
   }
 
   baseTableWidget = tableWidget;
 }
 
-void MainWindow::setupStorageControls() {
+void MainWindow::setupActionPanels() {
   QVBoxLayout* layout = ui->centralwidget->findChild<QVBoxLayout*>("verticalLayout_3");
   if (!layout) {
     return;
   }
 
-  // Верхняя панель:
-  // строка 1 = URL + кнопки подключения
-  // строка 2 = визуальный бейдж текущего режима.
-  auto* storagePanelLayout = new QVBoxLayout();
+  setupConnectionPanel(layout);
+  setupMonthPanel(layout);
+  setupDataPanel(layout);
+}
+
+void MainWindow::setupConnectionPanel(QVBoxLayout* parentLayout) {
+  connectionGroup_ = new QGroupBox("Подключение", this);
+  auto* storagePanelLayout = new QVBoxLayout(connectionGroup_);
   auto* controlsLayout = new QHBoxLayout();
   controlsLayout->addWidget(new QLabel("Server URL:", this));
 
@@ -347,13 +411,50 @@ void MainWindow::setupStorageControls() {
 
   storagePanelLayout->addLayout(controlsLayout);
   storagePanelLayout->addWidget(modeBadgeLabel_, 0, Qt::AlignLeft);
-  layout->insertLayout(1, storagePanelLayout);
+  parentLayout->insertWidget(0, connectionGroup_);
 
-  // Кнопки подключаем к отдельным методам, чтобы не раздувать setupStorageControls.
   connect(connectLocalBtn_, &QPushButton::clicked, this,
           [this]() { connectLocalFromUi(); });
   connect(connectRemoteBtn_, &QPushButton::clicked, this,
           [this]() { connectRemoteFromUi(); });
+}
+
+void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout) {
+  monthGroup_ = new QGroupBox("Текущий месяц", this);
+  auto* monthLayout = new QVBoxLayout(monthGroup_);
+
+  auto* userButtonsLayout = new QHBoxLayout();
+  userButtonsLayout->addWidget(ui->btnAdd);
+  userButtonsLayout->addWidget(ui->btnDel);
+  monthLayout->addLayout(userButtonsLayout);
+  monthLayout->addWidget(ui->lineEdit);
+
+  configureMonthBtn_ = new QPushButton("Настроить дни", this);
+  monthLayout->addWidget(configureMonthBtn_);
+
+  copyUsersBtn_ = new QPushButton("Перенести пользователей", this);
+  monthLayout->addWidget(copyUsersBtn_);
+
+  parentLayout->insertWidget(1, monthGroup_);
+
+  connect(configureMonthBtn_, &QPushButton::clicked, this,
+          [this]() { configureMonthDays(); });
+  connect(copyUsersBtn_, &QPushButton::clicked, this,
+          [this]() { copyUsersFromMonth(); });
+}
+
+void MainWindow::setupDataPanel(QVBoxLayout* parentLayout) {
+  dataGroup_ = new QGroupBox("Данные", this);
+  auto* dataLayout = new QVBoxLayout(dataGroup_);
+
+  ui->btnReadBase->setText("Прочитать месяц");
+  ui->btnSaveCurTable->setText("Сохранить месяц");
+  dataLayout->addWidget(ui->btnReadBase);
+  dataLayout->addWidget(ui->btnSaveCurTable);
+  dataLayout->addWidget(ui->btnCreateTable);
+  dataLayout->addWidget(ui->btnPullServer);
+
+  parentLayout->insertWidget(2, dataGroup_);
 }
 
 bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl) {
@@ -480,6 +581,75 @@ void MainWindow::connectRemoteFromUi() {
   }
 }
 
+void MainWindow::configureMonthDays() {
+  if (activeStorageMode_ == "server") {
+    ui->statusbar->showMessage("Настройка месяца доступна только в local режиме.", 5000);
+    return;
+  }
+
+  if (!journalApp_) {
+    ui->statusbar->showMessage("Сервис не инициализирован");
+    return;
+  }
+
+  updateCalendarVariables(ui->calendarWidget);
+  QVector<int> initialDays = activeDays_;
+  if (initialDays.isEmpty()) {
+    initialDays = fullMonthDays(static_cast<int>(year), static_cast<int>(month));
+  }
+
+  MonthDaysDialog dialog(static_cast<int>(year), static_cast<int>(month), initialDays, this);
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  const QVector<int> selectedDays = dialog.selectedDays();
+  if (!journalApp_->saveActiveDays(static_cast<int>(year), static_cast<int>(month),
+                                   selectedDays)) {
+    ui->statusbar->showMessage("Не удалось сохранить настройку месяца.", 6000);
+    return;
+  }
+
+  activeDays_ = selectedDays;
+  refreshMonth();
+  ui->statusbar->showMessage("Настройка месяца сохранена.", 4000);
+}
+
+void MainWindow::copyUsersFromMonth() {
+  if (activeStorageMode_ == "server") {
+    ui->statusbar->showMessage("Перенос пользователей доступен только в local режиме.", 5000);
+    return;
+  }
+
+  if (!journalApp_) {
+    ui->statusbar->showMessage("Сервис не инициализирован");
+    return;
+  }
+
+  updateCalendarVariables(ui->calendarWidget);
+  CopyUsersDialog dialog(static_cast<int>(year), static_cast<int>(month), this);
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  const CopyUsersResult result = journalApp_->copyUsersFromMonth(
+      dialog.sourceYear(), dialog.sourceMonth(), static_cast<int>(year),
+      static_cast<int>(month), dialog.copyActiveDays());
+
+  if (!result.ok) {
+    ui->statusbar->showMessage(
+        QString("Перенос не выполнен: %1").arg(result.errorMessage), 6000);
+    return;
+  }
+
+  refreshMonth();
+  ui->statusbar->showMessage(
+      QString("Перенос завершен. Добавлено: %1, пропущено: %2")
+          .arg(result.copied)
+          .arg(result.skipped),
+      5000);
+}
+
 void MainWindow::updateModeBadge() {
   if (!modeBadgeLabel_) {
     return;
@@ -533,6 +703,12 @@ void MainWindow::updateEditControlsByMode() {
   ui->btnCreateTable->setEnabled(isLocalMode);
   ui->btnPullServer->setEnabled(isLocalMode);
   ui->lineEdit->setEnabled(isLocalMode);
+  if (configureMonthBtn_) {
+    configureMonthBtn_->setEnabled(isLocalMode);
+  }
+  if (copyUsersBtn_) {
+    copyUsersBtn_->setEnabled(isLocalMode);
+  }
 }
 
 void MainWindow::readLocalMonthToTable() {
