@@ -27,17 +27,20 @@ UI не должен знать детали SQL/HTTP протоколов. Он
   - добавление/удаление пользователя;
   - сохранение месяца.
 
-Ключевой флаг:
-- `allowBootstrapWrites`:
-  - `true` для local режима: разрешает автоинициализацию пустого месяца (Alice);
-  - `false` для remote режима: запрещает неявные записи при чтении.
+`loadMonth` является read-only. Снимок содержит явное состояние `Missing`,
+`Ready` или `Error`; создание месяца запускается UI отдельным сценарием.
 
 ### 3. Абстракция storage (`IJournalStorage`)
 - Файл: `App/Inc/IJournalStorage.hpp`
 - Единый интерфейс для local и remote:
+  - `lastError`
+  - `getMonthState`
   - `getUsersForMonth`
+  - `getActiveDays`
   - `getMonth`
+  - `saveActiveDays`
   - `saveMonth`
+  - `saveMonthSetup`
   - `addUser`
   - `deleteUser`
 
@@ -97,12 +100,12 @@ UI не должен знать детали SQL/HTTP протоколов. Он
 
 ### `Local`
 - Подключает локальное хранилище (`SqliteConnect -> JournalLocal`).
-- Создает `JournalApp(..., true)`.
+- Создает `JournalApp` с local storage.
 - Обновляет бейдж и перерисовывает месяц.
 
 ### `Remote`
 - Подключает удаленное хранилище по URL (`JournalRemote`).
-- Создает `JournalApp(..., false)`, чтобы чтение не писало на сервер.
+- Создает `JournalApp` с remote storage; UI остается read-only.
 - Обновляет бейдж и перерисовывает месяц.
 
 ### `Read Base`
@@ -136,10 +139,13 @@ UI не должен знать детали SQL/HTTP протоколов. Он
 - В `JournalRemote` ведется `lastError_`.
 - В `SyncService::pullMonthToLocal`:
   - если `getMonth` вернул ошибку (`lastError` не пуст), локальная БД не переписывается.
+  - отсутствующий/пустой remote-месяц не стирает существующий local-месяц;
+  - на время синхронного HTTP-вызова UI блокирует мутации и смену месяца.
 
-### 3) Remote read-only как продуктовый режим
-- `JournalApp` создается с `allowBootstrapWrites=false` для remote.
-- Это блокирует неявные автозаписи при `loadMonth()`.
+### 3) Создание нового месяца
+- `JournalApp::loadMonth()` не выполняет bootstrap-записей.
+- Local `Missing` планирует меню создания после показа `MainWindow`.
+- Remote read-only не показывает local setup и не выполняет неявных записей.
 
 ## 5. Формат данных
 

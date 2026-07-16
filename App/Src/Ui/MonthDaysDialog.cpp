@@ -44,6 +44,8 @@ MonthDaysDialog::MonthDaysDialog(int year, int month,
       calendar_(new QCalendarWidget(this)),
       buttons_(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                     this)) {
+  setObjectName("monthDaysDialog");
+  buttons_->setObjectName("monthDaysDialogButtons");
   setWindowTitle("Настроить месяц");
 
   for (int day : activeDays) {

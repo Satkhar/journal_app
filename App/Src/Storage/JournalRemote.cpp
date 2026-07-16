@@ -24,6 +24,15 @@ QString JournalRemote::lastError() const {
   return lastError_;
 }
 
+MonthStateResult JournalRemote::getMonthState(int year, int month) {
+  const QStringList users = getUsersForMonth(year, month);
+  if (!lastError_.isEmpty()) {
+    return {MonthState::Error, lastError_};
+  }
+
+  return {users.isEmpty() ? MonthState::Missing : MonthState::Ready, QString()};
+}
+
 QStringList JournalRemote::getUsersForMonth(int year, int month) {
   lastError_.clear();
   QStringList users;
@@ -60,6 +69,7 @@ QStringList JournalRemote::getUsersForMonth(int year, int month) {
 }
 
 QVector<int> JournalRemote::getActiveDays(int year, int month) {
+  lastError_.clear();
   QVector<int> days;
   const int maxDay = daysInMonth(year, month);
   days.reserve(maxDay);
@@ -148,6 +158,17 @@ bool JournalRemote::saveMonth(int year, int month,
   }
 
   return true;
+}
+
+bool JournalRemote::saveMonthSetup(
+    int year, int month, const QVector<int>& days,
+    const std::vector<AttendanceRecord>& data) {
+  Q_UNUSED(year);
+  Q_UNUSED(month);
+  Q_UNUSED(days);
+  Q_UNUSED(data);
+  lastError_ = "Remote month setup is not implemented";
+  return false;
 }
 
 bool JournalRemote::addUser(int year, int month, const QString& name) {

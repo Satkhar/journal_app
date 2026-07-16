@@ -15,12 +15,27 @@ struct AttendanceRecord {
   bool isChecked;
 };
 
+enum class MonthState {
+  Missing,
+  Ready,
+  Error,
+};
+
+struct MonthStateResult {
+  MonthState state{MonthState::Error};
+  QString errorMessage;
+};
+
 class IJournalStorage {
  public:
   virtual ~IJournalStorage() = default;
 
+  // Пустой контейнер допустим; ошибка чтения передается отдельно.
+  virtual QString lastError() const = 0;
   // Интерфейс storage намеренно месяц-ориентированный:
   // UI и use-case работают со снимком месяца, а не с одиночными днями.
+  // Состояние хранится явно: пустой список пользователей не означает новый месяц.
+  virtual MonthStateResult getMonthState(int year, int month) = 0;
   // Возвращает список пользователей, у которых есть записи за месяц.
   virtual QStringList getUsersForMonth(int year, int month) = 0;
   // Возвращает дни месяца, включенные в учет.
@@ -32,6 +47,10 @@ class IJournalStorage {
   // Полностью сохраняет срез месяца.
   virtual bool saveMonth(int year, int month,
                          const std::vector<AttendanceRecord>& data) = 0;
+  // Атомарно сохраняет marker, дни учета и полный срез месяца.
+  virtual bool saveMonthSetup(
+      int year, int month, const QVector<int>& days,
+      const std::vector<AttendanceRecord>& data) = 0;
   // Добавляет пользователя в месяц (как правило, заполняя все дни значением false).
   virtual bool addUser(int year, int month, const QString& name) = 0;
   // Удаляет пользователя из выбранного месяца.

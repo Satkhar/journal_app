@@ -9,6 +9,7 @@
 #include <QTableWidget>
 #include <QPushButton>
 #include <QVector>
+#include <QtGlobal>
 
 class QGroupBox;
 class QVBoxLayout;
@@ -53,6 +54,13 @@ class MainWindow : public QMainWindow {
   QString activeStorageMode_;
   QString activeServerUrl_;
   bool isConnectingStorage_;
+  bool syncInProgress_;
+  bool refreshInProgress_;
+  bool monthDataValid_;
+  bool monthSetupPromptOpen_;
+  quint64 monthSetupRequestId_;
+  int dismissedMonthSetupYear_;
+  int dismissedMonthSetupMonth_;
 
   // Кэш указателя на главную таблицу и числовые параметры месяца из календаря.
   QTableWidget* baseTableWidget;
@@ -63,6 +71,10 @@ class MainWindow : public QMainWindow {
 
   // Загружает данные текущего месяца и перерисовывает таблицу.
   void refreshMonth();
+  // Планирует setup после показа MainWindow и отбрасывает устаревшие запросы.
+  void scheduleMonthSetup(const MonthSnapshot& snapshot);
+  // Показывает выбор способа создания нового local-месяца.
+  void showMonthSetupMenu(int targetYear, int targetMonth);
   // Рисует таблицу из снимка месяца.
   void renderMonth(const MonthSnapshot& snapshot);
   // Считывает состояние UI-таблицы в доменную модель.
@@ -85,10 +97,10 @@ class MainWindow : public QMainWindow {
   // Открывает диалог выбора дней учета для текущего месяца.
   void configureMonthDays();
   // Переносит пользователей из другого месяца в текущий.
-  void copyUsersFromMonth();
+  void copyUsersFromMonth(bool copyActiveDaysByDefault = false);
   // Обновляет визуальный индикатор режима.
   void updateModeBadge();
-  // Включает/выключает кнопки редактирования в зависимости от режима.
+  // Разрешает запись только для успешно загруженного local-месяца.
   void updateEditControlsByMode();
   // Read Base: всегда читает локальную БД в таблицу.
   void readLocalMonthToTable();

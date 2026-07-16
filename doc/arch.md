@@ -57,9 +57,14 @@ flowchart LR
 
 Единый интерфейс для всех хранилищ:
 
+- `lastError()`
+- `getMonthState(...)`
 - `getUsersForMonth(...)`
+- `getActiveDays(...)`
 - `getMonth(...)`
+- `saveActiveDays(...)`
 - `saveMonth(...)`
+- `saveMonthSetup(...)`
 - `addUser(...)`
 - `deleteUser(...)`
 

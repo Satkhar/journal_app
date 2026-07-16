@@ -35,11 +35,35 @@ bool SyncService::pullMonthToLocal(const QString& serverUrl, int year, int month
     return false;
   }
 
+  const MonthStateResult remoteState = remote->getMonthState(year, month);
+  if (remoteState.state == MonthState::Error) {
+    if (errorMessage) {
+      *errorMessage = remoteState.errorMessage;
+    }
+    return false;
+  }
+  if (remoteState.state == MonthState::Missing) {
+    if (errorMessage) {
+      *errorMessage =
+          "Remote month is missing; local month was not modified";
+    }
+    return false;
+  }
+
   const std::vector<AttendanceRecord> remoteData = remote->getMonth(year, month);
   // Критично: если чтение с сервера завершилось ошибкой, локальные данные не трогаем.
   if (!remote->lastError().isEmpty()) {
     if (errorMessage) {
       *errorMessage = remote->lastError();
+    }
+    return false;
+  }
+  // Remote пока не хранит marker пустого месяца. Пустой ответ нельзя безопасно
+  // отличить от отсутствующего месяца, поэтому destructive replace запрещен.
+  if (remoteData.empty()) {
+    if (errorMessage) {
+      *errorMessage =
+          "Remote month is empty; local month was not modified";
     }
     return false;
   }

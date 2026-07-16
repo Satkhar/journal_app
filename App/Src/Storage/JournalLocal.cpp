@@ -5,6 +5,18 @@ JournalLocal::JournalLocal(std::unique_ptr<SqliteConnect> sqlite)
 
 //---------------------------------------------------------------
 
+QString JournalLocal::lastError() const {
+  return sqlite_->lastError();
+}
+
+//---------------------------------------------------------------
+
+MonthStateResult JournalLocal::getMonthState(int year, int month) {
+  return sqlite_->getMonthState(year, month);
+}
+
+//---------------------------------------------------------------
+
 QStringList JournalLocal::getUsersForMonth(int year, int month) {
   // Это тонкая прослойка-адаптер: доменный интерфейс тот же, реализация локальная.
   return sqlite_->getUsersForMonth(year, month);
@@ -34,6 +46,14 @@ bool JournalLocal::saveMonth(int year, int month,
                              const std::vector<AttendanceRecord>& data) {
   // Вся логика транзакций живет в SqliteConnect, здесь только делегирование.
   return sqlite_->saveMonth(year, month, data);
+}
+
+//---------------------------------------------------------------
+
+bool JournalLocal::saveMonthSetup(
+    int year, int month, const QVector<int>& days,
+    const std::vector<AttendanceRecord>& data) {
+  return sqlite_->saveMonthSetup(year, month, days, data);
 }
 
 //---------------------------------------------------------------

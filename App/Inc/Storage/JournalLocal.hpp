@@ -9,12 +9,16 @@ class JournalLocal : public IJournalStorage {
 public:
   explicit JournalLocal(std::unique_ptr<SqliteConnect> sqlite);
 
+  QString lastError() const override;
+  MonthStateResult getMonthState(int year, int month) override;
   QStringList getUsersForMonth(int year, int month) override;
   QVector<int> getActiveDays(int year, int month) override;
   bool saveActiveDays(int year, int month, const QVector<int> &days) override;
   std::vector<AttendanceRecord> getMonth(int year, int month) override;
   bool saveMonth(int year, int month,
                  const std::vector<AttendanceRecord> &data) override;
+  bool saveMonthSetup(int year, int month, const QVector<int>& days,
+                      const std::vector<AttendanceRecord>& data) override;
   bool addUser(int year, int month, const QString &name) override;
   bool deleteUser(int year, int month, const QString &name) override;
 

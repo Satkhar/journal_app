@@ -72,6 +72,39 @@ endif()
 include(CTest)
 enable_testing()
 
+if(BUILD_TESTING)
+    add_executable(journal_app_tests
+        ./Test/month_state_tests.cpp
+        ./App/Src/Domain/JournalApp.cpp
+        ./App/Src/Storage/JournalLocal.cpp
+        ./App/Src/Storage/JournalRemote.cpp
+        ./App/Src/Storage/SqliteConnect.cpp
+        ./App/Src/Sync/SyncService.cpp
+        ./App/Src/Ui/mainwindow.cpp
+        ./App/Src/Ui/MonthDaysDialog.cpp
+        ./App/Src/Ui/CopyUsersDialog.cpp
+        ./App/Inc/Ui/mainwindow.hpp)
+
+    target_link_libraries(journal_app_tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::Sql
+        Qt6::Network)
+
+    target_include_directories(journal_app_tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/App/Inc
+        ${CMAKE_SOURCE_DIR}/App/Inc/Domain
+        ${CMAKE_SOURCE_DIR}/App/Inc/Storage
+        ${CMAKE_SOURCE_DIR}/App/Inc/Sync
+        ${CMAKE_SOURCE_DIR}/App/Inc/Ui)
+
+    add_test(NAME journal_app_month_state COMMAND journal_app_tests)
+    set_tests_properties(journal_app_month_state PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;JOURNAL_STORAGE_MODE=local"
+        TIMEOUT 10)
+endif()
+
 # option(USE_CLANG_TIDY "Enable clang-tidy for static analysis" ON)	#OFF ON
 
 # if(USE_CLANG_TIDY)

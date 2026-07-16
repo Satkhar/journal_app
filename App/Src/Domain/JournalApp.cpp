@@ -2,13 +2,18 @@
 
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QHash>
 
-JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage,
-                       bool allowBootstrapWrites)
+JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage)
     : storage_(std::move(storage)),
-      allowBootstrapWrites_(allowBootstrapWrites),
       currentYear_(0),
       currentMonth_(0) {}
+
+//---------------------------------------------------------------
+
+MonthStateResult JournalApp::getMonthState(int year, int month) {
+  return storage_->getMonthState(year, month);
+}
 
 //---------------------------------------------------------------
 
@@ -21,31 +26,36 @@ MonthSnapshot JournalApp::loadMonth(int year, int month) {
   currentMonth_ = month;
 
   MonthSnapshot snapshot;
+  const MonthStateResult state = storage_->getMonthState(year, month);
+  snapshot.state = state.state;
+  snapshot.errorMessage = state.errorMessage;
+  if (state.state == MonthState::Error) {
+    qWarning() << "loadMonth state read failed:" << state.errorMessage;
+    return snapshot;
+  }
+
   QElapsedTimer readTimer;
   readTimer.start();
   // users, activeDays и attendance читаются отдельно, чтобы UI отрисовал строки и отметки.
   snapshot.users = storage_->getUsersForMonth(year, month);
-  snapshot.activeDays = storage_->getActiveDays(year, month);
-  snapshot.attendance = storage_->getMonth(year, month);
-  qInfo() << "loadMonth read stage ms:" << readTimer.elapsed();
-
-  // Сохраняем MVP-поведение для local: при пустом месяце создаем Alice.
-  // Для remote режима запись при чтении отключена.
-  if (allowBootstrapWrites_ && snapshot.users.isEmpty()) {
-    qInfo() << "Month is empty, creating default user Alice";
-    if (storage_->addUser(year, month, "Alice")) {
-      snapshot.users = storage_->getUsersForMonth(year, month);
-      snapshot.activeDays = storage_->getActiveDays(year, month);
-      snapshot.attendance = storage_->getMonth(year, month);
-
-      // Как и раньше: стартовое заполнение шахматкой по дням.
-      for (AttendanceRecord& record : snapshot.attendance) {
-        record.isChecked = (record.day % 2) != 0;
-      }
-      storage_->saveMonth(year, month, snapshot.attendance);
-      snapshot.attendance = storage_->getMonth(year, month);
-    }
+  if (!storage_->lastError().isEmpty()) {
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = storage_->lastError();
+    return snapshot;
   }
+  snapshot.activeDays = storage_->getActiveDays(year, month);
+  if (!storage_->lastError().isEmpty()) {
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = storage_->lastError();
+    return snapshot;
+  }
+  snapshot.attendance = storage_->getMonth(year, month);
+  if (!storage_->lastError().isEmpty()) {
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = storage_->lastError();
+    return snapshot;
+  }
+  qInfo() << "loadMonth read stage ms:" << readTimer.elapsed();
 
   qInfo() << "Month loaded:" << year << month
           << "users:" << snapshot.users.size()
@@ -81,35 +91,72 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
     return {false, 0, 0, "Месяц-источник совпадает с текущим месяцем"};
   }
 
+  const MonthStateResult sourceState =
+      storage_->getMonthState(fromYear, fromMonth);
+  if (sourceState.state == MonthState::Error) {
+    return {false, 0, 0, sourceState.errorMessage};
+  }
+  const MonthStateResult targetState = storage_->getMonthState(toYear, toMonth);
+  if (targetState.state == MonthState::Error) {
+    return {false, 0, 0, targetState.errorMessage};
+  }
+
   const QStringList sourceUsers = storage_->getUsersForMonth(fromYear, fromMonth);
-  if (sourceUsers.isEmpty()) {
-    return {true, 0, 0, QString()};
+  if (!storage_->lastError().isEmpty()) {
+    return {false, 0, 0, storage_->lastError()};
   }
-
-  if (copyActiveDays) {
-    const QVector<int> sourceDays = storage_->getActiveDays(fromYear, fromMonth);
-    if (!storage_->saveActiveDays(toYear, toMonth, sourceDays)) {
-      return {false, 0, 0, "Не удалось перенести дни учета"};
-    }
-  }
-
   QStringList targetUsers = storage_->getUsersForMonth(toYear, toMonth);
+  if (!storage_->lastError().isEmpty()) {
+    return {false, 0, 0, storage_->lastError()};
+  }
+  const std::vector<AttendanceRecord> targetAttendance =
+      storage_->getMonth(toYear, toMonth);
+  if (!storage_->lastError().isEmpty()) {
+    return {false, 0, 0, storage_->lastError()};
+  }
+
+  const QVector<int> targetDays = copyActiveDays
+                                      ? storage_->getActiveDays(fromYear, fromMonth)
+                                      : storage_->getActiveDays(toYear, toMonth);
+  if (!storage_->lastError().isEmpty()) {
+    return {false, 0, 0, storage_->lastError()};
+  }
+
+  QHash<QString, QHash<int, bool>> existingMarks;
+  for (const AttendanceRecord& record : targetAttendance) {
+    existingMarks[record.userName][record.day] = record.isChecked;
+  }
+
   int copied = 0;
   int skipped = 0;
-
   for (const QString& user : sourceUsers) {
     if (targetUsers.contains(user)) {
       ++skipped;
       continue;
     }
 
-    if (!storage_->addUser(toYear, toMonth, user)) {
-      return {false, copied, skipped,
-              QString("Не удалось перенести пользователя: %1").arg(user)};
-    }
-
     targetUsers.push_back(user);
     ++copied;
+  }
+
+  std::vector<AttendanceRecord> targetData;
+  targetData.reserve(static_cast<std::size_t>(targetUsers.size()) *
+                     static_cast<std::size_t>(targetDays.size()));
+  for (const QString& user : targetUsers) {
+    for (int day : targetDays) {
+      bool isChecked = false;
+      const auto userMarks = existingMarks.constFind(user);
+      if (userMarks != existingMarks.cend()) {
+        isChecked = userMarks->value(day, false);
+      }
+      targetData.push_back({user, day, isChecked});
+    }
+  }
+
+  if (!storage_->saveMonthSetup(toYear, toMonth, targetDays, targetData)) {
+    const QString error = storage_->lastError();
+    return {false, 0, 0,
+            error.isEmpty() ? "Не удалось атомарно создать месяц" : error};
   }
 
   currentYear_ = toYear;
