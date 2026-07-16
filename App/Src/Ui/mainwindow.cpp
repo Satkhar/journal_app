@@ -669,10 +669,13 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout)
   monthLayout->addLayout(userButtonsLayout);
   monthLayout->addWidget(ui->lineEdit);
 
-  configureMonthBtn_ = new QPushButton("Настроить дни", this);
+  configureMonthBtn_ = new QPushButton("Настроить конкретные даты", this);
   monthLayout->addWidget(configureMonthBtn_);
 
-  copyUsersBtn_ = new QPushButton("Перенести пользователей", this);
+  copyUsersBtn_ = new QPushButton("Перенести участников", this);
+  copyUsersBtn_->setToolTip(
+      "Добавить участников из другого месяца; расписание по дням недели "
+      "переносится по выбору.");
   monthLayout->addWidget(copyUsersBtn_);
 
   participantsBtn_ = new QPushButton("Все участники", this);
@@ -892,7 +895,7 @@ void MainWindow::configureMonthDays()
   }
 }
 
-void MainWindow::copyUsersFromMonth(bool copyActiveDaysByDefault)
+void MainWindow::copyUsersFromMonth(bool copyWeekdayPatternByDefault)
 {
   if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
   {
@@ -902,7 +905,7 @@ void MainWindow::copyUsersFromMonth(bool copyActiveDaysByDefault)
   if (activeStorageMode_ == "server")
   {
     ui->statusbar->showMessage(
-        "Перенос пользователей доступен только в local режиме.", 5000);
+        "Перенос участников доступен только в local режиме.", 5000);
     return;
   }
 
@@ -914,15 +917,19 @@ void MainWindow::copyUsersFromMonth(bool copyActiveDaysByDefault)
 
   updateCalendarVariables(ui->calendarWidget);
   CopyUsersDialog dialog(static_cast<int>(year), static_cast<int>(month), this,
-                         copyActiveDaysByDefault);
+                         copyWeekdayPatternByDefault);
   if (dialog.exec() != QDialog::Accepted)
   {
     return;
   }
 
+  const bool applySourceWeekdays = dialog.copyWeekdayPattern();
+  const CopyScheduleMode scheduleMode =
+      applySourceWeekdays ? CopyScheduleMode::ApplySourceWeekdays
+                          : CopyScheduleMode::KeepTargetDates;
   const CopyUsersResult result = journalApp_->copyUsersFromMonth(
       dialog.sourceYear(), dialog.sourceMonth(), static_cast<int>(year),
-      static_cast<int>(month), dialog.copyActiveDays());
+      static_cast<int>(month), scheduleMode);
 
   if (!result.ok)
   {
@@ -935,9 +942,12 @@ void MainWindow::copyUsersFromMonth(bool copyActiveDaysByDefault)
   if (monthDataValid_)
   {
     ui->statusbar->showMessage(
-        QString("Перенос завершен. Добавлено: %1, пропущено: %2")
+        QString("Перенос завершен. Добавлено: %1, пропущено: %2. %3")
             .arg(result.copied)
-            .arg(result.skipped),
+            .arg(result.skipped)
+            .arg(applySourceWeekdays
+                     ? "Расписание применено по дням недели."
+                     : "Расписание источника не применялось."),
         5000);
   }
 }

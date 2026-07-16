@@ -88,6 +88,12 @@ Peripheral drivers: Define ownership, blocking behavior, timeout policy, ISR/DMA
 For explicit review requests, use `DOC/ai/code_review.md`.
 Do not apply the review answer format to normal implementation tasks.
 
+## Git commits
+
+Сообщения коммитов, включая заголовок и описание, пишите на русском языке.
+Технический префикс Conventional Commits (`feat:`, `fix:` и т. п.) допустим,
+но текст после него должен быть на русском.
+
 
 
 

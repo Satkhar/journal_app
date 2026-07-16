@@ -177,10 +177,76 @@ bool CopyFromEmptySourceCreatesTargetMonth()
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
 
-  const CopyUsersResult result = app.copyUsersFromMonth(2026, 6, 2026, 7, true);
+  const CopyUsersResult result = app.copyUsersFromMonth(
+      2026, 6, 2026, 7, CopyScheduleMode::ApplySourceWeekdays);
   TEST_CHECK(result.ok);
   TEST_CHECK(result.copied == 0);
   TEST_CHECK(app.getMonthState(2026, 7).state == MonthState::Ready);
+  TEST_CHECK(app.loadMonth(2026, 7).activeDays.size() == 31);
+  return true;
+}
+
+bool CopyWeekdayPatternMapsToTargetDates()
+{
+  QTemporaryDir directory;
+  TEST_CHECK(directory.isValid());
+  auto sqlite = std::make_unique<SqliteConnect>();
+  TEST_CHECK(sqlite->open(directory.filePath("journal.db")));
+
+  const Participant participant = MakeParticipant("Alice");
+  TEST_CHECK(sqlite->saveActiveDays(2026, 6, {1, 2}));
+  TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, participant));
+
+  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
+  JournalApp app(std::move(local));
+  const CopyUsersResult result =
+      app.copyUsersFromMonth(2026, 6, 2026, 7,
+                             CopyScheduleMode::ApplySourceWeekdays);
+  TEST_CHECK(result.ok);
+  TEST_CHECK(result.copied == 1);
+
+  const MonthSnapshot target = app.loadMonth(2026, 7);
+  const QVector<int> expectedDays{6, 7, 13, 14, 20, 21, 27, 28};
+  TEST_CHECK(target.state == MonthState::Ready);
+  TEST_CHECK(target.activeDays == expectedDays);
+  TEST_CHECK(target.participants.size() == 1);
+  TEST_CHECK(target.participants.front().id == participant.id);
+  TEST_CHECK(target.attendance.size() ==
+             static_cast<std::size_t>(expectedDays.size()));
+  for (const AttendanceRecord& record : target.attendance)
+  {
+    TEST_CHECK(expectedDays.contains(record.day));
+    TEST_CHECK(!record.isChecked);
+  }
+  return true;
+}
+
+bool CopyWithoutScheduleKeepsTargetDates()
+{
+  QTemporaryDir directory;
+  TEST_CHECK(directory.isValid());
+  auto sqlite = std::make_unique<SqliteConnect>();
+  TEST_CHECK(sqlite->open(directory.filePath("journal.db")));
+
+  const Participant participant = MakeParticipant("Alice");
+  TEST_CHECK(sqlite->saveActiveDays(2026, 6, {1, 2}));
+  TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, participant));
+  TEST_CHECK(sqlite->saveActiveDays(2026, 7, {3, 10}));
+
+  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
+  JournalApp app(std::move(local));
+  const CopyUsersResult result = app.copyUsersFromMonth(
+      2026, 6, 2026, 7, CopyScheduleMode::KeepTargetDates);
+  TEST_CHECK(result.ok);
+  TEST_CHECK(result.copied == 1);
+
+  const MonthSnapshot target = app.loadMonth(2026, 7);
+  TEST_CHECK(target.activeDays == QVector<int>({3, 10}));
+  TEST_CHECK(target.attendance.size() == 2);
+  for (const AttendanceRecord& record : target.attendance)
+  {
+    TEST_CHECK(record.day == 3 || record.day == 10);
+  }
   return true;
 }
 
@@ -245,6 +311,10 @@ int main(int argc, char* argv[])
       {"storage error is not missing", StorageErrorIsNotReportedAsMissing},
       {"copy from empty source creates target",
        CopyFromEmptySourceCreatesTargetMonth},
+      {"copy weekday pattern maps to target dates",
+       CopyWeekdayPatternMapsToTargetDates},
+      {"copy without schedule keeps target dates",
+       CopyWithoutScheduleKeepsTargetDates},
       {"legacy dates migrate to profile schema",
        LegacyDatesMigrateToProfileSchema}};
 

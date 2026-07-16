@@ -13,6 +13,12 @@ struct CopyUsersResult
   QString errorMessage;
 };
 
+enum class CopyScheduleMode
+{
+  KeepTargetDates,
+  ApplySourceWeekdays,
+};
+
 class JournalApp
 {
 public:
@@ -22,7 +28,8 @@ public:
   MonthSnapshot loadMonth(int year, int month);
   bool saveActiveDays(int year, int month, const QVector<int>& days);
   CopyUsersResult copyUsersFromMonth(int fromYear, int fromMonth, int toYear,
-                                     int toMonth, bool copyActiveDays);
+                                     int toMonth,
+                                     CopyScheduleMode scheduleMode);
   bool addUser(const QString& name);
   bool removeParticipant(const ParticipantId& id);
   bool saveAttendance(int year, int month,

@@ -1,9 +1,12 @@
 #include "JournalApp.hpp"
 
+#include <QDate>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QSet>
 #include <QUuid>
+
+#include <optional>
 
 namespace
 {
@@ -11,6 +14,56 @@ namespace
 Participant makeParticipant(const QString& displayName)
 {
   return {{QUuid::createUuid().toString(QUuid::WithoutBraces)}, displayName};
+}
+
+std::optional<QVector<int>> fullMonthDays(int year, int month)
+{
+  const QDate firstDay(year, month, 1);
+  if (!firstDay.isValid())
+  {
+    return std::nullopt;
+  }
+
+  QVector<int> days;
+  days.reserve(firstDay.daysInMonth());
+  for (int day = 1; day <= firstDay.daysInMonth(); ++day)
+  {
+    days.push_back(day);
+  }
+  return days;
+}
+
+std::optional<QVector<int>> mapActiveDaysByWeekday(
+    int fromYear, int fromMonth, const QVector<int>& sourceDays, int toYear,
+    int toMonth)
+{
+  const QDate sourceMonth(fromYear, fromMonth, 1);
+  const QDate targetMonth(toYear, toMonth, 1);
+  if (!sourceMonth.isValid() || !targetMonth.isValid() || sourceDays.isEmpty())
+  {
+    return std::nullopt;
+  }
+
+  QSet<int> weekdays;
+  for (int day : sourceDays)
+  {
+    const QDate sourceDate(fromYear, fromMonth, day);
+    if (!sourceDate.isValid())
+    {
+      return std::nullopt;
+    }
+    weekdays.insert(sourceDate.dayOfWeek());
+  }
+
+  QVector<int> targetDays;
+  for (int day = 1; day <= targetMonth.daysInMonth(); ++day)
+  {
+    if (weekdays.contains(QDate(toYear, toMonth, day).dayOfWeek()))
+    {
+      targetDays.push_back(day);
+    }
+  }
+  return targetDays;
 }
 
 } // namespace
@@ -79,7 +132,7 @@ bool JournalApp::saveActiveDays(int year, int month, const QVector<int>& days)
 
 CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
                                                int toYear, int toMonth,
-                                               bool copyActiveDays)
+                                               CopyScheduleMode scheduleMode)
 {
   if (fromYear == toYear && fromMonth == toMonth)
   {
@@ -103,11 +156,45 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   {
     return {false, 0, 0, storage_->lastError()};
   }
-  QVector<int> targetDays = storage_->getActiveDays(
-      copyActiveDays ? fromYear : toYear, copyActiveDays ? fromMonth : toMonth);
-  if (!storage_->lastError().isEmpty())
+  QVector<int> targetDays;
+  if (scheduleMode == CopyScheduleMode::ApplySourceWeekdays)
   {
-    return {false, 0, 0, storage_->lastError()};
+    if (sourceState.state == MonthState::Missing)
+    {
+      // У отсутствующего месяца нет расписания. Сохраняем прежнее поведение:
+      // пустой источник создает целевой месяц со всеми календарными днями.
+      const auto defaultTargetDays = fullMonthDays(toYear, toMonth);
+      if (!defaultTargetDays.has_value())
+      {
+        return {false, 0, 0, "Некорректный целевой месяц"};
+      }
+      targetDays = *defaultTargetDays;
+    }
+    else
+    {
+      const QVector<int> sourceDays =
+          storage_->getActiveDays(fromYear, fromMonth);
+      if (!storage_->lastError().isEmpty())
+      {
+        return {false, 0, 0, storage_->lastError()};
+      }
+      const auto mappedDays = mapActiveDaysByWeekday(
+          fromYear, fromMonth, sourceDays, toYear, toMonth);
+      if (!mappedDays.has_value())
+      {
+        return {false, 0, 0,
+                "Некорректная настройка дней недели в месяце-источнике"};
+      }
+      targetDays = *mappedDays;
+    }
+  }
+  else
+  {
+    targetDays = storage_->getActiveDays(toYear, toMonth);
+    if (!storage_->lastError().isEmpty())
+    {
+      return {false, 0, 0, storage_->lastError()};
+    }
   }
   const auto targetAttendance = storage_->getMonth(toYear, toMonth);
   if (!storage_->lastError().isEmpty())

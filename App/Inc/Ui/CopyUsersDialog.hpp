@@ -10,13 +10,13 @@ class CopyUsersDialog : public QDialog
 public:
   explicit CopyUsersDialog(int targetYear, int targetMonth,
                            QWidget* parent = nullptr,
-                           bool copyActiveDaysByDefault = false);
+                           bool copyWeekdayPatternByDefault = false);
 
   int sourceYear() const;
   int sourceMonth() const;
-  bool copyActiveDays() const;
+  bool copyWeekdayPattern() const;
 
 private:
   QCalendarWidget* calendar_;
-  QCheckBox* copyActiveDaysCheckBox_;
+  QCheckBox* copyWeekdayPatternCheckBox_;
 };

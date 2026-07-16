@@ -16,6 +16,8 @@ public:
   virtual MonthStateResult getMonthState(int year, int month) = 0;
   virtual std::vector<Participant> getParticipantsForMonth(int year,
                                                            int month) = 0;
+  // Возвращает effective-настройку: валидные уникальные даты по возрастанию.
+  // Если явная настройка отсутствует, storage возвращает все даты месяца.
   virtual QVector<int> getActiveDays(int year, int month) = 0;
   virtual bool saveActiveDays(int year, int month,
                               const QVector<int>& days) = 0;
@@ -26,6 +28,8 @@ public:
                                      const Participant& participant) = 0;
   virtual bool removeParticipantFromMonth(int year, int month,
                                           const ParticipantId& id) = 0;
+  // Атомарно заменяет состав, activeDays и attendance целевого месяца.
+  // Attendance вне activeDays допустим: скрытые отметки должны сохраняться.
   virtual bool replaceMonth(int year, int month,
                             const MonthSnapshot& snapshot) = 0;
 

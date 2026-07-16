@@ -109,6 +109,8 @@ journal_app/
   `setupMonthPanel`, `setupDataPanel`);
 - вызов диалога настройки дней месяца (`configureMonthDays`);
 - вызов диалога переноса пользователей (`copyUsersFromMonth`);
+- при включённой опции переноса дней учёта номера дат источника преобразуются
+  в дни недели, затем в целевом месяце выбираются все даты этих дней недели;
 - обработчики кнопок `Add`, `Delete`, `Read Base`, `Save Current Table`,
   push/pull серверной синхронизации;
 - переключение режимов storage (`setupStorage`, `connectLocalFromUi`,

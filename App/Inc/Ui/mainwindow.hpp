@@ -99,7 +99,7 @@ private:
   // Открывает диалог выбора дней учета для текущего месяца.
   void configureMonthDays();
   // Переносит пользователей из другого месяца в текущий.
-  void copyUsersFromMonth(bool copyActiveDaysByDefault = false);
+  void copyUsersFromMonth(bool copyWeekdayPatternByDefault = false);
   void openParticipantProfile(const ParticipantId& id);
   void openParticipantDirectory();
   // Обновляет визуальный индикатор режима.
