@@ -4,7 +4,10 @@
 #include <QSet>
 #include <QVector>
 
+#include <array>
+
 class QCalendarWidget;
+class QCheckBox;
 class QDialogButtonBox;
 
 class MonthDaysDialog : public QDialog {
@@ -15,11 +18,14 @@ class MonthDaysDialog : public QDialog {
   QVector<int> selectedDays() const;
 
  private:
+  void toggleWeekday(int dayOfWeek);
   void updateCalendarFormat();
+  void updateWeekdayControls();
 
   int year_;
   int month_;
   QSet<int> selectedDays_;
   QCalendarWidget* calendar_;
   QDialogButtonBox* buttons_;
+  std::array<QCheckBox*, 7> weekdayCheckBoxes_;
 };

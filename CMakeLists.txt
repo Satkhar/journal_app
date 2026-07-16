@@ -105,6 +105,20 @@ target_include_directories(journal_month_state_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Domain
     ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
 add_test(NAME journal_month_state_tests COMMAND journal_month_state_tests)
+
+add_executable(journal_ui_tests
+    ./Test/ui_dialog_tests.cpp
+    ./App/Src/Ui/MonthDaysDialog.cpp
+    ./App/Inc/Ui/MonthDaysDialog.hpp)
+target_link_libraries(journal_ui_tests PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets)
+target_include_directories(journal_ui_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/App/Inc/Ui)
+add_test(NAME journal_ui_tests COMMAND journal_ui_tests)
+set_tests_properties(journal_ui_tests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 # option(USE_CLANG_TIDY "Enable clang-tidy for static analysis" ON)	#OFF ON
 
 # if(USE_CLANG_TIDY)
