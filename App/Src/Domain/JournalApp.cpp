@@ -20,6 +20,11 @@ JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage)
 {
 }
 
+MonthStateResult JournalApp::getMonthState(int year, int month)
+{
+  return storage_->getMonthState(year, month);
+}
+
 MonthSnapshot JournalApp::loadMonth(int year, int month)
 {
   QElapsedTimer timer;
@@ -28,9 +33,34 @@ MonthSnapshot JournalApp::loadMonth(int year, int month)
   currentMonth_ = month;
 
   MonthSnapshot snapshot;
+  const MonthStateResult state = storage_->getMonthState(year, month);
+  snapshot.state = state.state;
+  snapshot.errorMessage = state.errorMessage;
+  if (state.state == MonthState::Error)
+  {
+    return snapshot;
+  }
   snapshot.participants = storage_->getParticipantsForMonth(year, month);
+  if (!storage_->lastError().isEmpty())
+  {
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = storage_->lastError();
+    return snapshot;
+  }
   snapshot.activeDays = storage_->getActiveDays(year, month);
+  if (!storage_->lastError().isEmpty())
+  {
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = storage_->lastError();
+    return snapshot;
+  }
   snapshot.attendance = storage_->getMonth(year, month);
+  if (!storage_->lastError().isEmpty())
+  {
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = storage_->lastError();
+    return snapshot;
+  }
 
   qInfo() << "Month loaded:" << year << month
           << "participants:" << snapshot.participants.size()
@@ -56,20 +86,34 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
     return {false, 0, 0, "Месяц-источник совпадает с текущим месяцем"};
   }
 
+  const MonthStateResult sourceState =
+      storage_->getMonthState(fromYear, fromMonth);
+  if (sourceState.state == MonthState::Error)
+  {
+    return {false, 0, 0, sourceState.errorMessage};
+  }
+
   const auto source = storage_->getParticipantsForMonth(fromYear, fromMonth);
-  if (source.empty())
+  if (!storage_->lastError().isEmpty())
   {
-    return {true, 0, 0, QString()};
+    return {false, 0, 0, storage_->lastError()};
   }
-
-  if (copyActiveDays &&
-      !storage_->saveActiveDays(toYear, toMonth,
-                                storage_->getActiveDays(fromYear, fromMonth)))
-  {
-    return {false, 0, 0, "Не удалось перенести дни учета"};
-  }
-
   const auto target = storage_->getParticipantsForMonth(toYear, toMonth);
+  if (!storage_->lastError().isEmpty())
+  {
+    return {false, 0, 0, storage_->lastError()};
+  }
+  QVector<int> targetDays = storage_->getActiveDays(
+      copyActiveDays ? fromYear : toYear, copyActiveDays ? fromMonth : toMonth);
+  if (!storage_->lastError().isEmpty())
+  {
+    return {false, 0, 0, storage_->lastError()};
+  }
+  const auto targetAttendance = storage_->getMonth(toYear, toMonth);
+  if (!storage_->lastError().isEmpty())
+  {
+    return {false, 0, 0, storage_->lastError()};
+  }
   const auto activeProfiles = storage_->listParticipantProfiles(false);
   if (!activeProfiles.has_value())
   {
@@ -88,6 +132,7 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
 
   int copied = 0;
   int skipped = 0;
+  std::vector<Participant> targetParticipants = target;
   for (const Participant& participant : source)
   {
     if (!activeProfileIds.contains(participant.id.value) ||
@@ -96,14 +141,41 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
       ++skipped;
       continue;
     }
-    if (!storage_->addParticipantToMonth(toYear, toMonth, participant))
-    {
-      return {false, copied, skipped,
-              QString("Не удалось перенести участника: %1")
-                  .arg(participant.displayName)};
-    }
+    targetParticipants.push_back(participant);
     targetIds.insert(participant.id.value);
     ++copied;
+  }
+
+  std::vector<AttendanceRecord> mergedAttendance = targetAttendance;
+  QSet<QString> attendanceKeys;
+  for (const AttendanceRecord& record : mergedAttendance)
+  {
+    attendanceKeys.insert(record.participantId.value + ':' +
+                          QString::number(record.day));
+  }
+  for (const Participant& participant : targetParticipants)
+  {
+    for (int day : targetDays)
+    {
+      const QString key = participant.id.value + ':' + QString::number(day);
+      if (!attendanceKeys.contains(key))
+      {
+        mergedAttendance.push_back({participant.id, day, false});
+        attendanceKeys.insert(key);
+      }
+    }
+  }
+
+  MonthSnapshot snapshot;
+  snapshot.state = MonthState::Ready;
+  snapshot.participants = std::move(targetParticipants);
+  snapshot.activeDays = std::move(targetDays);
+  snapshot.attendance = std::move(mergedAttendance);
+  if (!storage_->replaceMonth(toYear, toMonth, snapshot))
+  {
+    const QString error = storage_->lastError();
+    return {false, 0, 0,
+            error.isEmpty() ? "Не удалось атомарно создать месяц" : error};
   }
 
   currentYear_ = toYear;

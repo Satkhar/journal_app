@@ -5,16 +5,18 @@
 class QCalendarWidget;
 class QCheckBox;
 
-class CopyUsersDialog : public QDialog {
- public:
+class CopyUsersDialog : public QDialog
+{
+public:
   explicit CopyUsersDialog(int targetYear, int targetMonth,
-                           QWidget* parent = nullptr);
+                           QWidget* parent = nullptr,
+                           bool copyActiveDaysByDefault = false);
 
   int sourceYear() const;
   int sourceMonth() const;
   bool copyActiveDays() const;
 
- private:
+private:
   QCalendarWidget* calendar_;
   QCheckBox* copyActiveDaysCheckBox_;
 };

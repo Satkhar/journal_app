@@ -11,6 +11,7 @@
 #include <QProcessEnvironment>
 #include <QPushButton>
 #include <QSizePolicy>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <QHash>
@@ -53,8 +54,12 @@ MainWindow::MainWindow(QWidget* parent)
       serverUrlEdit_(nullptr), connectLocalBtn_(nullptr),
       connectRemoteBtn_(nullptr), configureMonthBtn_(nullptr),
       copyUsersBtn_(nullptr), participantsBtn_(nullptr), activeStorageMode_(),
-      activeServerUrl_(), isConnectingStorage_(false), baseTableWidget(nullptr),
-      activeDays_(), day_in_month(0), month(0), year(0)
+      activeServerUrl_(), isConnectingStorage_(false), syncInProgress_(false),
+      refreshInProgress_(false), monthDataValid_(false),
+      monthSetupPromptOpen_(false), monthSetupRequestId_(0),
+      dismissedMonthSetupYear_(0), dismissedMonthSetupMonth_(0),
+      baseTableWidget(nullptr), activeDays_(), day_in_month(0), month(0),
+      year(0)
 {
   // setupUi создает виджеты из сгенерированного файла journal_app.h.
   ui->setupUi(this);
@@ -76,8 +81,14 @@ MainWindow::MainWindow(QWidget* parent)
 
   // Начальное подключение выбирается из переменных окружения.
   // Если не задано, используем local.
-  if (!setupStorage(storageMode == "server" ? "server" : "local",
-                    serverUrlEdit_->text().trimmed()))
+  isConnectingStorage_ = true;
+  updateEditControlsByMode();
+  const bool initialStorageReady =
+      setupStorage(storageMode == "server" ? "server" : "local",
+                   serverUrlEdit_->text().trimmed());
+  isConnectingStorage_ = false;
+  updateEditControlsByMode();
+  if (!initialStorageReady)
   {
     ui->statusbar->showMessage(
         "Storage не подключен. Выберите Local или Remote.");
@@ -98,6 +109,12 @@ MainWindow::MainWindow(QWidget* parent)
   connect(ui->btnAdd, &QPushButton::clicked, this,
           [this]()
           {
+            if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+                !monthDataValid_)
+            {
+              ui->statusbar->showMessage("Данные месяца не готовы");
+              return;
+            }
             const QString name = ui->lineEdit->text().trimmed();
             if (name.isEmpty())
             {
@@ -114,7 +131,10 @@ MainWindow::MainWindow(QWidget* parent)
             }
 
             refreshMonth();
-            ui->statusbar->showMessage("Пользователь добавлен");
+            if (monthDataValid_)
+            {
+              ui->statusbar->showMessage("Пользователь добавлен");
+            }
           });
 
   // Удаление пользователя за текущий месяц.
@@ -122,6 +142,12 @@ MainWindow::MainWindow(QWidget* parent)
       ui->btnDel, &QPushButton::clicked, this,
       [this]()
       {
+        if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+            !monthDataValid_)
+        {
+          ui->statusbar->showMessage("Данные месяца не готовы");
+          return;
+        }
         QTableWidget* table = findChild<QTableWidget*>("bigTable");
         const int row = table ? table->currentRow() : -1;
         if (row < 2)
@@ -140,7 +166,10 @@ MainWindow::MainWindow(QWidget* parent)
         }
 
         refreshMonth();
-        ui->statusbar->showMessage("Участник убран из месяца");
+        if (monthDataValid_)
+        {
+          ui->statusbar->showMessage("Участник убран из месяца");
+        }
       });
 
   // Явное обновление данных на экране из БД.
@@ -156,6 +185,13 @@ MainWindow::MainWindow(QWidget* parent)
   connect(ui->btnSaveCurTable, &QPushButton::clicked, this,
           [this]()
           {
+            if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+                !monthDataValid_)
+            {
+              ui->statusbar->showMessage(
+                  "Сохранение запрещено: месяц не загружен");
+              return;
+            }
             if (!journalApp_)
             {
               ui->statusbar->showMessage("Сервис не инициализирован");
@@ -185,8 +221,12 @@ MainWindow::MainWindow(QWidget* parent)
   connect(ui->calendarWidget, &QCalendarWidget::currentPageChanged, this,
           [this](int shownYear, int shownMonth)
           {
-            Q_UNUSED(shownYear)
-            Q_UNUSED(shownMonth)
+            if (shownYear != dismissedMonthSetupYear_ ||
+                shownMonth != dismissedMonthSetupMonth_)
+            {
+              dismissedMonthSetupYear_ = 0;
+              dismissedMonthSetupMonth_ = 0;
+            }
             activeDays_.clear();
             createEmptyTable();
             refreshMonth();
@@ -204,17 +244,126 @@ MainWindow::~MainWindow()
 
 void MainWindow::refreshMonth()
 {
+  if (refreshInProgress_)
+  {
+    return;
+  }
+  ++monthSetupRequestId_;
   if (!journalApp_)
   {
+    monthDataValid_ = false;
+    updateEditControlsByMode();
     return;
   }
 
   // Синхронизируем внутренние переменные месяца и перечитываем snapshot
   // из текущего активного storage.
   updateCalendarVariables(ui->calendarWidget);
+  refreshInProgress_ = true;
+  updateEditControlsByMode();
   const MonthSnapshot snapshot =
       journalApp_->loadMonth(static_cast<int>(year), static_cast<int>(month));
+  refreshInProgress_ = false;
+  if (snapshot.state == MonthState::Error)
+  {
+    monthDataValid_ = false;
+    updateEditControlsByMode();
+    ui->statusbar->showMessage(
+        QString("Ошибка чтения месяца: %1").arg(snapshot.errorMessage), 6000);
+    return;
+  }
+  monthDataValid_ = true;
   renderMonth(snapshot);
+  updateEditControlsByMode();
+  scheduleMonthSetup(snapshot);
+}
+
+void MainWindow::scheduleMonthSetup(const MonthSnapshot& snapshot)
+{
+  const int targetYear = static_cast<int>(year);
+  const int targetMonth = static_cast<int>(month);
+  if (activeStorageMode_ != "local" || snapshot.state != MonthState::Missing ||
+      monthSetupPromptOpen_ ||
+      (dismissedMonthSetupYear_ == targetYear &&
+       dismissedMonthSetupMonth_ == targetMonth))
+  {
+    return;
+  }
+
+  const quint64 requestId = monthSetupRequestId_;
+  QTimer::singleShot(
+      0, this,
+      [this, requestId, targetYear, targetMonth]()
+      {
+        if (requestId != monthSetupRequestId_ || monthSetupPromptOpen_ ||
+            isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+            activeStorageMode_ != "local" || !journalApp_)
+        {
+          return;
+        }
+        updateCalendarVariables(ui->calendarWidget);
+        if (static_cast<int>(year) != targetYear ||
+            static_cast<int>(month) != targetMonth)
+        {
+          return;
+        }
+        const MonthStateResult state =
+            journalApp_->getMonthState(targetYear, targetMonth);
+        if (state.state == MonthState::Error)
+        {
+          monthDataValid_ = false;
+          updateEditControlsByMode();
+          ui->statusbar->showMessage(
+              QString("Ошибка проверки месяца: %1").arg(state.errorMessage),
+              6000);
+          return;
+        }
+        if (state.state == MonthState::Ready)
+        {
+          refreshMonth();
+          return;
+        }
+        showMonthSetupMenu(targetYear, targetMonth);
+      });
+}
+
+void MainWindow::showMonthSetupMenu(int targetYear, int targetMonth)
+{
+  monthSetupPromptOpen_ = true;
+  QMessageBox menu(this);
+  menu.setObjectName("monthSetupMenu");
+  menu.setWindowTitle("Создание месяца");
+  menu.setIcon(QMessageBox::Question);
+  menu.setText(QString("Месяц %1.%2 ещё не создан.")
+                   .arg(targetMonth, 2, 10, QLatin1Char('0'))
+                   .arg(targetYear));
+  menu.setInformativeText("Выберите способ заполнения месяца.");
+  QPushButton* createButton =
+      menu.addButton("Создать с нуля", QMessageBox::AcceptRole);
+  QPushButton* copyButton =
+      menu.addButton("Перенести участников", QMessageBox::ActionRole);
+  QPushButton* laterButton = menu.addButton("Позже", QMessageBox::RejectRole);
+  createButton->setObjectName("createMonthFromScratchButton");
+  copyButton->setObjectName("copyMonthUsersButton");
+  laterButton->setObjectName("dismissMonthSetupButton");
+  menu.setDefaultButton(createButton);
+  menu.setEscapeButton(laterButton);
+  menu.exec();
+
+  if (menu.clickedButton() == createButton)
+  {
+    configureMonthDays();
+  }
+  else if (menu.clickedButton() == copyButton)
+  {
+    copyUsersFromMonth(true);
+  }
+  else
+  {
+    dismissedMonthSetupYear_ = targetYear;
+    dismissedMonthSetupMonth_ = targetMonth;
+  }
+  monthSetupPromptOpen_ = false;
 }
 
 //---------------------------------------------------------------
@@ -573,6 +722,7 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
       return false;
     }
     journalApp_ = std::make_unique<JournalApp>(std::move(remote));
+    monthDataValid_ = false;
     ui->statusbar->showMessage(QString("Режим: server (%1)").arg(targetUrl),
                                5000);
     updateEditControlsByMode();
@@ -590,6 +740,7 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
   // journalApp_ -> JournalApp -> JournalLocal -> SqliteConnect.
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   journalApp_ = std::make_unique<JournalApp>(std::move(local));
+  monthDataValid_ = false;
   ui->statusbar->showMessage("Режим: local", 3000);
   updateEditControlsByMode();
   return true;
@@ -609,7 +760,7 @@ bool MainWindow::openLocalDatabase(SqliteConnect& sqlite)
 }
 void MainWindow::connectLocalFromUi()
 {
-  if (isConnectingStorage_)
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
   {
     // Защита от повторного клика, пока предыдущее подключение еще не
     // завершилось.
@@ -622,26 +773,13 @@ void MainWindow::connectLocalFromUi()
     return;
   }
 
+  ++monthSetupRequestId_;
   isConnectingStorage_ = true;
-  if (connectLocalBtn_)
-  {
-    connectLocalBtn_->setEnabled(false);
-  }
-  if (connectRemoteBtn_)
-  {
-    connectRemoteBtn_->setEnabled(false);
-  }
+  updateEditControlsByMode();
 
   const bool ok = setupStorage("local", QString());
-  if (connectLocalBtn_)
-  {
-    connectLocalBtn_->setEnabled(true);
-  }
-  if (connectRemoteBtn_)
-  {
-    connectRemoteBtn_->setEnabled(true);
-  }
   isConnectingStorage_ = false;
+  updateEditControlsByMode();
 
   if (ok)
   {
@@ -661,7 +799,7 @@ void MainWindow::connectLocalFromUi()
 
 void MainWindow::connectRemoteFromUi()
 {
-  if (isConnectingStorage_)
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
   {
     return;
   }
@@ -680,26 +818,13 @@ void MainWindow::connectRemoteFromUi()
     return;
   }
 
+  ++monthSetupRequestId_;
   isConnectingStorage_ = true;
-  if (connectLocalBtn_)
-  {
-    connectLocalBtn_->setEnabled(false);
-  }
-  if (connectRemoteBtn_)
-  {
-    connectRemoteBtn_->setEnabled(false);
-  }
+  updateEditControlsByMode();
 
   const bool ok = setupStorage("server", serverUrl);
-  if (connectLocalBtn_)
-  {
-    connectLocalBtn_->setEnabled(true);
-  }
-  if (connectRemoteBtn_)
-  {
-    connectRemoteBtn_->setEnabled(true);
-  }
   isConnectingStorage_ = false;
+  updateEditControlsByMode();
 
   if (ok)
   {
@@ -718,6 +843,11 @@ void MainWindow::connectRemoteFromUi()
 
 void MainWindow::configureMonthDays()
 {
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
+  {
+    ui->statusbar->showMessage("Дождитесь завершения текущей операции");
+    return;
+  }
   if (activeStorageMode_ == "server")
   {
     ui->statusbar->showMessage(
@@ -756,11 +886,19 @@ void MainWindow::configureMonthDays()
 
   activeDays_ = selectedDays;
   refreshMonth();
-  ui->statusbar->showMessage("Настройка месяца сохранена.", 4000);
+  if (monthDataValid_)
+  {
+    ui->statusbar->showMessage("Настройка месяца сохранена.", 4000);
+  }
 }
 
-void MainWindow::copyUsersFromMonth()
+void MainWindow::copyUsersFromMonth(bool copyActiveDaysByDefault)
 {
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
+  {
+    ui->statusbar->showMessage("Дождитесь завершения текущей операции");
+    return;
+  }
   if (activeStorageMode_ == "server")
   {
     ui->statusbar->showMessage(
@@ -775,7 +913,8 @@ void MainWindow::copyUsersFromMonth()
   }
 
   updateCalendarVariables(ui->calendarWidget);
-  CopyUsersDialog dialog(static_cast<int>(year), static_cast<int>(month), this);
+  CopyUsersDialog dialog(static_cast<int>(year), static_cast<int>(month), this,
+                         copyActiveDaysByDefault);
   if (dialog.exec() != QDialog::Accepted)
   {
     return;
@@ -793,11 +932,14 @@ void MainWindow::copyUsersFromMonth()
   }
 
   refreshMonth();
-  ui->statusbar->showMessage(
-      QString("Перенос завершен. Добавлено: %1, пропущено: %2")
-          .arg(result.copied)
-          .arg(result.skipped),
-      5000);
+  if (monthDataValid_)
+  {
+    ui->statusbar->showMessage(
+        QString("Перенос завершен. Добавлено: %1, пропущено: %2")
+            .arg(result.copied)
+            .arg(result.skipped),
+        5000);
+  }
 }
 
 void MainWindow::updateModeBadge()
@@ -847,27 +989,42 @@ void MainWindow::updateModeBadge()
 
 void MainWindow::updateEditControlsByMode()
 {
-  // В remote режиме UI работает как "просмотр":
-  // запрещаем мутацию локального/удаленного состояния из кнопок редактирования.
-  const bool isLocalMode = (activeStorageMode_ != "server");
-  ui->btnAdd->setEnabled(isLocalMode);
-  ui->btnDel->setEnabled(isLocalMode);
-  ui->btnSaveCurTable->setEnabled(isLocalMode);
-  ui->btnCreateTable->setEnabled(isLocalMode);
-  ui->btnPullServer->setEnabled(isLocalMode);
-  ui->lineEdit->setEnabled(isLocalMode);
+  const bool controlsIdle =
+      !isConnectingStorage_ && !syncInProgress_ && !refreshInProgress_;
+  const bool canEditMonth =
+      activeStorageMode_ != "server" && monthDataValid_ && controlsIdle;
+  ui->btnAdd->setEnabled(canEditMonth);
+  ui->btnDel->setEnabled(canEditMonth);
+  ui->btnSaveCurTable->setEnabled(canEditMonth);
+  ui->btnCreateTable->setEnabled(canEditMonth);
+  ui->btnPullServer->setEnabled(canEditMonth);
+  ui->lineEdit->setEnabled(canEditMonth);
   if (configureMonthBtn_)
   {
-    configureMonthBtn_->setEnabled(isLocalMode);
+    configureMonthBtn_->setEnabled(canEditMonth);
   }
   if (copyUsersBtn_)
   {
-    copyUsersBtn_->setEnabled(isLocalMode);
+    copyUsersBtn_->setEnabled(canEditMonth);
   }
+  if (participantsBtn_)
+  {
+    participantsBtn_->setEnabled(controlsIdle && journalApp_ != nullptr);
+  }
+  ui->btnReadBase->setEnabled(controlsIdle);
+  ui->calendarWidget->setEnabled(controlsIdle);
+  serverUrlEdit_->setEnabled(controlsIdle);
+  connectLocalBtn_->setEnabled(controlsIdle);
+  connectRemoteBtn_->setEnabled(controlsIdle);
 }
 
 void MainWindow::readLocalMonthToTable()
 {
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
+  {
+    ui->statusbar->showMessage("Дождитесь завершения текущей операции");
+    return;
+  }
   // Читаем local БД через отдельный локальный reader, не переключая active
   // storage. Это делает поведение Read Base предсказуемым даже при active
   // remote.
@@ -885,12 +1042,34 @@ void MainWindow::readLocalMonthToTable()
   updateCalendarVariables(ui->calendarWidget);
   const MonthSnapshot snapshot =
       localReader.loadMonth(static_cast<int>(year), static_cast<int>(month));
+  if (snapshot.state == MonthState::Error)
+  {
+    if (activeStorageMode_ == "local")
+    {
+      monthDataValid_ = false;
+      updateEditControlsByMode();
+    }
+    ui->statusbar->showMessage(
+        QString("Read Base error: %1").arg(snapshot.errorMessage), 6000);
+    return;
+  }
+  if (activeStorageMode_ == "local")
+  {
+    monthDataValid_ = true;
+  }
   renderMonth(snapshot);
+  updateEditControlsByMode();
   ui->statusbar->showMessage("Read Base: локальные данные загружены.", 4000);
 }
 
 void MainWindow::pushCurrentMonthToServer()
 {
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+      !monthDataValid_)
+  {
+    ui->statusbar->showMessage("Другая операция уже выполняется", 3000);
+    return;
+  }
   if (activeStorageMode_ != "local")
   {
     ui->statusbar->showMessage(
@@ -915,11 +1094,22 @@ void MainWindow::pushCurrentMonthToServer()
   updateCalendarVariables(ui->calendarWidget);
   MonthSnapshot snapshot =
       journalApp_->loadMonth(static_cast<int>(year), static_cast<int>(month));
+  if (snapshot.state == MonthState::Error)
+  {
+    ui->statusbar->showMessage(snapshot.errorMessage, 6000);
+    return;
+  }
   snapshot.activeDays = activeDays_;
   snapshot.attendance = collectMonthFromTable();
   SyncService sync(JOURNAL_REMOTE_TIMEOUT_MS);
-  if (!sync.pushMonthToServer(serverUrl, static_cast<int>(year),
-                              static_cast<int>(month), snapshot, &error))
+  syncInProgress_ = true;
+  updateEditControlsByMode();
+  const bool pushed =
+      sync.pushMonthToServer(serverUrl, static_cast<int>(year),
+                             static_cast<int>(month), snapshot, &error);
+  syncInProgress_ = false;
+  updateEditControlsByMode();
+  if (!pushed)
   {
     ui->statusbar->showMessage(
         QString("Push error: %1")
@@ -934,6 +1124,11 @@ void MainWindow::pushCurrentMonthToServer()
 
 void MainWindow::pullCurrentMonthFromServer()
 {
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
+  {
+    ui->statusbar->showMessage("Другая операция уже выполняется", 3000);
+    return;
+  }
   if (activeStorageMode_ != "local")
   {
     ui->statusbar->showMessage(
@@ -958,8 +1153,14 @@ void MainWindow::pullCurrentMonthFromServer()
   QString error;
   updateCalendarVariables(ui->calendarWidget);
   SyncService sync(JOURNAL_REMOTE_TIMEOUT_MS);
-  if (!sync.pullMonthToLocal(serverUrl, static_cast<int>(year),
-                             static_cast<int>(month), local, &error))
+  syncInProgress_ = true;
+  updateEditControlsByMode();
+  const bool pulled =
+      sync.pullMonthToLocal(serverUrl, static_cast<int>(year),
+                            static_cast<int>(month), local, &error);
+  syncInProgress_ = false;
+  updateEditControlsByMode();
+  if (!pulled)
   {
     ui->statusbar->showMessage(
         QString("Pull error: %1")
@@ -970,7 +1171,10 @@ void MainWindow::pullCurrentMonthFromServer()
   }
 
   refreshMonth();
-  ui->statusbar->showMessage(QString("Pull OK <- %1").arg(serverUrl), 5000);
+  if (monthDataValid_)
+  {
+    ui->statusbar->showMessage(QString("Pull OK <- %1").arg(serverUrl), 5000);
+  }
 }
 
 //---------------------------------------------------------------

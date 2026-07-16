@@ -284,15 +284,17 @@ bool migrationRollbackTest(const QString& path)
   return check(ok && !hasBirthDay,
                "failed migration did not roll back schema and version");
 }
-bool unsupportedDatabaseTest(const QString& path)
+bool legacyDatabaseMigrationTest(const QString& path)
 {
   if (!createOldDevelopmentDatabase(path))
   {
     return false;
   }
   SqliteConnect storage;
-  return check(!storage.open(path),
-               "old unversioned development database was accepted");
+  return check(storage.open(path),
+               "old unversioned development database migration failed") &&
+         check(storage.listParticipantProfiles(true).has_value(),
+               "migrated participant catalog is unreadable");
 }
 
 } // namespace
@@ -309,6 +311,6 @@ int main(int argc, char* argv[])
                   freshDatabaseTest(directory.filePath("fresh.db")) &&
                   migrationV2ToV3Test(directory.filePath("v2.db")) &&
                   migrationRollbackTest(directory.filePath("invalid-v2.db")) &&
-                  unsupportedDatabaseTest(directory.filePath("old.db"));
+                  legacyDatabaseMigrationTest(directory.filePath("old.db"));
   return ok ? 0 : 1;
 }

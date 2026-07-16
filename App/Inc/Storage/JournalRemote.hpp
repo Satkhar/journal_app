@@ -12,7 +12,8 @@ public:
   explicit JournalRemote(const QString& baseUrl, int timeoutMs = 5000);
 
   bool connect(QString* errorMessage = nullptr);
-  QString lastError() const;
+  QString lastError() const override;
+  MonthStateResult getMonthState(int year, int month) override;
   bool getMonthSnapshot(int year, int month, MonthSnapshot* snapshot);
 
   std::vector<Participant> getParticipantsForMonth(int year,

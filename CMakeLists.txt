@@ -90,6 +90,21 @@ target_include_directories(journal_storage_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Domain
     ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
 add_test(NAME journal_storage_tests COMMAND journal_storage_tests)
+
+add_executable(journal_month_state_tests
+    ./Test/month_state_tests.cpp
+    ./App/Src/Domain/JournalApp.cpp
+    ./App/Src/Domain/JournalModels.cpp
+    ./App/Src/Storage/JournalLocal.cpp
+    ./App/Src/Storage/SqliteConnect.cpp
+    ./App/Inc/Domain/JournalModels.hpp
+    ./App/Inc/Domain/IJournalStorage.hpp
+    ./App/Inc/Storage/SqliteConnect.hpp)
+target_link_libraries(journal_month_state_tests PRIVATE Qt6::Core Qt6::Sql)
+target_include_directories(journal_month_state_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/App/Inc/Domain
+    ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
+add_test(NAME journal_month_state_tests COMMAND journal_month_state_tests)
 # option(USE_CLANG_TIDY "Enable clang-tidy for static analysis" ON)	#OFF ON
 
 # if(USE_CLANG_TIDY)

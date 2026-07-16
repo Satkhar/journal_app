@@ -13,6 +13,7 @@ public:
 
   bool open(const QString& dbPath);
   QString lastError() const;
+  MonthStateResult getMonthState(int year, int month);
 
   std::vector<Participant> getParticipantsForMonth(int year, int month);
   QVector<int> getActiveDays(int year, int month);
@@ -38,6 +39,8 @@ private:
 
   bool ensureSchema();
   bool createSchemaV3();
+  bool migrateLegacyUsersToV3();
+  bool cleanupLegacyTables();
   bool migrateSchemaV2ToV3();
   bool createProfileValidationTriggers();
   bool verifySchemaV3();

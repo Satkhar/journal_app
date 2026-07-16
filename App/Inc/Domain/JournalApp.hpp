@@ -18,6 +18,7 @@ class JournalApp
 public:
   explicit JournalApp(std::unique_ptr<IJournalStorage> storage);
 
+  MonthStateResult getMonthState(int year, int month);
   MonthSnapshot loadMonth(int year, int month);
   bool saveActiveDays(int year, int month, const QVector<int>& days);
   CopyUsersResult copyUsersFromMonth(int fromYear, int fromMonth, int toYear,

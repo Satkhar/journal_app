@@ -67,8 +67,23 @@ struct AttendanceRecord
   bool isChecked;
 };
 
+enum class MonthState
+{
+  Missing,
+  Ready,
+  Error,
+};
+
+struct MonthStateResult
+{
+  MonthState state{MonthState::Error};
+  QString errorMessage;
+};
+
 struct MonthSnapshot
 {
+  MonthState state{MonthState::Error};
+  QString errorMessage;
   std::vector<Participant> participants;
   QVector<int> activeDays;
   std::vector<AttendanceRecord> attendance;

@@ -5,6 +5,16 @@ JournalLocal::JournalLocal(std::unique_ptr<SqliteConnect> sqlite)
 {
 }
 
+QString JournalLocal::lastError() const
+{
+  return sqlite_->lastError();
+}
+
+MonthStateResult JournalLocal::getMonthState(int year, int month)
+{
+  return sqlite_->getMonthState(year, month);
+}
+
 std::vector<Participant> JournalLocal::getParticipantsForMonth(int year,
                                                                int month)
 {

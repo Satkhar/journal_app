@@ -66,7 +66,22 @@ bool SqliteConnect::open(const QString& dbPath)
     }
   }
 
-  return enableForeignKeys() && ensureSchema();
+  if (!enableForeignKeys() || !ensureSchema())
+  {
+    return false;
+  }
+  if (tableExists("legacy_users_v0") || tableExists("legacy_month_days_v0") ||
+      tableExists("months") || tableExists("legacy_months"))
+  {
+    db_.close();
+    if (!db_.open() || !enableForeignKeys())
+    {
+      setError(db_.lastError().text());
+      return false;
+    }
+    return cleanupLegacyTables();
+  }
+  return true;
 }
 QString SqliteConnect::lastError() const
 {
@@ -77,6 +92,32 @@ void SqliteConnect::setError(const QString& error)
 {
   lastError_ = error;
   qWarning() << "SqliteConnect:" << error;
+}
+
+MonthStateResult SqliteConnect::getMonthState(int year, int month)
+{
+  lastError_.clear();
+  if (!validateYearMonth(year, month))
+  {
+    setError("Invalid year or month");
+    return {MonthState::Error, lastError_};
+  }
+
+  QSqlQuery query(db_);
+  query.prepare(
+      "SELECT EXISTS(SELECT 1 FROM month_days WHERE year = :year AND "
+      "month = :month) OR EXISTS(SELECT 1 FROM month_participants WHERE "
+      "year = :year AND month = :month) OR EXISTS(SELECT 1 FROM attendance "
+      "WHERE year = :year AND month = :month)");
+  query.bindValue(":year", year);
+  query.bindValue(":month", month);
+  if (!query.exec() || !query.next())
+  {
+    setError(query.lastError().text());
+    return {MonthState::Error, lastError_};
+  }
+  return {query.value(0).toBool() ? MonthState::Ready : MonthState::Missing,
+          QString()};
 }
 
 bool SqliteConnect::enableForeignKeys()
@@ -129,9 +170,13 @@ bool SqliteConnect::ensureSchema()
     return false;
   }
 
-  const QStringList incompatible = {"users", "participants",
-                                    "month_participants", "attendance",
-                                    "month_days"};
+  if (tableExists("users"))
+  {
+    return migrateLegacyUsersToV3() && verifySchemaV3();
+  }
+
+  const QStringList incompatible = {"participants", "month_participants",
+                                    "attendance", "month_days"};
   for (const QString& table : incompatible)
   {
     if (tableExists(table))
@@ -217,6 +262,241 @@ bool SqliteConnect::createSchemaV3()
     }
   }
   return createProfileValidationTriggers();
+}
+
+bool SqliteConnect::migrateLegacyUsersToV3()
+{
+  if (tableExists("participants") || tableExists("month_participants") ||
+      tableExists("attendance"))
+  {
+    setError("Legacy and normalized schemas are mixed");
+    return false;
+  }
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  auto fail = [this](const QString& error)
+  {
+    db_.rollback();
+    setError(error);
+    return false;
+  };
+
+  QSqlQuery query(db_);
+  if (!query.exec("ALTER TABLE users RENAME TO legacy_users_v0"))
+  {
+    return fail(query.lastError().text());
+  }
+  const bool hasLegacyDays = tableExists("month_days");
+  if (hasLegacyDays &&
+      !query.exec("ALTER TABLE month_days RENAME TO legacy_month_days_v0"))
+  {
+    return fail(query.lastError().text());
+  }
+  if (!createSchemaV3())
+  {
+    db_.rollback();
+    return false;
+  }
+
+  QHash<int, int> legacyYearByMonth;
+  QSet<int> ambiguousLegacyMonths;
+  if (hasLegacyDays)
+  {
+    QSqlQuery years(db_);
+    if (!years.exec("SELECT month, MIN(year), COUNT(DISTINCT year) "
+                    "FROM legacy_month_days_v0 GROUP BY month"))
+    {
+      return fail(years.lastError().text());
+    }
+    while (years.next())
+    {
+      const int month = years.value(0).toInt();
+      if (years.value(2).toInt() != 1)
+      {
+        ambiguousLegacyMonths.insert(month);
+        continue;
+      }
+      legacyYearByMonth.insert(month, years.value(1).toInt());
+    }
+  }
+  if (tableExists("legacy_months"))
+  {
+    QSqlQuery mappings(db_);
+    if (!mappings.exec("SELECT month, year FROM legacy_months"))
+    {
+      return fail(mappings.lastError().text());
+    }
+    while (mappings.next())
+    {
+      const int month = mappings.value(0).toInt();
+      const int year = mappings.value(1).toInt();
+      if (legacyYearByMonth.contains(month) &&
+          legacyYearByMonth.value(month) != year)
+      {
+        return fail(
+            QString("Conflicting legacy year mapping for month %1").arg(month));
+      }
+      legacyYearByMonth.insert(month, year);
+      ambiguousLegacyMonths.remove(month);
+    }
+  }
+
+  QHash<QString, QString> participantIds;
+  QSqlQuery rows(db_);
+  if (!rows.exec("SELECT name, date, is_checked FROM legacy_users_v0 "
+                 "ORDER BY id"))
+  {
+    return fail(rows.lastError().text());
+  }
+  QSqlQuery participantInsert(db_);
+  participantInsert.prepare(
+      "INSERT INTO participants(id, display_name) VALUES(:id, :name)");
+  QSqlQuery membershipInsert(db_);
+  membershipInsert.prepare(
+      "INSERT OR IGNORE INTO month_participants(year, month, participant_id, "
+      "sort_order) VALUES(:year, :month, :id, COALESCE((SELECT "
+      "MAX(sort_order) + 1 FROM month_participants WHERE year = :year AND "
+      "month = :month), 0))");
+  QSqlQuery attendanceInsert(db_);
+  attendanceInsert.prepare(
+      "INSERT INTO attendance(year, month, day, participant_id, is_checked) "
+      "VALUES(:year, :month, :day, :id, :checked) ON CONFLICT(year, month, "
+      "day, participant_id) DO UPDATE SET is_checked = excluded.is_checked");
+  while (rows.next())
+  {
+    const QString name = rows.value(0).toString().trimmed();
+    const QString dateText = rows.value(1).toString();
+    if (name.isEmpty() || name.size() > 200)
+    {
+      return fail("Legacy database contains an invalid participant name");
+    }
+
+    QDate date = QDate::fromString(dateText, "dd.MM.yyyy");
+    if (!date.isValid())
+    {
+      const int day = dateText.left(2).toInt();
+      const int month = dateText.mid(3, 2).toInt();
+      if (ambiguousLegacyMonths.contains(month))
+      {
+        return fail(
+            QString("Legacy month %1 maps to multiple years").arg(month));
+      }
+      const int year =
+          legacyYearByMonth.value(month, QDate::currentDate().year());
+      date = QDate(year, month, day);
+    }
+    if (!date.isValid())
+    {
+      return fail(
+          QString("Legacy database contains invalid date: %1").arg(dateText));
+    }
+
+    QString id = participantIds.value(name);
+    if (id.isEmpty())
+    {
+      id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+      participantIds.insert(name, id);
+      participantInsert.bindValue(":id", id);
+      participantInsert.bindValue(":name", name);
+      if (!participantInsert.exec())
+      {
+        return fail(participantInsert.lastError().text());
+      }
+    }
+    membershipInsert.bindValue(":year", date.year());
+    membershipInsert.bindValue(":month", date.month());
+    membershipInsert.bindValue(":id", id);
+    if (!membershipInsert.exec())
+    {
+      return fail(membershipInsert.lastError().text());
+    }
+    attendanceInsert.bindValue(":year", date.year());
+    attendanceInsert.bindValue(":month", date.month());
+    attendanceInsert.bindValue(":day", date.day());
+    attendanceInsert.bindValue(":id", id);
+    attendanceInsert.bindValue(":checked", rows.value(2).toInt() != 0 ? 1 : 0);
+    if (!attendanceInsert.exec())
+    {
+      return fail(attendanceInsert.lastError().text());
+    }
+  }
+  rows.finish();
+  rows.clear();
+
+  if (hasLegacyDays &&
+      !query.exec("INSERT INTO month_days(year, month, day) SELECT year, "
+                  "month, day FROM legacy_month_days_v0"))
+  {
+    return fail(query.lastError().text());
+  }
+  if (tableExists("months"))
+  {
+    QSqlQuery months(db_);
+    if (!months.exec("SELECT year, month FROM months"))
+    {
+      return fail(months.lastError().text());
+    }
+    QSqlQuery dayInsert(db_);
+    dayInsert.prepare("INSERT OR IGNORE INTO month_days(year, month, day) "
+                      "VALUES(:year, :month, :day)");
+    while (months.next())
+    {
+      const int year = months.value(0).toInt();
+      const int month = months.value(1).toInt();
+      for (int day : fullMonthDays(year, month))
+      {
+        dayInsert.bindValue(":year", year);
+        dayInsert.bindValue(":month", month);
+        dayInsert.bindValue(":day", day);
+        if (!dayInsert.exec())
+        {
+          return fail(dayInsert.lastError().text());
+        }
+      }
+    }
+  }
+
+  if (!query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec("PRAGMA foreign_key_check") || query.next())
+  {
+    return fail("Legacy migration integrity check failed");
+  }
+  if (!db_.commit())
+  {
+    return fail(db_.lastError().text());
+  }
+  return true;
+}
+
+bool SqliteConnect::cleanupLegacyTables()
+{
+  const QStringList tables = {"legacy_users_v0", "legacy_month_days_v0",
+                              "months", "legacy_months"};
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  QSqlQuery query(db_);
+  for (const QString& table : tables)
+  {
+    if (tableExists(table) && !query.exec("DROP TABLE " + table))
+    {
+      const QString error = query.lastError().text();
+      db_.rollback();
+      setError("DROP TABLE " + table + ": " + error);
+      return false;
+    }
+  }
+  if (!db_.commit())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  return true;
 }
 
 bool SqliteConnect::createProfileValidationTriggers()
@@ -635,6 +915,29 @@ bool SqliteConnect::addParticipantToMonth(int year, int month,
   if (!query.exec())
   {
     return fail(query.lastError().text());
+  }
+  query.prepare("SELECT 1 FROM month_days WHERE year = :year AND "
+                "month = :month LIMIT 1");
+  query.bindValue(":year", year);
+  query.bindValue(":month", month);
+  if (!query.exec())
+  {
+    return fail(query.lastError().text());
+  }
+  if (!query.next())
+  {
+    query.prepare(
+        "INSERT INTO month_days(year, month, day) VALUES(:year, :month, :day)");
+    for (int day : fullMonthDays(year, month))
+    {
+      query.bindValue(":year", year);
+      query.bindValue(":month", month);
+      query.bindValue(":day", day);
+      if (!query.exec())
+      {
+        return fail(query.lastError().text());
+      }
+    }
   }
   query.prepare(
       "INSERT OR IGNORE INTO attendance(year, month, day, participant_id, "

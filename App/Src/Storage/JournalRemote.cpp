@@ -46,6 +46,41 @@ QString JournalRemote::lastError() const
   return lastError_;
 }
 
+MonthStateResult JournalRemote::getMonthState(int year, int month)
+{
+  lastError_.clear();
+  if (!QDate(year, month, 1).isValid())
+  {
+    lastError_ = "Invalid year or month";
+    return {MonthState::Error, lastError_};
+  }
+
+  QJsonArray results;
+  QString error;
+  const QString sql =
+      QString("SELECT EXISTS(SELECT 1 FROM month_days WHERE year = %1 AND "
+              "month = %2) OR EXISTS(SELECT 1 FROM month_participants WHERE "
+              "year = %1 AND month = %2) OR EXISTS(SELECT 1 FROM attendance "
+              "WHERE year = %1 AND month = %2)")
+          .arg(year)
+          .arg(month);
+  if (!executePipeline({sql}, &results, &error) || results.size() != 1)
+  {
+    lastError_ =
+        error.isEmpty() ? "Invalid remote month-state response" : error;
+    return {MonthState::Error, lastError_};
+  }
+  const QJsonArray rows = results.at(0).toObject().value("rows").toArray();
+  if (rows.size() != 1)
+  {
+    lastError_ = "Invalid remote month-state result";
+    return {MonthState::Error, lastError_};
+  }
+  return {cellString(rows.at(0).toArray(), 0) == "1" ? MonthState::Ready
+                                                     : MonthState::Missing,
+          QString()};
+}
+
 QString JournalRemote::cellString(const QJsonArray& row, int index)
 {
   if (index < 0 || index >= row.size())
@@ -345,6 +380,11 @@ bool JournalRemote::addParticipantToMonth(int year, int month,
           .arg(sqlQuote(participant.id.value))};
   for (int day : activeDays)
   {
+    sql.push_back(QString("INSERT OR IGNORE INTO month_days(year, month, day) "
+                          "VALUES(%1, %2, %3)")
+                      .arg(year)
+                      .arg(month)
+                      .arg(day));
     sql.push_back(
         QString("INSERT OR IGNORE INTO attendance(year, month, day, "
                 "participant_id, is_checked) VALUES(%1, %2, %3, %4, 0)")

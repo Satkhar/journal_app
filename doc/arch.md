@@ -51,6 +51,7 @@ flowchart LR
 
 Содержит:
 
+- явное состояние `Missing`, `Ready` или `Error` и текст ошибки;
 - participants текущего месяца;
 - active days;
 - attendance.
@@ -74,18 +75,23 @@ Snapshot применяется целиком только в sync-сценар
 - индексы чтения месяца и истории участника;
 - `PRAGMA user_version = 3`.
 
-Schema v2 мигрирует в v3 транзакционно. Profile triggers проверяют имя, notes и
-календарную корректность birthday.
+Schema v2 мигрирует в v3 транзакционно. Unversioned legacy schema
+`users(name, date, is_checked)` также мигрирует в v3: `dd.MM.yyyy` сохраняет
+год, а `dd.MM` привязывается к единственному году настройки `month_days`.
+Неоднозначное соответствие месяца нескольким годам отклоняется. Profile
+triggers проверяют имя, notes и календарную корректность birthday.
 
 `saveActiveDays()` не удаляет attendance выключенных дней. При повторном
 включении сохраненная отметка восстанавливается.
 
-## Development DB policy
+## Month setup contract
 
-Schema `users(name, date, is_checked)` и формат `dd.MM` больше не поддерживаются.
-Проект еще не имеет production DB, поэтому migration v1 не нужна. Unversioned DB с
-старыми таблицами отклоняется с явной ошибкой. Для продолжения файл dev-БД надо
-удалить; приложение создаст schema v3 заново.
+Чтение месяца не создаёт данные. `IJournalStorage::getMonthState()` отделяет
+отсутствующий месяц от пустого настроенного месяца и от ошибки storage. Для
+нового local-месяца UI предлагает создать его с нуля или атомарно перенести
+участников и дни из другого месяца. При ошибке чтения редактирование блокируется,
+чтобы пустой UI не перезаписал существующие данные.
+
 ## Sync contract
 
 Push/pull работают с `MonthSnapshot`, а не с `name + day`.

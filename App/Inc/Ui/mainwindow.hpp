@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <QTableWidget>
 #include <QVector>
+#include <QtGlobal>
 
 class QGroupBox;
 class SqliteConnect;
@@ -56,6 +57,13 @@ private:
   QString activeStorageMode_;
   QString activeServerUrl_;
   bool isConnectingStorage_;
+  bool syncInProgress_;
+  bool refreshInProgress_;
+  bool monthDataValid_;
+  bool monthSetupPromptOpen_;
+  quint64 monthSetupRequestId_;
+  int dismissedMonthSetupYear_;
+  int dismissedMonthSetupMonth_;
 
   // Кэш указателя на главную таблицу и числовые параметры месяца из календаря.
   QTableWidget* baseTableWidget;
@@ -66,6 +74,8 @@ private:
 
   // Загружает данные текущего месяца и перерисовывает таблицу.
   void refreshMonth();
+  void scheduleMonthSetup(const MonthSnapshot& snapshot);
+  void showMonthSetupMenu(int targetYear, int targetMonth);
   // Рисует таблицу из снимка месяца.
   void renderMonth(const MonthSnapshot& snapshot);
   // Считывает состояние UI-таблицы в доменную модель.
@@ -89,7 +99,7 @@ private:
   // Открывает диалог выбора дней учета для текущего месяца.
   void configureMonthDays();
   // Переносит пользователей из другого месяца в текущий.
-  void copyUsersFromMonth();
+  void copyUsersFromMonth(bool copyActiveDaysByDefault = false);
   void openParticipantProfile(const ParticipantId& id);
   void openParticipantDirectory();
   // Обновляет визуальный индикатор режима.

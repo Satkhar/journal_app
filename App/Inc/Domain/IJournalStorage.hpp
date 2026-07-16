@@ -12,6 +12,8 @@ class IJournalStorage
 public:
   virtual ~IJournalStorage() = default;
 
+  virtual QString lastError() const = 0;
+  virtual MonthStateResult getMonthState(int year, int month) = 0;
   virtual std::vector<Participant> getParticipantsForMonth(int year,
                                                            int month) = 0;
   virtual QVector<int> getActiveDays(int year, int month) = 0;

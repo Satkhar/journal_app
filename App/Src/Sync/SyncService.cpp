@@ -2,7 +2,9 @@
 
 #include "JournalRemote.hpp"
 
-SyncService::SyncService(int timeoutMs) : timeoutMs_(timeoutMs) {}
+SyncService::SyncService(int timeoutMs) : timeoutMs_(timeoutMs)
+{
+}
 
 bool SyncService::pushMonthToServer(const QString& serverUrl, int year,
                                     int month,
@@ -32,6 +34,19 @@ bool SyncService::pullMonthToLocal(const QString& serverUrl, int year,
   JournalRemote remote(serverUrl, timeoutMs_);
   if (!remote.connect(errorMessage))
   {
+    return false;
+  }
+
+  const MonthStateResult remoteState = remote.getMonthState(year, month);
+  if (remoteState.state != MonthState::Ready)
+  {
+    if (errorMessage)
+    {
+      *errorMessage =
+          remoteState.state == MonthState::Error
+              ? remoteState.errorMessage
+              : "Remote month is missing; local month was not modified";
+    }
     return false;
   }
 
