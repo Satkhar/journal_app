@@ -113,11 +113,11 @@ private:
   // Pull: читает месяц с сервера и сохраняет в локальную БД.
   void pullCurrentMonthFromServer();
 
-  // Ищет колонку по тексту даты в служебной строке.
-  int searchDate(QTableWidget* tableWidget, const QString& dateLabel) const;
   // Добавляет чекбокс в указанную ячейку.
   void addCheckBox(QTableWidget* tableWidget, int row, int column,
                    bool is_checked);
+  // Пересчитывает число отмеченных активных дней для строки участника.
+  void updateAttendanceCount(QTableWidget* tableWidget, int row);
   // Считывает текущий месяц/год/число дней из календаря.
   void updateCalendarVariables(QCalendarWidget* calendarWidget);
 };

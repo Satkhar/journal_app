@@ -139,6 +139,16 @@ bool DisabledDayAttendanceIsPreserved()
   return true;
 }
 
+bool AttendanceCountUsesOnlyActiveCheckedDays()
+{
+  const QHash<int, bool> attendanceByDay{
+      {1, true}, {2, true}, {3, false}, {5, true}};
+  TEST_CHECK(CountCheckedActiveDays({1, 3, 5}, attendanceByDay) == 2);
+  TEST_CHECK(CountCheckedActiveDays({3}, attendanceByDay) == 0);
+  TEST_CHECK(CountCheckedActiveDays({}, attendanceByDay) == 0);
+  return true;
+}
+
 bool FailedReplaceDoesNotModifyMonth()
 {
   TemporaryDatabase db;
@@ -307,6 +317,8 @@ int main(int argc, char* argv[])
        RemovingLastParticipantKeepsMonthReady},
       {"disabled-day attendance is preserved",
        DisabledDayAttendanceIsPreserved},
+      {"attendance count uses active checked days",
+       AttendanceCountUsesOnlyActiveCheckedDays},
       {"failed replace does not modify month", FailedReplaceDoesNotModifyMonth},
       {"storage error is not missing", StorageErrorIsNotReportedAsMissing},
       {"copy from empty source creates target",

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QHashFunctions>
 #include <QString>
 #include <QUuid>
@@ -66,6 +67,9 @@ struct AttendanceRecord
   int day;
   bool isChecked;
 };
+
+int CountCheckedActiveDays(const QVector<int>& activeDays,
+                           const QHash<int, bool>& attendanceByDay);
 
 enum class MonthState
 {

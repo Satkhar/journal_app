@@ -32,6 +32,14 @@
 namespace
 {
 
+constexpr int kDateRow = 0;
+constexpr int kWeekdayRow = 1;
+constexpr int kFirstParticipantRow = 2;
+constexpr int kIdColumn = 0;
+constexpr int kNameColumn = 1;
+constexpr int kAttendanceCountColumn = 2;
+constexpr int kFirstDayColumn = 3;
+
 QVector<int> fullMonthDays(int year, int month)
 {
   QVector<int> days;
@@ -150,13 +158,13 @@ MainWindow::MainWindow(QWidget* parent)
         }
         QTableWidget* table = findChild<QTableWidget*>("bigTable");
         const int row = table ? table->currentRow() : -1;
-        if (row < 2)
+        if (row < kFirstParticipantRow)
         {
           ui->statusbar->showMessage("Выберите строку участника");
           return;
         }
 
-        const QTableWidgetItem* idItem = table->item(row, 0);
+        const QTableWidgetItem* idItem = table->item(row, kIdColumn);
         const ParticipantId id{idItem ? idItem->data(Qt::UserRole).toString()
                                       : QString()};
         if (!journalApp_ || !journalApp_->removeParticipant(id))
@@ -402,27 +410,35 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   // Всегда заново рисуем служебные строки и все user-строки,
   // чтобы таблица была полностью консистентна snapshot.
   tableWidget->clearContents();
-  tableWidget->setRowCount(2);
-  tableWidget->setColumnCount(2 + activeDays_.size());
+  tableWidget->setRowCount(kFirstParticipantRow);
+  tableWidget->setColumnCount(
+      kFirstDayColumn + static_cast<int>(activeDays_.size()));
 
-  tableWidget->setItem(0, 0, new QTableWidgetItem("Дата"));
-  tableWidget->setItem(1, 0, new QTableWidgetItem("День"));
-  tableWidget->setHorizontalHeaderItem(0, new QTableWidgetItem("ID"));
-  tableWidget->setHorizontalHeaderItem(1, new QTableWidgetItem("Name"));
+  tableWidget->setItem(kDateRow, kIdColumn, new QTableWidgetItem("Дата"));
+  tableWidget->setItem(kWeekdayRow, kIdColumn,
+                       new QTableWidgetItem("День"));
+  tableWidget->setHorizontalHeaderItem(kIdColumn,
+                                       new QTableWidgetItem("ID"));
+  tableWidget->setHorizontalHeaderItem(kNameColumn,
+                                       new QTableWidgetItem("Name"));
+  tableWidget->setHorizontalHeaderItem(
+      kAttendanceCountColumn, new QTableWidgetItem("Посещено"));
 
   for (int index = 0; index < activeDays_.size(); ++index)
   {
     const int day = activeDays_.at(index);
-    const int column = index + 2;
+    const int column = index + kFirstDayColumn;
     const QString dateLabel = QString("%1.%2")
                                   .arg(day, 2, 10, QLatin1Char('0'))
                                   .arg(month, 2, 10, QLatin1Char('0'));
-    tableWidget->setItem(0, column, new QTableWidgetItem(dateLabel));
+    tableWidget->setItem(kDateRow, column,
+                         new QTableWidgetItem(dateLabel));
 
     const QDate date(static_cast<int>(year), static_cast<int>(month),
                      static_cast<int>(day));
     tableWidget->setItem(
-        1, column, new QTableWidgetItem(kDaysOfWeek[date.dayOfWeek() - 1]));
+        kWeekdayRow, column,
+        new QTableWidgetItem(kDaysOfWeek[date.dayOfWeek() - 1]));
     tableWidget->setHorizontalHeaderItem(column, new QTableWidgetItem(" "));
   }
 
@@ -440,22 +456,28 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     auto* idItem = new QTableWidgetItem(participant.id.value.left(8));
     idItem->setData(Qt::UserRole, participant.id.value);
     idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
-    tableWidget->setItem(row, 0, idItem);
+    tableWidget->setItem(row, kIdColumn, idItem);
     auto* nameItem = new QTableWidgetItem(
         archivedIds.contains(participant.id.value)
             ? QString("[архив] %1").arg(participant.displayName)
             : participant.displayName);
     nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
-    tableWidget->setItem(row, 1, nameItem);
+    tableWidget->setItem(row, kNameColumn, nameItem);
+
+    auto* countItem = new QTableWidgetItem();
+    countItem->setFlags(countItem->flags() & ~Qt::ItemIsEditable);
+    countItem->setTextAlignment(Qt::AlignCenter);
+    tableWidget->setItem(row, kAttendanceCountColumn, countItem);
 
     for (int index = 0; index < activeDays_.size(); ++index)
     {
       const int day = activeDays_.at(index);
-      const int column = index + 2;
+      const int column = index + kFirstDayColumn;
       const bool checked =
           marksByParticipant.value(participant.id.value).value(day, false);
       addCheckBox(tableWidget, row, column, checked);
     }
+    updateAttendanceCount(tableWidget, row);
   }
 
   tableWidget->resizeColumnsToContents();
@@ -474,10 +496,10 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const
     return data;
   }
 
-  // Читаем все пользовательские строки (строки 0-1 служебные).
-  for (int row = 2; row < tableWidget->rowCount(); ++row)
+  // Читаем только колонки активных дат. Служебные колонки не сериализуются.
+  for (int row = kFirstParticipantRow; row < tableWidget->rowCount(); ++row)
   {
-    const QTableWidgetItem* idItem = tableWidget->item(row, 0);
+    const QTableWidgetItem* idItem = tableWidget->item(row, kIdColumn);
     const ParticipantId participantId{
         idItem ? idItem->data(Qt::UserRole).toString() : QString()};
     if (!participantId.isValid())
@@ -485,19 +507,10 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const
       continue;
     }
 
-    for (int column = 2; column < tableWidget->columnCount(); ++column)
+    for (int index = 0; index < activeDays_.size(); ++index)
     {
-      const QTableWidgetItem* dateItem = tableWidget->item(0, column);
-      if (!dateItem)
-      {
-        continue;
-      }
-
-      const int day = dateItem->text().left(2).toInt();
-      if (day < 1 || day > static_cast<int>(day_in_month))
-      {
-        continue;
-      }
+      const int day = activeDays_.at(index);
+      const int column = index + kFirstDayColumn;
 
       QCheckBox* checkBox =
           qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, column));
@@ -561,14 +574,21 @@ void MainWindow::createEmptyTable()
       activeDays_.isEmpty()
           ? fullMonthDays(static_cast<int>(year), static_cast<int>(month))
           : activeDays_;
-  QTableWidget* tableWidget = new QTableWidget(2, 2 + tableDays.size(), this);
+  QTableWidget* tableWidget = new QTableWidget(
+      kFirstParticipantRow,
+      kFirstDayColumn + static_cast<int>(tableDays.size()), this);
   tableWidget->setObjectName("bigTable");
 
-  tableWidget->setHorizontalHeaderItem(0, new QTableWidgetItem("ID"));
-  tableWidget->setHorizontalHeaderItem(1, new QTableWidgetItem("Name"));
+  tableWidget->setHorizontalHeaderItem(kIdColumn,
+                                       new QTableWidgetItem("ID"));
+  tableWidget->setHorizontalHeaderItem(kNameColumn,
+                                       new QTableWidgetItem("Name"));
+  tableWidget->setHorizontalHeaderItem(
+      kAttendanceCountColumn, new QTableWidgetItem("Посещено"));
   for (int i = 0; i < tableDays.size(); ++i)
   {
-    tableWidget->setHorizontalHeaderItem(i + 2, new QTableWidgetItem(" "));
+    tableWidget->setHorizontalHeaderItem(i + kFirstDayColumn,
+                                         new QTableWidgetItem(" "));
   }
 
   tableWidget->resizeColumnsToContents();
@@ -590,11 +610,12 @@ void MainWindow::createEmptyTable()
   connect(tableWidget, &QTableWidget::cellDoubleClicked, this,
           [this, tableWidget](int row, int)
           {
-            if (row < 2)
+            if (row < kFirstParticipantRow)
             {
               return;
             }
-            const QTableWidgetItem* item = tableWidget->item(row, 0);
+            const QTableWidgetItem* item =
+                tableWidget->item(row, kIdColumn);
             const ParticipantId id{item ? item->data(Qt::UserRole).toString()
                                         : QString()};
             if (id.isValid())
@@ -1042,6 +1063,24 @@ void MainWindow::updateEditControlsByMode()
   serverUrlEdit_->setEnabled(controlsIdle);
   connectLocalBtn_->setEnabled(controlsIdle);
   connectRemoteBtn_->setEnabled(controlsIdle);
+
+  QTableWidget* tableWidget = findChild<QTableWidget*>("bigTable");
+  if (tableWidget)
+  {
+    for (int row = kFirstParticipantRow; row < tableWidget->rowCount(); ++row)
+    {
+      for (int index = 0; index < activeDays_.size(); ++index)
+      {
+        const int column = index + kFirstDayColumn;
+        QCheckBox* checkBox = qobject_cast<QCheckBox*>(
+            tableWidget->cellWidget(row, column));
+        if (checkBox)
+        {
+          checkBox->setEnabled(canEditMonth);
+        }
+      }
+    }
+  }
 }
 
 void MainWindow::readLocalMonthToTable()
@@ -1205,25 +1244,6 @@ void MainWindow::pullCurrentMonthFromServer()
 
 //---------------------------------------------------------------
 
-int MainWindow::searchDate(QTableWidget* tableWidget,
-                           const QString& dateLabel) const
-{
-  const int startColumn = 2;
-  // Колонки 0 и 1 заняты служебными полями ID/Name, даты начинаются с 2.
-  for (int column = startColumn;
-       column < static_cast<int>(day_in_month) + startColumn; ++column)
-  {
-    QTableWidgetItem* dataItem = tableWidget->item(0, column);
-    if (dataItem && dataItem->text() == dateLabel)
-    {
-      return column;
-    }
-  }
-  return 0;
-}
-
-//---------------------------------------------------------------
-
 void MainWindow::addCheckBox(QTableWidget* tableWidget, int row, int column,
                              bool is_checked)
 {
@@ -1231,6 +1251,43 @@ void MainWindow::addCheckBox(QTableWidget* tableWidget, int row, int column,
   QCheckBox* checkBox = new QCheckBox();
   checkBox->setChecked(is_checked);
   tableWidget->setCellWidget(row, column, checkBox);
+  connect(checkBox, &QCheckBox::toggled, tableWidget,
+          [this, tableWidget, row](bool)
+          { updateAttendanceCount(tableWidget, row); });
+}
+
+//---------------------------------------------------------------
+
+void MainWindow::updateAttendanceCount(QTableWidget* tableWidget, int row)
+{
+  if (!tableWidget || row < kFirstParticipantRow ||
+      row >= tableWidget->rowCount())
+  {
+    return;
+  }
+
+  QHash<int, bool> attendanceByDay;
+  attendanceByDay.reserve(activeDays_.size());
+  for (int index = 0; index < activeDays_.size(); ++index)
+  {
+    const int column = index + kFirstDayColumn;
+    const QCheckBox* checkBox =
+        qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, column));
+    attendanceByDay.insert(activeDays_.at(index),
+                           checkBox && checkBox->isChecked());
+  }
+
+  QTableWidgetItem* countItem =
+      tableWidget->item(row, kAttendanceCountColumn);
+  if (!countItem)
+  {
+    countItem = new QTableWidgetItem();
+    countItem->setFlags(countItem->flags() & ~Qt::ItemIsEditable);
+    countItem->setTextAlignment(Qt::AlignCenter);
+    tableWidget->setItem(row, kAttendanceCountColumn, countItem);
+  }
+  countItem->setText(
+      QString::number(CountCheckedActiveDays(activeDays_, attendanceByDay)));
 }
 
 //---------------------------------------------------------------

@@ -2,6 +2,8 @@
 
 #include <QDate>
 
+#include <algorithm>
+
 namespace
 {
 
@@ -28,4 +30,13 @@ bool ParticipantProfile::isValid() const
          trimmedName.size() <= kMaxDisplayNameLength &&
          notes.size() <= kMaxNotesLength &&
          (!birthday.has_value() || birthday->isValid());
+}
+
+int CountCheckedActiveDays(const QVector<int>& activeDays,
+                           const QHash<int, bool>& attendanceByDay)
+{
+  return static_cast<int>(std::count_if(
+      activeDays.cbegin(), activeDays.cend(),
+      [&attendanceByDay](int day)
+      { return attendanceByDay.value(day, false); }));
 }
