@@ -30,6 +30,8 @@ int main(int argc, char *argv[])
 
   // QApplication поднимает event loop Qt и регистрирует системные ресурсы GUI.
   QApplication app(argc, argv);
+  // Единая минимальная высота нужна и главным действиям, и кнопкам диалогов.
+  app.setStyleSheet("QPushButton { min-height: 36px; }");
 
   // Главное окно само внутри инициализирует UI и подключение к storage.
   MainWindow mainWindow;

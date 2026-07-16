@@ -615,6 +615,12 @@ void MainWindow::setupActionPanels()
     return;
   }
 
+  // Сгенерированный UI оставлял под кнопками обязательный отступ 108 px.
+  // После добавления панелей действий он переполнял верхнюю строку окна.
+  ui->verticalSpacer->changeSize(0, 0, QSizePolicy::Minimum,
+                                 QSizePolicy::Expanding);
+  layout->invalidate();
+
   setupConnectionPanel(layout);
   setupMonthPanel(layout);
   setupDataPanel(layout);
@@ -670,16 +676,22 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout)
   monthLayout->addWidget(ui->lineEdit);
 
   configureMonthBtn_ = new QPushButton("Настроить конкретные даты", this);
-  monthLayout->addWidget(configureMonthBtn_);
 
   copyUsersBtn_ = new QPushButton("Перенести участников", this);
   copyUsersBtn_->setToolTip(
       "Добавить участников из другого месяца; расписание по дням недели "
       "переносится по выбору.");
-  monthLayout->addWidget(copyUsersBtn_);
 
   participantsBtn_ = new QPushButton("Все участники", this);
-  monthLayout->addWidget(participantsBtn_);
+
+  auto* monthActionsLayout = new QGridLayout();
+  monthActionsLayout->addWidget(configureMonthBtn_, 0, 0);
+  monthActionsLayout->addWidget(copyUsersBtn_, 0, 1);
+  monthActionsLayout->addWidget(participantsBtn_, 0, 2);
+  monthActionsLayout->setColumnStretch(0, 1);
+  monthActionsLayout->setColumnStretch(1, 1);
+  monthActionsLayout->setColumnStretch(2, 1);
+  monthLayout->addLayout(monthActionsLayout);
 
   parentLayout->insertWidget(1, monthGroup_);
 
@@ -698,10 +710,14 @@ void MainWindow::setupDataPanel(QVBoxLayout* parentLayout)
 
   ui->btnReadBase->setText("Прочитать месяц");
   ui->btnSaveCurTable->setText("Сохранить месяц");
-  dataLayout->addWidget(ui->btnReadBase);
-  dataLayout->addWidget(ui->btnSaveCurTable);
-  dataLayout->addWidget(ui->btnCreateTable);
-  dataLayout->addWidget(ui->btnPullServer);
+  auto* dataActionsLayout = new QGridLayout();
+  dataActionsLayout->addWidget(ui->btnReadBase, 0, 0);
+  dataActionsLayout->addWidget(ui->btnSaveCurTable, 0, 1);
+  dataActionsLayout->addWidget(ui->btnCreateTable, 1, 0);
+  dataActionsLayout->addWidget(ui->btnPullServer, 1, 1);
+  dataActionsLayout->setColumnStretch(0, 1);
+  dataActionsLayout->setColumnStretch(1, 1);
+  dataLayout->addLayout(dataActionsLayout);
 
   parentLayout->insertWidget(2, dataGroup_);
 }
