@@ -127,9 +127,17 @@ target_link_libraries(journal_ui_tests PRIVATE
 target_include_directories(journal_ui_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Domain
     ${CMAKE_SOURCE_DIR}/App/Inc/Ui)
-add_test(NAME journal_ui_tests COMMAND journal_ui_tests)
-set_tests_properties(journal_ui_tests PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(WIN32)
+    add_test(NAME journal_ui_tests
+        COMMAND ${CMAKE_COMMAND} -E env
+            "PATH=$<TARGET_FILE_DIR:Qt6::Core>\;$ENV{PATH}"
+            "QT_QPA_PLATFORM=offscreen"
+            $<TARGET_FILE:journal_ui_tests>)
+else()
+    add_test(NAME journal_ui_tests COMMAND journal_ui_tests)
+    set_tests_properties(journal_ui_tests PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
 # option(USE_CLANG_TIDY "Enable clang-tidy for static analysis" ON)	#OFF ON
 
 # if(USE_CLANG_TIDY)
