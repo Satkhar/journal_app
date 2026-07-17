@@ -30,11 +30,83 @@ bool Birthday::isValid() const
   return QDate(2000, month, day).isValid();
 }
 
+const std::vector<ParticipantRank>& ParticipantRanksInDisplayOrder()
+{
+  static const std::vector<ParticipantRank> ranks = {
+      ParticipantRank::Page,   ParticipantRank::Squire,
+      ParticipantRank::Novice, ParticipantRank::Recruit,
+      ParticipantRank::Guest,  ParticipantRank::Knight};
+  return ranks;
+}
+
+QString ParticipantRankStorageValue(ParticipantRank rank)
+{
+  switch (rank)
+  {
+  case ParticipantRank::Page:
+    return "page";
+  case ParticipantRank::Squire:
+    return "squire";
+  case ParticipantRank::Novice:
+    return "novice";
+  case ParticipantRank::Recruit:
+    return "recruit";
+  case ParticipantRank::Guest:
+    return "guest";
+  case ParticipantRank::Knight:
+    return "knight";
+  }
+  return {};
+}
+
+QString ParticipantRankDisplayName(ParticipantRank rank)
+{
+  switch (rank)
+  {
+  case ParticipantRank::Page:
+    return "Паж";
+  case ParticipantRank::Squire:
+    return "Оруженосец";
+  case ParticipantRank::Novice:
+    return "Новичок";
+  case ParticipantRank::Recruit:
+    return "Рекрут";
+  case ParticipantRank::Guest:
+    return "Гость";
+  case ParticipantRank::Knight:
+    return "Рыцарь";
+  }
+  return {};
+}
+
+std::optional<ParticipantRank>
+ParticipantRankFromStorageValue(const QString& value)
+{
+  for (ParticipantRank rank : ParticipantRanksInDisplayOrder())
+  {
+    if (ParticipantRankStorageValue(rank) == value)
+    {
+      return rank;
+    }
+  }
+  return std::nullopt;
+}
+
+int ParticipantRankSortKey(ParticipantRank rank)
+{
+  const auto& ranks = ParticipantRanksInDisplayOrder();
+  const auto found = std::find(ranks.cbegin(), ranks.cend(), rank);
+  return found == ranks.cend()
+             ? static_cast<int>(ranks.size())
+             : static_cast<int>(std::distance(ranks.cbegin(), found));
+}
+
 bool ParticipantProfile::isValid() const
 {
   const QString trimmedName = displayName.trimmed();
   return id.isValid() && !trimmedName.isEmpty() &&
          trimmedName.size() <= kMaxDisplayNameLength &&
+         !ParticipantRankStorageValue(rank).isEmpty() &&
          notes.size() <= kMaxNotesLength &&
          (!birthday.has_value() || birthday->isValid());
 }
@@ -43,8 +115,7 @@ int CountCheckedActiveDays(const QVector<int>& activeDays,
                            const QHash<int, bool>& attendanceByDay)
 {
   return static_cast<int>(std::count_if(
-      activeDays.cbegin(), activeDays.cend(),
-      [&attendanceByDay](int day)
+      activeDays.cbegin(), activeDays.cend(), [&attendanceByDay](int day)
       { return attendanceByDay.value(day, false); }));
 }
 

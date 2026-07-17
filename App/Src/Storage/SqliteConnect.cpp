@@ -15,7 +15,8 @@ namespace
 {
 
 constexpr int kProfileSchemaVersion = 3;
-constexpr int kSchemaVersion = 4;
+constexpr int kDayMarkerSchemaVersion = 4;
+constexpr int kSchemaVersion = 5;
 
 bool tableHasColumns(QSqlDatabase& db, const QString& table,
                      const QSet<QString>& required)
@@ -159,16 +160,20 @@ bool SqliteConnect::ensureSchema()
   }
   if (version == kSchemaVersion)
   {
-    return verifySchemaV4();
+    return verifySchemaV5();
+  }
+  if (version == kDayMarkerSchemaVersion)
+  {
+    return migrateSchemaV4ToV5() && verifySchemaV5();
   }
   if (version == kProfileSchemaVersion)
   {
-    return migrateSchemaV3ToV4() && verifySchemaV4();
+    return migrateSchemaV3ToV4() && migrateSchemaV4ToV5() && verifySchemaV5();
   }
   if (version == 2)
   {
     return migrateSchemaV2ToV3() && migrateSchemaV3ToV4() &&
-           verifySchemaV4();
+           migrateSchemaV4ToV5() && verifySchemaV5();
   }
   if (version != 0)
   {
@@ -179,7 +184,7 @@ bool SqliteConnect::ensureSchema()
   if (tableExists("users"))
   {
     return migrateLegacyUsersToV3() && migrateSchemaV3ToV4() &&
-           verifySchemaV4();
+           migrateSchemaV4ToV5() && verifySchemaV5();
   }
 
   const QStringList incompatible = {"participants", "month_participants",
@@ -198,7 +203,7 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  if (!createSchemaV4() ||
+  if (!createSchemaV5() ||
       !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
@@ -214,7 +219,7 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  return verifySchemaV4();
+  return verifySchemaV5();
 }
 
 bool SqliteConnect::createSchemaV3()
@@ -303,6 +308,27 @@ bool SqliteConnect::createDayMarkerSchema()
 bool SqliteConnect::createSchemaV4()
 {
   return createSchemaV3() && createDayMarkerSchema();
+}
+
+bool SqliteConnect::createRankSchema()
+{
+  QSqlQuery query(db_);
+  if (!query.exec(
+          "ALTER TABLE participants ADD COLUMN rank TEXT NOT NULL DEFAULT "
+          "'guest' CHECK(rank IN ('page', 'squire', 'novice', 'recruit', "
+          "'guest', 'knight'))") ||
+      !query.exec("DROP TRIGGER participants_profile_insert") ||
+      !query.exec("DROP TRIGGER participants_profile_update"))
+  {
+    setError(query.lastError().text());
+    return false;
+  }
+  return createProfileValidationTriggers();
+}
+
+bool SqliteConnect::createSchemaV5()
+{
+  return createSchemaV4() && createRankSchema();
 }
 
 bool SqliteConnect::migrateLegacyUsersToV3()
@@ -543,7 +569,7 @@ bool SqliteConnect::cleanupLegacyTables()
 
 bool SqliteConnect::createProfileValidationTriggers()
 {
-  const QString validation =
+  QString validation =
       "length(trim(NEW.display_name)) = 0 OR "
       "length(NEW.display_name) > 200 OR length(NEW.notes) > 4096 OR NOT ("
       "(NEW.birth_day IS NULL AND NEW.birth_month IS NULL AND "
@@ -554,17 +580,25 @@ bool SqliteConnect::createProfileValidationTriggers()
       "COALESCE(NEW.birth_year, 2000) % 100 != 0) THEN 29 ELSE 28 END "
       "WHEN 4 THEN 30 WHEN 6 THEN 30 WHEN 9 THEN 30 WHEN 11 THEN 30 "
       "ELSE 31 END))";
+  const bool hasRank = tableHasColumns(db_, "participants", {"rank"});
+  if (hasRank)
+  {
+    validation += " OR NEW.rank NOT IN ('page', 'squire', 'novice', 'recruit', "
+                  "'guest', 'knight')";
+  }
   QSqlQuery query(db_);
+  const QString updateColumns =
+      hasRank ? "display_name, birth_day, birth_month, birth_year, notes, rank"
+              : "display_name, birth_day, birth_month, birth_year, notes";
   const QStringList statements = {
       QString("CREATE TRIGGER participants_profile_insert BEFORE INSERT ON "
               "participants WHEN %1 BEGIN SELECT RAISE(ABORT, 'invalid "
               "participant profile'); END")
           .arg(validation),
       QString("CREATE TRIGGER participants_profile_update BEFORE UPDATE OF "
-              "display_name, birth_day, birth_month, birth_year, notes ON "
-              "participants WHEN %1 BEGIN SELECT RAISE(ABORT, 'invalid "
+              "%1 ON participants WHEN %2 BEGIN SELECT RAISE(ABORT, 'invalid "
               "participant profile'); END")
-          .arg(validation)};
+          .arg(updateColumns, validation)};
   for (const QString& statement : statements)
   {
     if (!query.exec(statement))
@@ -645,8 +679,8 @@ bool SqliteConnect::migrateSchemaV2ToV3()
     }
   }
   if (!createProfileValidationTriggers() || !verifySchemaV3() ||
-      !query.exec(QString("PRAGMA user_version = %1")
-                      .arg(kProfileSchemaVersion)))
+      !query.exec(
+          QString("PRAGMA user_version = %1").arg(kProfileSchemaVersion)))
   {
     db_.rollback();
     if (lastError_.isEmpty())
@@ -678,13 +712,47 @@ bool SqliteConnect::migrateSchemaV3ToV4()
   }
   QSqlQuery query(db_);
   if (!createDayMarkerSchema() ||
-      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec(
+          QString("PRAGMA user_version = %1").arg(kDayMarkerSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
     db_.rollback();
     if (lastError_.isEmpty())
     {
       setError("Cannot finish schema v3 to v4 migration");
+    }
+    return false;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::migrateSchemaV4ToV5()
+{
+  if (!verifySchemaV4())
+  {
+    return false;
+  }
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (!createRankSchema() ||
+      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec("PRAGMA foreign_key_check") || query.next())
+  {
+    db_.rollback();
+    if (lastError_.isEmpty())
+    {
+      setError("Cannot finish schema v4 to v5 migration");
     }
     return false;
   }
@@ -751,9 +819,9 @@ bool SqliteConnect::verifySchemaV4()
     return false;
   }
   if (!tableExists("participant_day_markers") ||
-      !tableHasColumns(db_, "participant_day_markers",
-                       {"year", "month", "day", "participant_id",
-                        "kind_mask", "note"}))
+      !tableHasColumns(
+          db_, "participant_day_markers",
+          {"year", "month", "day", "participant_id", "kind_mask", "note"}))
   {
     setError("Schema v4 day-marker table is missing or incomplete");
     return false;
@@ -762,6 +830,28 @@ bool SqliteConnect::verifySchemaV4()
   if (!query.exec("PRAGMA foreign_key_check") || query.next())
   {
     setError("Schema v4 foreign key check failed");
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::verifySchemaV5()
+{
+  if (!verifySchemaV4() || !tableHasColumns(db_, "participants", {"rank"}))
+  {
+    if (lastError_.isEmpty())
+    {
+      setError("Schema v5 participant rank column is missing");
+    }
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (!query.exec("SELECT 1 FROM participants WHERE rank NOT IN "
+                  "('page', 'squire', 'novice', 'recruit', 'guest', "
+                  "'knight') LIMIT 1") ||
+      query.next())
+  {
+    setError("Schema v5 contains invalid participant ranks");
     return false;
   }
   return true;
@@ -986,10 +1076,9 @@ std::vector<ParticipantDayMarker> SqliteConnect::getDayMarkers(int year,
   }
 
   QSqlQuery query(db_);
-  query.prepare(
-      "SELECT participant_id, day, kind_mask, note FROM "
-      "participant_day_markers WHERE year = :year AND month = :month "
-      "ORDER BY participant_id, day");
+  query.prepare("SELECT participant_id, day, kind_mask, note FROM "
+                "participant_day_markers WHERE year = :year AND month = :month "
+                "ORDER BY participant_id, day");
   query.bindValue(":year", year);
   query.bindValue(":month", month);
   if (!query.exec())
@@ -1053,8 +1142,7 @@ bool SqliteConnect::saveDayMarker(int year, int month,
 }
 
 bool SqliteConnect::removeDayMarker(int year, int month,
-                                    const ParticipantId& participantId,
-                                    int day)
+                                    const ParticipantId& participantId, int day)
 {
   lastError_.clear();
   if (!validateYearMonth(year, month) || !participantId.isValid() ||
@@ -1373,8 +1461,8 @@ SqliteConnect::getParticipantProfile(const ParticipantId& id)
   }
   QSqlQuery query(db_);
   query.prepare(
-      "SELECT id, display_name, birth_day, birth_month, birth_year, notes, "
-      "archived_at IS NOT NULL FROM participants WHERE id = :id");
+      "SELECT id, display_name, birth_day, birth_month, birth_year, rank, "
+      "notes, archived_at IS NOT NULL FROM participants WHERE id = :id");
   query.bindValue(":id", id.value);
   if (!query.exec())
   {
@@ -1407,8 +1495,15 @@ SqliteConnect::getParticipantProfile(const ParticipantId& id)
     }
     profile.birthday = birthday;
   }
-  profile.notes = query.value(5).toString();
-  profile.archived = query.value(6).toInt() != 0;
+  const auto rank = ParticipantRankFromStorageValue(query.value(5).toString());
+  if (!rank.has_value())
+  {
+    setError("Stored participant rank is invalid");
+    return std::nullopt;
+  }
+  profile.rank = *rank;
+  profile.notes = query.value(6).toString();
+  profile.archived = query.value(7).toInt() != 0;
   if (!profile.isValid())
   {
     setError("Stored participant profile is invalid");
@@ -1425,7 +1520,9 @@ SqliteConnect::listParticipantProfiles(bool includeArchived)
   const QString sql =
       "SELECT id FROM participants " +
       QString(includeArchived ? "" : "WHERE archived_at IS NULL ") +
-      "ORDER BY lower(display_name), id";
+      "ORDER BY CASE rank WHEN 'page' THEN 0 WHEN 'squire' THEN 1 "
+      "WHEN 'novice' THEN 2 WHEN 'recruit' THEN 3 WHEN 'guest' THEN 4 "
+      "WHEN 'knight' THEN 5 ELSE 6 END, lower(display_name), id";
   if (!query.exec(sql))
   {
     setError(query.lastError().text());
@@ -1461,10 +1558,11 @@ bool SqliteConnect::updateParticipantProfile(const ParticipantProfile& profile)
   QSqlQuery query(db_);
   query.prepare(
       "UPDATE participants SET display_name = :name, birth_day = :day, "
-      "birth_month = :month, birth_year = :year, notes = :notes, "
-      "updated_at = CURRENT_TIMESTAMP WHERE id = :id");
+      "birth_month = :month, birth_year = :year, rank = :rank, "
+      "notes = :notes, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
   query.bindValue(":id", normalized.id.value);
   query.bindValue(":name", normalized.displayName);
+  query.bindValue(":rank", ParticipantRankStorageValue(normalized.rank));
   query.bindValue(":notes", normalized.notes);
   if (normalized.birthday.has_value())
   {

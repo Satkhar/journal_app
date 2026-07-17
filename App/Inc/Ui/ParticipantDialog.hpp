@@ -5,6 +5,7 @@
 #include "JournalModels.hpp"
 
 class QCheckBox;
+class QComboBox;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -37,6 +38,7 @@ private:
   QSpinBox* daySpin_;
   QSpinBox* monthSpin_;
   QSpinBox* yearSpin_;
+  QComboBox* rankCombo_;
   QTextEdit* notesEdit_;
   QPushButton* saveButton_;
   QPushButton* archiveButton_;

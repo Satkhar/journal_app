@@ -174,6 +174,42 @@ bool createSchemaV3Database(const QString& path, const Participant& person)
   return ok;
 }
 
+bool createSchemaV4Database(const QString& path, const Participant& person)
+{
+  if (!createSchemaV3Database(path, person))
+  {
+    return false;
+  }
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  if (!db.open())
+  {
+    return false;
+  }
+  QSqlQuery query(db);
+  const QStringList statements = {
+      "PRAGMA foreign_keys = ON",
+      "CREATE TABLE participant_day_markers(year INTEGER NOT NULL, month "
+      "INTEGER NOT NULL, day INTEGER NOT NULL, participant_id TEXT NOT NULL, "
+      "kind_mask INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', PRIMARY "
+      "KEY(year, month, day, participant_id), FOREIGN KEY(year, month, "
+      "participant_id) REFERENCES month_participants(year, month, "
+      "participant_id) ON DELETE CASCADE)",
+      "CREATE INDEX idx_day_markers_history ON participant_day_markers("
+      "participant_id, year, month, day)",
+      "PRAGMA user_version = 4"};
+  bool ok = true;
+  for (const QString& statement : statements)
+  {
+    ok = ok && query.exec(statement);
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return ok;
+}
+
 bool birthdayValidationTest()
 {
   return check(Birthday{29, 2, std::nullopt}.isValid(),
@@ -216,8 +252,7 @@ bool freshDatabaseTest(const QString& path)
   const ParticipantDayMarker marker{
       alice.id, 2, DayMarkerKind::Payment | DayMarkerKind::FirstVisit,
       "First paid visit"};
-  if (!check(storage.saveDayMarker(2025, 7, marker),
-             "day marker save failed"))
+  if (!check(storage.saveDayMarker(2025, 7, marker), "day marker save failed"))
   {
     return false;
   }
@@ -246,8 +281,8 @@ bool freshDatabaseTest(const QString& path)
              "day marker removal failed") ||
       !check(storage.getDayMarkers(2025, 7).empty(),
              "day marker removal left a row") ||
-      !check(!storage.saveDayMarker(
-                 2025, 7, {alice.id, 2, DayMarkerKinds(), "Invalid"}),
+      !check(!storage.saveDayMarker(2025, 7,
+                                    {alice.id, 2, DayMarkerKinds(), "Invalid"}),
              "empty day marker kind was accepted") ||
       !check(invalidMarkerMaskIsRejected(path, alice.id),
              "day marker table accepted unknown kind bits") ||
@@ -264,6 +299,7 @@ bool freshDatabaseTest(const QString& path)
   }
   profile->displayName = "Alice Updated";
   profile->birthday = Birthday{29, 2, std::nullopt};
+  profile->rank = ParticipantRank::Squire;
   profile->notes = "Plain text note";
   if (!check(storage.updateParticipantProfile(*profile),
              "valid profile update failed"))
@@ -271,10 +307,12 @@ bool freshDatabaseTest(const QString& path)
     return false;
   }
   const auto renamed = storage.getParticipantsForMonth(2025, 7);
-  if (!check(renamed.size() == 1 &&
+  const auto updatedProfile = storage.getParticipantProfile(alice.id);
+  if (!check(renamed.size() == 1 && updatedProfile.has_value() &&
                  renamed.front().displayName == "Alice Updated" &&
-                 renamed.front().id == alice.id,
-             "rename changed ID or failed to update roster"))
+                 renamed.front().id == alice.id &&
+                 updatedProfile->rank == ParticipantRank::Squire,
+             "profile update lost name, ID, or rank"))
   {
     return false;
   }
@@ -290,6 +328,13 @@ bool freshDatabaseTest(const QString& path)
   invalid.notes = QString(4097, 'x');
   if (!check(!storage.updateParticipantProfile(invalid),
              "oversized notes were accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.rank = static_cast<ParticipantRank>(999);
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "unknown participant rank was accepted"))
   {
     return false;
   }
@@ -341,7 +386,7 @@ bool freshDatabaseTest(const QString& path)
                "membership removal deleted global profile");
 }
 
-bool migrationV2ToV4Test(const QString& path)
+bool migrationV2ToV5Test(const QString& path)
 {
   const Participant alice = participant("Migrated Alice");
   if (!createSchemaV2Database(path, alice))
@@ -349,23 +394,24 @@ bool migrationV2ToV4Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v2 to v4 migration failed"))
+  if (!check(storage.open(path), "schema v2 to v5 migration failed"))
   {
     return false;
   }
   const auto profile = storage.getParticipantProfile(alice.id);
   const auto attendance = storage.getMonth(2025, 7);
   return check(profile.has_value() && profile->notes.isEmpty() &&
+                   profile->rank == ParticipantRank::Guest &&
                    !profile->birthday.has_value(),
                "migration produced invalid profile defaults") &&
          check(attendance.size() == 1 && attendance.front().isChecked,
                "migration lost attendance") &&
          check(storage.getDayMarkers(2025, 7).empty(),
                "v2 migration created phantom day markers") &&
-         check(storage.open(path), "schema v4 reopen is not idempotent");
+         check(storage.open(path), "schema v5 reopen is not idempotent");
 }
 
-bool migrationV3ToV4Test(const QString& path)
+bool migrationV3ToV5Test(const QString& path)
 {
   const Participant alice = participant("V3 Alice");
   if (!createSchemaV3Database(path, alice))
@@ -373,7 +419,7 @@ bool migrationV3ToV4Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v3 to v4 migration failed"))
+  if (!check(storage.open(path), "schema v3 to v5 migration failed"))
   {
     return false;
   }
@@ -388,7 +434,28 @@ bool migrationV3ToV4Test(const QString& path)
                "migrated v4 marker table is not writable") &&
          check(storage.getDayMarkers(2025, 7).size() == 1,
                "migrated v4 marker is not readable") &&
-         check(storage.open(path), "migrated v4 reopen is not idempotent");
+         check(storage.getParticipantProfile(alice.id)->rank ==
+                   ParticipantRank::Guest,
+               "v3 migration did not assign Guest rank") &&
+         check(storage.open(path), "migrated v5 reopen is not idempotent");
+}
+
+bool migrationV4ToV5Test(const QString& path)
+{
+  const Participant alice = participant("V4 Alice");
+  if (!createSchemaV4Database(path, alice))
+  {
+    return false;
+  }
+  SqliteConnect storage;
+  if (!check(storage.open(path), "schema v4 to v5 migration failed"))
+  {
+    return false;
+  }
+  const auto profile = storage.getParticipantProfile(alice.id);
+  return check(profile.has_value() && profile->rank == ParticipantRank::Guest,
+               "v4 migration did not assign Guest rank") &&
+         check(storage.open(path), "migrated v5 reopen is not idempotent");
 }
 
 bool migrationRollbackTest(const QString& path)
@@ -459,8 +526,9 @@ int main(int argc, char* argv[])
   }
   const bool ok = birthdayValidationTest() &&
                   freshDatabaseTest(directory.filePath("fresh.db")) &&
-                  migrationV2ToV4Test(directory.filePath("v2.db")) &&
-                  migrationV3ToV4Test(directory.filePath("v3.db")) &&
+                  migrationV2ToV5Test(directory.filePath("v2.db")) &&
+                  migrationV3ToV5Test(directory.filePath("v3.db")) &&
+                  migrationV4ToV5Test(directory.filePath("v4.db")) &&
                   migrationRollbackTest(directory.filePath("invalid-v2.db")) &&
                   legacyDatabaseMigrationTest(directory.filePath("old.db"));
   return ok ? 0 : 1;

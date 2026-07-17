@@ -1,6 +1,8 @@
 #include "ParticipantDialog.hpp"
 
 #include <QCheckBox>
+#include <QComboBox>
+#include <QDate>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -18,16 +20,29 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
       nameEdit_(new QLineEdit(profile.displayName, this)),
       birthdayCheck_(new QCheckBox("Дата рождения известна", this)),
       daySpin_(new QSpinBox(this)), monthSpin_(new QSpinBox(this)),
-      yearSpin_(new QSpinBox(this)), notesEdit_(new QTextEdit(this)),
-      saveButton_(nullptr), archiveButton_(nullptr), dirty_(false)
+      yearSpin_(new QSpinBox(this)), rankCombo_(new QComboBox(this)),
+      notesEdit_(new QTextEdit(this)), saveButton_(nullptr),
+      archiveButton_(nullptr), dirty_(false)
 {
   setWindowTitle("Карточка участника");
   setMinimumWidth(460);
 
   daySpin_->setRange(1, 31);
   monthSpin_->setRange(1, 12);
-  yearSpin_->setRange(0, 9999);
+  constexpr int kYearNotSpecified = 1899;
+  yearSpin_->setObjectName("participantBirthYearSpinBox");
+  yearSpin_->setRange(kYearNotSpecified, QDate::currentDate().year());
   yearSpin_->setSpecialValueText("Не указан");
+  yearSpin_->setValue(kYearNotSpecified);
+  yearSpin_->setMinimumWidth(105);
+  rankCombo_->setObjectName("participantRankComboBox");
+  for (ParticipantRank rank : ParticipantRanksInDisplayOrder())
+  {
+    rankCombo_->addItem(ParticipantRankDisplayName(rank),
+                        static_cast<int>(rank));
+  }
+  rankCombo_->setCurrentIndex(
+      rankCombo_->findData(static_cast<int>(profile.rank)));
   notesEdit_->setPlainText(profile.notes);
   notesEdit_->setAcceptRichText(false);
 
@@ -36,7 +51,7 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
     birthdayCheck_->setChecked(true);
     daySpin_->setValue(profile.birthday->day);
     monthSpin_->setValue(profile.birthday->month);
-    yearSpin_->setValue(profile.birthday->year.value_or(0));
+    yearSpin_->setValue(profile.birthday->year.value_or(kYearNotSpecified));
   }
 
   auto* birthdayLayout = new QHBoxLayout();
@@ -48,7 +63,12 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   birthdayLayout->addWidget(yearSpin_);
 
   auto* form = new QFormLayout();
+  auto* idLabel = new QLabel(profile.id.value, this);
+  idLabel->setObjectName("participantIdLabel");
+  idLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  form->addRow("ID", idLabel);
   form->addRow("Имя", nameEdit_);
+  form->addRow("Звание", rankCombo_);
   form->addRow(QString(), birthdayCheck_);
   form->addRow("Дата рождения", birthdayLayout);
   form->addRow("Заметка", notesEdit_);
@@ -81,6 +101,7 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   else
   {
     nameEdit_->setReadOnly(true);
+    rankCombo_->setEnabled(false);
     birthdayCheck_->setEnabled(false);
     notesEdit_->setReadOnly(true);
   }
@@ -97,6 +118,8 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   connect(monthSpin_, &QSpinBox::valueChanged, this,
           [this]() { dirty_ = true; });
   connect(yearSpin_, &QSpinBox::valueChanged, this,
+          [this]() { dirty_ = true; });
+  connect(rankCombo_, &QComboBox::currentIndexChanged, this,
           [this]() { dirty_ = true; });
   connect(notesEdit_, &QTextEdit::textChanged, this,
           [this]() { dirty_ = true; });
@@ -116,12 +139,13 @@ ParticipantProfile ParticipantDialog::profile() const
 {
   ParticipantProfile result = original_;
   result.displayName = nameEdit_->text().trimmed();
+  result.rank = static_cast<ParticipantRank>(rankCombo_->currentData().toInt());
   result.notes = notesEdit_->toPlainText();
   result.birthday = std::nullopt;
   if (birthdayCheck_->isChecked())
   {
     Birthday birthday{daySpin_->value(), monthSpin_->value(), std::nullopt};
-    if (yearSpin_->value() != 0)
+    if (yearSpin_->value() >= 1900)
     {
       birthday.year = yearSpin_->value();
     }

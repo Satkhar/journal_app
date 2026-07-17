@@ -116,10 +116,14 @@ add_executable(journal_ui_tests
     ./App/Src/Ui/AttendanceCellWidget.cpp
     ./App/Src/Ui/DayMarkerDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
+    ./App/Src/Ui/ParticipantDialog.cpp
+    ./App/Src/Ui/ParticipantDirectoryDialog.cpp
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Ui/AttendanceCellWidget.hpp
     ./App/Inc/Ui/DayMarkerDialog.hpp
-    ./App/Inc/Ui/MonthDaysDialog.hpp)
+    ./App/Inc/Ui/MonthDaysDialog.hpp
+    ./App/Inc/Ui/ParticipantDialog.hpp
+    ./App/Inc/Ui/ParticipantDirectoryDialog.hpp)
 target_link_libraries(journal_ui_tests PRIVATE
     Qt6::Core
     Qt6::Gui

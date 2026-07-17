@@ -1,7 +1,9 @@
 #include "mainwindow.hpp"
 
 #include <QCheckBox>
+#include <QColor>
 #include <QDate>
+#include <QFont>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -16,6 +18,7 @@
 #include <QVBoxLayout>
 
 #include <QHash>
+#include <algorithm>
 #include <memory>
 
 #include "AttendanceCellWidget.hpp"
@@ -38,8 +41,8 @@ namespace
 constexpr int kDateRow = 0;
 constexpr int kWeekdayRow = 1;
 constexpr int kFirstParticipantRow = 2;
-constexpr int kIdColumn = 0;
-constexpr int kNameColumn = 1;
+constexpr int kNameColumn = 0;
+constexpr int kRankColumn = 1;
 constexpr int kAttendanceCountColumn = 2;
 constexpr int kFirstDayColumn = 3;
 
@@ -149,39 +152,44 @@ MainWindow::MainWindow(QWidget* parent)
           });
 
   // Удаление пользователя за текущий месяц.
-  connect(
-      ui->btnDel, &QPushButton::clicked, this,
-      [this]()
-      {
-        if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
-            !monthDataValid_)
-        {
-          ui->statusbar->showMessage("Данные месяца не готовы");
-          return;
-        }
-        QTableWidget* table = findChild<QTableWidget*>("bigTable");
-        const int row = table ? table->currentRow() : -1;
-        if (row < kFirstParticipantRow)
-        {
-          ui->statusbar->showMessage("Выберите строку участника");
-          return;
-        }
+  connect(ui->btnDel, &QPushButton::clicked, this,
+          [this]()
+          {
+            if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+                !monthDataValid_)
+            {
+              ui->statusbar->showMessage("Данные месяца не готовы");
+              return;
+            }
+            QTableWidget* table = findChild<QTableWidget*>("bigTable");
+            const int row = table ? table->currentRow() : -1;
+            if (row < kFirstParticipantRow)
+            {
+              ui->statusbar->showMessage("Выберите строку участника");
+              return;
+            }
 
-        const QTableWidgetItem* idItem = table->item(row, kIdColumn);
-        const ParticipantId id{idItem ? idItem->data(Qt::UserRole).toString()
-                                      : QString()};
-        if (!journalApp_ || !journalApp_->removeParticipant(id))
-        {
-          ui->statusbar->showMessage("Не удалось убрать участника из месяца");
-          return;
-        }
+            const QTableWidgetItem* nameItem = table->item(row, kNameColumn);
+            const ParticipantId id{
+                nameItem ? nameItem->data(Qt::UserRole).toString() : QString()};
+            if (!id.isValid())
+            {
+              ui->statusbar->showMessage("Выберите строку участника");
+              return;
+            }
+            if (!journalApp_ || !journalApp_->removeParticipant(id))
+            {
+              ui->statusbar->showMessage(
+                  "Не удалось убрать участника из месяца");
+              return;
+            }
 
-        refreshMonth();
-        if (monthDataValid_)
-        {
-          ui->statusbar->showMessage("Участник убран из месяца");
-        }
-      });
+            refreshMonth();
+            if (monthDataValid_)
+            {
+              ui->statusbar->showMessage("Участник убран из месяца");
+            }
+          });
 
   // Явное обновление данных на экране из БД.
   connect(ui->btnReadBase, &QPushButton::clicked, this,
@@ -387,7 +395,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     return;
   }
 
-  QSet<QString> archivedIds;
+  QHash<QString, ParticipantProfile> profilesById;
   if (journalApp_)
   {
     const auto profiles = journalApp_->participantProfiles(true);
@@ -395,10 +403,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     {
       for (const ParticipantProfile& profile : *profiles)
       {
-        if (profile.archived)
-        {
-          archivedIds.insert(profile.id.value);
-        }
+        profilesById.insert(profile.id.value, profile);
       }
     }
   }
@@ -414,18 +419,17 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   // чтобы таблица была полностью консистентна snapshot.
   tableWidget->clearContents();
   tableWidget->setRowCount(kFirstParticipantRow);
-  tableWidget->setColumnCount(
-      kFirstDayColumn + static_cast<int>(activeDays_.size()));
+  tableWidget->setColumnCount(kFirstDayColumn +
+                              static_cast<int>(activeDays_.size()));
 
-  tableWidget->setItem(kDateRow, kIdColumn, new QTableWidgetItem("Дата"));
-  tableWidget->setItem(kWeekdayRow, kIdColumn,
-                       new QTableWidgetItem("День"));
-  tableWidget->setHorizontalHeaderItem(kIdColumn,
-                                       new QTableWidgetItem("ID"));
+  tableWidget->setItem(kDateRow, kNameColumn, new QTableWidgetItem("Дата"));
+  tableWidget->setItem(kWeekdayRow, kNameColumn, new QTableWidgetItem("День"));
   tableWidget->setHorizontalHeaderItem(kNameColumn,
-                                       new QTableWidgetItem("Name"));
-  tableWidget->setHorizontalHeaderItem(
-      kAttendanceCountColumn, new QTableWidgetItem("Посещено"));
+                                       new QTableWidgetItem("Имя"));
+  tableWidget->setHorizontalHeaderItem(kRankColumn,
+                                       new QTableWidgetItem("Звание"));
+  tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
+                                       new QTableWidgetItem("Посещено"));
 
   for (int index = 0; index < activeDays_.size(); ++index)
   {
@@ -434,8 +438,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     const QString dateLabel = QString("%1.%2")
                                   .arg(day, 2, 10, QLatin1Char('0'))
                                   .arg(month, 2, 10, QLatin1Char('0'));
-    tableWidget->setItem(kDateRow, column,
-                         new QTableWidgetItem(dateLabel));
+    tableWidget->setItem(kDateRow, column, new QTableWidgetItem(dateLabel));
 
     const QDate date(static_cast<int>(year), static_cast<int>(month),
                      static_cast<int>(day));
@@ -451,28 +454,64 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     marksByParticipant[record.participantId.value][record.day] =
         record.isChecked;
   }
-  QHash<QString, QHash<int, ParticipantDayMarker>>
-      dayMarkersByParticipant;
+  QHash<QString, QHash<int, ParticipantDayMarker>> dayMarkersByParticipant;
   for (const ParticipantDayMarker& marker : snapshot.dayMarkers)
   {
     dayMarkersByParticipant[marker.participantId.value].insert(marker.day,
                                                                marker);
   }
 
-  for (const Participant& participant : snapshot.participants)
+  std::vector<Participant> sortedParticipants = snapshot.participants;
+  std::stable_sort(
+      sortedParticipants.begin(), sortedParticipants.end(),
+      [&profilesById](const Participant& lhs, const Participant& rhs)
+      {
+        const ParticipantRank lhsRank = profilesById.value(lhs.id.value).rank;
+        const ParticipantRank rhsRank = profilesById.value(rhs.id.value).rank;
+        const int lhsKey = ParticipantRankSortKey(lhsRank);
+        const int rhsKey = ParticipantRankSortKey(rhsRank);
+        return lhsKey != rhsKey ? lhsKey < rhsKey
+                                : QString::localeAwareCompare(
+                                      lhs.displayName, rhs.displayName) < 0;
+      });
+
+  std::optional<ParticipantRank> currentRank;
+  for (const Participant& participant : sortedParticipants)
   {
+    const ParticipantProfile profile = profilesById.value(participant.id.value);
+    const ParticipantRank rank = profile.rank;
+    const QColor groupColor = ParticipantRankSortKey(rank) % 2 == 0
+                                  ? QColor(245, 248, 252)
+                                  : QColor(235, 241, 248);
+    if (!currentRank.has_value() || *currentRank != rank)
+    {
+      currentRank = rank;
+      const int groupRow = tableWidget->rowCount();
+      tableWidget->insertRow(groupRow);
+      tableWidget->setSpan(groupRow, kNameColumn, 1,
+                           tableWidget->columnCount());
+      auto* groupItem = new QTableWidgetItem(ParticipantRankDisplayName(rank));
+      QFont groupFont = groupItem->font();
+      groupFont.setBold(true);
+      groupItem->setFont(groupFont);
+      groupItem->setBackground(groupColor.darker(105));
+      groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
+      tableWidget->setItem(groupRow, kNameColumn, groupItem);
+    }
+
     const int row = tableWidget->rowCount();
     tableWidget->insertRow(row);
-    auto* idItem = new QTableWidgetItem(participant.id.value.left(8));
-    idItem->setData(Qt::UserRole, participant.id.value);
-    idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
-    tableWidget->setItem(row, kIdColumn, idItem);
     auto* nameItem = new QTableWidgetItem(
-        archivedIds.contains(participant.id.value)
-            ? QString("[архив] %1").arg(participant.displayName)
-            : participant.displayName);
+        profile.archived ? QString("[архив] %1").arg(participant.displayName)
+                         : participant.displayName);
+    nameItem->setData(Qt::UserRole, participant.id.value);
     nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+    nameItem->setBackground(groupColor);
     tableWidget->setItem(row, kNameColumn, nameItem);
+    auto* rankItem = new QTableWidgetItem(ParticipantRankDisplayName(rank));
+    rankItem->setFlags(rankItem->flags() & ~Qt::ItemIsEditable);
+    rankItem->setBackground(groupColor);
+    tableWidget->setItem(row, kRankColumn, rankItem);
 
     auto* countItem = new QTableWidgetItem();
     countItem->setFlags(countItem->flags() & ~Qt::ItemIsEditable);
@@ -521,7 +560,7 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const
   // Читаем только колонки активных дат. Служебные колонки не сериализуются.
   for (int row = kFirstParticipantRow; row < tableWidget->rowCount(); ++row)
   {
-    const QTableWidgetItem* idItem = tableWidget->item(row, kIdColumn);
+    const QTableWidgetItem* idItem = tableWidget->item(row, kNameColumn);
     const ParticipantId participantId{
         idItem ? idItem->data(Qt::UserRole).toString() : QString()};
     if (!participantId.isValid())
@@ -600,12 +639,12 @@ void MainWindow::createEmptyTable()
       kFirstDayColumn + static_cast<int>(tableDays.size()), this);
   tableWidget->setObjectName("bigTable");
 
-  tableWidget->setHorizontalHeaderItem(kIdColumn,
-                                       new QTableWidgetItem("ID"));
   tableWidget->setHorizontalHeaderItem(kNameColumn,
-                                       new QTableWidgetItem("Name"));
-  tableWidget->setHorizontalHeaderItem(
-      kAttendanceCountColumn, new QTableWidgetItem("Посещено"));
+                                       new QTableWidgetItem("Имя"));
+  tableWidget->setHorizontalHeaderItem(kRankColumn,
+                                       new QTableWidgetItem("Звание"));
+  tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
+                                       new QTableWidgetItem("Посещено"));
   for (int i = 0; i < tableDays.size(); ++i)
   {
     tableWidget->setHorizontalHeaderItem(i + kFirstDayColumn,
@@ -632,12 +671,11 @@ void MainWindow::createEmptyTable()
           [this, tableWidget](int row, int column)
           {
             if (row < kFirstParticipantRow ||
-                (column != kIdColumn && column != kNameColumn))
+                (column != kNameColumn && column != kRankColumn))
             {
               return;
             }
-            const QTableWidgetItem* item =
-                tableWidget->item(row, kIdColumn);
+            const QTableWidgetItem* item = tableWidget->item(row, kNameColumn);
             const ParticipantId id{item ? item->data(Qt::UserRole).toString()
                                         : QString()};
             if (id.isValid())
@@ -1004,9 +1042,8 @@ void MainWindow::copyUsersFromMonth(bool copyWeekdayPatternByDefault)
         QString("Перенос завершен. Добавлено: %1, пропущено: %2. %3")
             .arg(result.copied)
             .arg(result.skipped)
-            .arg(applySourceWeekdays
-                     ? "Расписание применено по дням недели."
-                     : "Расписание источника не применялось."),
+            .arg(applySourceWeekdays ? "Расписание применено по дням недели."
+                                     : "Расписание источника не применялось."),
         5000);
   }
 }
@@ -1322,8 +1359,8 @@ void MainWindow::editDayMarker(AttendanceCellWidget* cell,
     return;
   }
 
-  const ParticipantDayMarker marker{participant.id, day,
-                                    dialog.selectedKinds(), dialog.note()};
+  const ParticipantDayMarker marker{participant.id, day, dialog.selectedKinds(),
+                                    dialog.note()};
   if (!journalApp_->saveDayMarker(static_cast<int>(year),
                                   static_cast<int>(month), marker))
   {
@@ -1351,12 +1388,10 @@ void MainWindow::updateAttendanceCount(QTableWidget* tableWidget, int row)
     const int column = index + kFirstDayColumn;
     const auto* cell = qobject_cast<AttendanceCellWidget*>(
         tableWidget->cellWidget(row, column));
-    attendanceByDay.insert(activeDays_.at(index),
-                           cell && cell->isChecked());
+    attendanceByDay.insert(activeDays_.at(index), cell && cell->isChecked());
   }
 
-  QTableWidgetItem* countItem =
-      tableWidget->item(row, kAttendanceCountColumn);
+  QTableWidgetItem* countItem = tableWidget->item(row, kAttendanceCountColumn);
   if (!countItem)
   {
     countItem = new QTableWidgetItem();

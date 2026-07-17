@@ -51,11 +51,29 @@ struct Birthday
   bool isValid() const;
 };
 
+enum class ParticipantRank
+{
+  Page,
+  Squire,
+  Novice,
+  Recruit,
+  Guest,
+  Knight,
+};
+
+const std::vector<ParticipantRank>& ParticipantRanksInDisplayOrder();
+QString ParticipantRankStorageValue(ParticipantRank rank);
+QString ParticipantRankDisplayName(ParticipantRank rank);
+std::optional<ParticipantRank>
+ParticipantRankFromStorageValue(const QString& value);
+int ParticipantRankSortKey(ParticipantRank rank);
+
 struct ParticipantProfile
 {
   ParticipantId id;
   QString displayName;
   std::optional<Birthday> birthday;
+  ParticipantRank rank{ParticipantRank::Guest};
   QString notes;
   bool archived = false;
 

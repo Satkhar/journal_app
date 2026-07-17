@@ -22,10 +22,9 @@ public:
   bool saveAttendance(int year, int month,
                       const std::vector<AttendanceRecord>& data);
   std::vector<ParticipantDayMarker> getDayMarkers(int year, int month);
-  bool saveDayMarker(int year, int month,
-                     const ParticipantDayMarker& marker);
-  bool removeDayMarker(int year, int month,
-                       const ParticipantId& participantId, int day);
+  bool saveDayMarker(int year, int month, const ParticipantDayMarker& marker);
+  bool removeDayMarker(int year, int month, const ParticipantId& participantId,
+                       int day);
   bool addParticipantToMonth(int year, int month,
                              const Participant& participant);
   bool removeParticipantFromMonth(int year, int month, const ParticipantId& id);
@@ -45,14 +44,18 @@ private:
   bool ensureSchema();
   bool createSchemaV3();
   bool createSchemaV4();
+  bool createSchemaV5();
   bool createDayMarkerSchema();
+  bool createRankSchema();
   bool migrateLegacyUsersToV3();
   bool cleanupLegacyTables();
   bool migrateSchemaV2ToV3();
   bool migrateSchemaV3ToV4();
+  bool migrateSchemaV4ToV5();
   bool createProfileValidationTriggers();
   bool verifySchemaV3();
   bool verifySchemaV4();
+  bool verifySchemaV5();
   bool tableExists(const QString& tableName) const;
   bool enableForeignKeys();
   bool validateYearMonth(int year, int month) const;

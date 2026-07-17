@@ -9,9 +9,9 @@ flowchart LR
   ST --> LOCAL[JournalLocal]
   ST --> REMOTE[JournalRemote]
   LOCAL --> SQLITE[SqliteConnect]
-  SQLITE --> LDB[(SQLite schema v4)]
+  SQLITE --> LDB[(SQLite schema v5)]
   REMOTE --> API[libsql HTTP API]
-  API --> RDB[(Remote schema v4)]
+  API --> RDB[(Remote schema v5)]
   UI --> SYNC[SyncService]
   SYNC --> ST
 ```
@@ -33,9 +33,11 @@ flowchart LR
 
 ### `ParticipantProfile`
 
-Отдельная глобальная карточка: имя, nullable birthday, plain-text notes и
-`archived_at`. Birthday хранится как day/month и optional year; фиктивный год
-не используется. Archive не удаляет membership или attendance.
+Отдельная глобальная карточка: имя, nullable birthday, типизированное звание,
+plain-text notes и `archived_at`. Birthday хранится как day/month и optional
+year; фиктивный год не используется. Archive не удаляет membership или
+attendance. Начальный порядок званий: паж, оруженосец, новичок, рекрут, гость,
+рыцарь. UI использует этот порядок для сортировки и визуальной группировки.
 
 ### `month_participants`
 
@@ -68,9 +70,9 @@ flowchart LR
 Snapshot применяется целиком только в sync-сценариях. Обычное сохранение UI
 делает upsert attendance и не меняет membership/profile.
 
-## SQLite schema v4
+## SQLite schema v5
 
-- `participants`: `birth_day`, `birth_month`, `birth_year`, `notes`,
+- `participants`: `birth_day`, `birth_month`, `birth_year`, `rank`, `notes`,
   `archived_at`;
 - `month_participants`;
 - `attendance`;
@@ -83,14 +85,16 @@ Snapshot применяется целиком только в sync-сценар
 - `CHECK` для year/month/day/boolean;
 - unique primary keys;
 - индексы чтения месяца и истории участника;
-- `PRAGMA user_version = 4`.
+- `PRAGMA user_version = 5`.
 
-Schema v2 мигрирует последовательно v2 -> v3 -> v4. Schema v3 мигрирует в v4
-транзакционно. Unversioned legacy schema сначала мигрирует в v3, затем в v4:
+Schema v2 мигрирует последовательно v2 -> v3 -> v4 -> v5. Schema v3 и v4
+также мигрируют последовательно и транзакционно. Для существующих участников
+миграция v4 -> v5 назначает `rank = 'guest'`. Unversioned legacy schema сначала
+мигрирует в v3, затем до v5:
 `dd.MM.yyyy` сохраняет год, а `dd.MM` привязывается к единственному году
 настройки `month_days`.
 Неоднозначное соответствие месяца нескольким годам отклоняется. Profile
-triggers проверяют имя, notes и календарную корректность birthday.
+triggers проверяют имя, notes, звание и календарную корректность birthday.
 
 `saveActiveDays()` не удаляет attendance и day markers выключенных дней. При
 повторном включении сохраненные данные восстанавливаются.
