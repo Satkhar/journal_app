@@ -14,8 +14,10 @@
 class QGroupBox;
 class SqliteConnect;
 class QVBoxLayout;
+class AttendanceCellWidget;
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "JournalApp.hpp"
@@ -113,9 +115,13 @@ private:
   // Pull: читает месяц с сервера и сохраняет в локальную БД.
   void pullCurrentMonthFromServer();
 
-  // Добавляет чекбокс в указанную ячейку.
-  void addCheckBox(QTableWidget* tableWidget, int row, int column,
-                   bool is_checked);
+  // Добавляет посещение и семантическую отметку в ячейку дня.
+  void addAttendanceCell(
+      QTableWidget* tableWidget, int row, int column, bool isChecked,
+      const Participant& participant, int day,
+      const std::optional<ParticipantDayMarker>& marker);
+  void editDayMarker(AttendanceCellWidget* cell,
+                     const Participant& participant, int day);
   // Пересчитывает число отмеченных активных дней для строки участника.
   void updateAttendanceCount(QTableWidget* tableWidget, int row);
   // Считывает текущий месяц/год/число дней из календаря.

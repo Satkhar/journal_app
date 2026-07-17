@@ -24,12 +24,19 @@ public:
   virtual std::vector<AttendanceRecord> getMonth(int year, int month) = 0;
   virtual bool saveAttendance(int year, int month,
                               const std::vector<AttendanceRecord>& data) = 0;
+  virtual std::vector<ParticipantDayMarker> getDayMarkers(int year,
+                                                          int month) = 0;
+  virtual bool saveDayMarker(int year, int month,
+                             const ParticipantDayMarker& marker) = 0;
+  virtual bool removeDayMarker(int year, int month,
+                               const ParticipantId& participantId,
+                               int day) = 0;
   virtual bool addParticipantToMonth(int year, int month,
                                      const Participant& participant) = 0;
   virtual bool removeParticipantFromMonth(int year, int month,
                                           const ParticipantId& id) = 0;
-  // Атомарно заменяет состав, activeDays и attendance целевого месяца.
-  // Attendance вне activeDays допустим: скрытые отметки должны сохраняться.
+  // Атомарно заменяет состав, activeDays, attendance и dayMarkers месяца.
+  // Данные вне activeDays допустимы: скрытые отметки должны сохраняться.
   virtual bool replaceMonth(int year, int month,
                             const MonthSnapshot& snapshot) = 0;
 

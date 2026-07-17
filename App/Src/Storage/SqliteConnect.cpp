@@ -14,7 +14,8 @@
 namespace
 {
 
-constexpr int kSchemaVersion = 3;
+constexpr int kProfileSchemaVersion = 3;
+constexpr int kSchemaVersion = 4;
 
 bool tableHasColumns(QSqlDatabase& db, const QString& table,
                      const QSet<QString>& required)
@@ -158,11 +159,16 @@ bool SqliteConnect::ensureSchema()
   }
   if (version == kSchemaVersion)
   {
-    return verifySchemaV3();
+    return verifySchemaV4();
+  }
+  if (version == kProfileSchemaVersion)
+  {
+    return migrateSchemaV3ToV4() && verifySchemaV4();
   }
   if (version == 2)
   {
-    return migrateSchemaV2ToV3() && verifySchemaV3();
+    return migrateSchemaV2ToV3() && migrateSchemaV3ToV4() &&
+           verifySchemaV4();
   }
   if (version != 0)
   {
@@ -172,7 +178,8 @@ bool SqliteConnect::ensureSchema()
 
   if (tableExists("users"))
   {
-    return migrateLegacyUsersToV3() && verifySchemaV3();
+    return migrateLegacyUsersToV3() && migrateSchemaV3ToV4() &&
+           verifySchemaV4();
   }
 
   const QStringList incompatible = {"participants", "month_participants",
@@ -191,14 +198,14 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  if (!createSchemaV3() ||
+  if (!createSchemaV4() ||
       !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
     db_.rollback();
     if (lastError_.isEmpty())
     {
-      setError("Schema v3 creation verification failed");
+      setError("Schema v4 creation verification failed");
     }
     return false;
   }
@@ -207,7 +214,7 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  return verifySchemaV3();
+  return verifySchemaV4();
 }
 
 bool SqliteConnect::createSchemaV3()
@@ -262,6 +269,40 @@ bool SqliteConnect::createSchemaV3()
     }
   }
   return createProfileValidationTriggers();
+}
+
+bool SqliteConnect::createDayMarkerSchema()
+{
+  QSqlQuery query(db_);
+  const QStringList statements = {
+      "CREATE TABLE participant_day_markers ("
+      "year INTEGER NOT NULL CHECK(year BETWEEN 1 AND 9999), "
+      "month INTEGER NOT NULL CHECK(month BETWEEN 1 AND 12), "
+      "day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 31), "
+      "participant_id TEXT NOT NULL, "
+      "kind_mask INTEGER NOT NULL CHECK(typeof(kind_mask) = 'integer' AND "
+      "kind_mask BETWEEN 1 AND 15), "
+      "note TEXT NOT NULL DEFAULT '' CHECK(length(note) <= 500), "
+      "PRIMARY KEY(year, month, day, participant_id), "
+      "FOREIGN KEY(year, month, participant_id) "
+      "REFERENCES month_participants(year, month, participant_id) "
+      "ON DELETE CASCADE)",
+      "CREATE INDEX idx_day_markers_history ON "
+      "participant_day_markers(participant_id, year, month, day)"};
+  for (const QString& statement : statements)
+  {
+    if (!query.exec(statement))
+    {
+      setError(query.lastError().text());
+      return false;
+    }
+  }
+  return true;
+}
+
+bool SqliteConnect::createSchemaV4()
+{
+  return createSchemaV3() && createDayMarkerSchema();
 }
 
 bool SqliteConnect::migrateLegacyUsersToV3()
@@ -459,7 +500,8 @@ bool SqliteConnect::migrateLegacyUsersToV3()
     }
   }
 
-  if (!query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+  if (!query.exec(
+          QString("PRAGMA user_version = %1").arg(kProfileSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
     return fail("Legacy migration integrity check failed");
@@ -603,12 +645,46 @@ bool SqliteConnect::migrateSchemaV2ToV3()
     }
   }
   if (!createProfileValidationTriggers() || !verifySchemaV3() ||
-      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)))
+      !query.exec(QString("PRAGMA user_version = %1")
+                      .arg(kProfileSchemaVersion)))
   {
     db_.rollback();
     if (lastError_.isEmpty())
     {
       setError("Cannot finish schema v2 to v3 migration");
+    }
+    return false;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::migrateSchemaV3ToV4()
+{
+  if (!verifySchemaV3())
+  {
+    return false;
+  }
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (!createDayMarkerSchema() ||
+      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec("PRAGMA foreign_key_check") || query.next())
+  {
+    db_.rollback();
+    if (lastError_.isEmpty())
+    {
+      setError("Cannot finish schema v3 to v4 migration");
     }
     return false;
   }
@@ -663,6 +739,29 @@ bool SqliteConnect::verifySchemaV3()
       !query.next() || query.value(0).toInt() != 2)
   {
     setError("Schema v3 profile validation triggers are missing");
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::verifySchemaV4()
+{
+  if (!verifySchemaV3())
+  {
+    return false;
+  }
+  if (!tableExists("participant_day_markers") ||
+      !tableHasColumns(db_, "participant_day_markers",
+                       {"year", "month", "day", "participant_id",
+                        "kind_mask", "note"}))
+  {
+    setError("Schema v4 day-marker table is missing or incomplete");
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (!query.exec("PRAGMA foreign_key_check") || query.next())
+  {
+    setError("Schema v4 foreign key check failed");
     return false;
   }
   return true;
@@ -875,6 +974,110 @@ bool SqliteConnect::saveAttendance(int year, int month,
   return db_.commit();
 }
 
+std::vector<ParticipantDayMarker> SqliteConnect::getDayMarkers(int year,
+                                                               int month)
+{
+  lastError_.clear();
+  std::vector<ParticipantDayMarker> result;
+  if (!validateYearMonth(year, month))
+  {
+    setError("Invalid year or month");
+    return result;
+  }
+
+  QSqlQuery query(db_);
+  query.prepare(
+      "SELECT participant_id, day, kind_mask, note FROM "
+      "participant_day_markers WHERE year = :year AND month = :month "
+      "ORDER BY participant_id, day");
+  query.bindValue(":year", year);
+  query.bindValue(":month", month);
+  if (!query.exec())
+  {
+    setError(query.lastError().text());
+    return result;
+  }
+  while (query.next())
+  {
+    const int kindMask = query.value(2).toInt();
+    const auto kinds = DayMarkerKindsFromInt(kindMask);
+    ParticipantDayMarker marker{{query.value(0).toString()},
+                                query.value(1).toInt(),
+                                kinds.value_or(DayMarkerKinds()),
+                                query.value(3).toString()};
+    if (!kinds.has_value() || !marker.participantId.isValid() ||
+        !QDate(year, month, marker.day).isValid() ||
+        !IsValidDayMarkerKinds(marker.kinds) ||
+        marker.note.size() > kMaxDayMarkerNoteLength)
+    {
+      result.clear();
+      setError("Stored participant day marker is invalid");
+      return result;
+    }
+    result.push_back(std::move(marker));
+  }
+  return result;
+}
+
+bool SqliteConnect::saveDayMarker(int year, int month,
+                                  const ParticipantDayMarker& marker)
+{
+  lastError_.clear();
+  if (!validateYearMonth(year, month) || !marker.participantId.isValid() ||
+      !QDate(year, month, marker.day).isValid() ||
+      !IsValidDayMarkerKinds(marker.kinds) ||
+      marker.note.size() > kMaxDayMarkerNoteLength)
+  {
+    setError("Invalid participant day marker");
+    return false;
+  }
+
+  QSqlQuery query(db_);
+  query.prepare(
+      "INSERT INTO participant_day_markers(year, month, day, "
+      "participant_id, kind_mask, note) VALUES(:year, :month, :day, :id, "
+      ":kind_mask, :note) ON CONFLICT(year, month, day, participant_id) DO "
+      "UPDATE SET kind_mask = excluded.kind_mask, note = excluded.note");
+  query.bindValue(":year", year);
+  query.bindValue(":month", month);
+  query.bindValue(":day", marker.day);
+  query.bindValue(":id", marker.participantId.value);
+  query.bindValue(":kind_mask", marker.kinds.toInt());
+  query.bindValue(":note", marker.note);
+  if (!query.exec())
+  {
+    setError(query.lastError().text());
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::removeDayMarker(int year, int month,
+                                    const ParticipantId& participantId,
+                                    int day)
+{
+  lastError_.clear();
+  if (!validateYearMonth(year, month) || !participantId.isValid() ||
+      !QDate(year, month, day).isValid())
+  {
+    setError("Invalid participant day marker key");
+    return false;
+  }
+  QSqlQuery query(db_);
+  query.prepare("DELETE FROM participant_day_markers WHERE year = :year AND "
+                "month = :month AND day = :day AND participant_id = :id");
+  query.bindValue(":year", year);
+  query.bindValue(":month", month);
+  query.bindValue(":day", day);
+  query.bindValue(":id", participantId.value);
+  if (!query.exec())
+  {
+    setError(query.lastError().text());
+    return false;
+  }
+  return true;
+}
+
 bool SqliteConnect::addParticipantToMonth(int year, int month,
                                           const Participant& participant)
 {
@@ -1017,6 +1220,22 @@ bool SqliteConnect::validateSnapshot(int year, int month,
     }
     attendanceKeys.insert(key);
   }
+  QSet<QString> markerKeys;
+  for (const ParticipantDayMarker& marker : snapshot.dayMarkers)
+  {
+    const QString key =
+        marker.participantId.value + ':' + QString::number(marker.day);
+    if (!ids.contains(marker.participantId.value) ||
+        !QDate(year, month, marker.day).isValid() ||
+        !IsValidDayMarkerKinds(marker.kinds) ||
+        marker.note.size() > kMaxDayMarkerNoteLength ||
+        markerKeys.contains(key))
+    {
+      setError("Invalid or duplicate day marker in snapshot");
+      return false;
+    }
+    markerKeys.insert(key);
+  }
   return true;
 }
 
@@ -1038,6 +1257,14 @@ bool SqliteConnect::replaceMonth(int year, int month,
     return false;
   };
   QSqlQuery query(db_);
+  query.prepare("DELETE FROM participant_day_markers WHERE year = :year AND "
+                "month = :month");
+  query.bindValue(":year", year);
+  query.bindValue(":month", month);
+  if (!query.exec())
+  {
+    return fail(query.lastError().text());
+  }
   query.prepare("DELETE FROM attendance WHERE year = :year AND month = :month");
   query.bindValue(":year", year);
   query.bindValue(":month", month);
@@ -1114,6 +1341,24 @@ bool SqliteConnect::replaceMonth(int year, int month,
     if (!attendanceQuery.exec())
     {
       return fail(attendanceQuery.lastError().text());
+    }
+  }
+  QSqlQuery markerQuery(db_);
+  markerQuery.prepare(
+      "INSERT INTO participant_day_markers(year, month, day, "
+      "participant_id, kind_mask, note) VALUES(:year, :month, :day, :id, "
+      ":kind_mask, :note)");
+  for (const ParticipantDayMarker& marker : snapshot.dayMarkers)
+  {
+    markerQuery.bindValue(":year", year);
+    markerQuery.bindValue(":month", month);
+    markerQuery.bindValue(":day", marker.day);
+    markerQuery.bindValue(":id", marker.participantId.value);
+    markerQuery.bindValue(":kind_mask", marker.kinds.toInt());
+    markerQuery.bindValue(":note", marker.note);
+    if (!markerQuery.exec())
+    {
+      return fail(markerQuery.lastError().text());
     }
   }
   return db_.commit();

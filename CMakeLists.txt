@@ -25,6 +25,8 @@ add_executable(journal_app
     ./App/Src/Storage/SqliteConnect.cpp
     ./App/Src/Sync/SyncService.cpp
     ./App/Src/Ui/mainwindow.cpp
+    ./App/Src/Ui/AttendanceCellWidget.cpp
+    ./App/Src/Ui/DayMarkerDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/CopyUsersDialog.cpp
     ./App/Src/Ui/ParticipantDialog.cpp
@@ -41,6 +43,8 @@ add_executable(journal_app
     ./App/Inc/Storage/SqliteConnect.hpp
     ./App/Inc/Sync/SyncService.hpp
     ./App/Inc/Ui/mainwindow.hpp
+    ./App/Inc/Ui/AttendanceCellWidget.hpp
+    ./App/Inc/Ui/DayMarkerDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/CopyUsersDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
@@ -108,13 +112,20 @@ add_test(NAME journal_month_state_tests COMMAND journal_month_state_tests)
 
 add_executable(journal_ui_tests
     ./Test/ui_dialog_tests.cpp
+    ./App/Src/Domain/JournalModels.cpp
+    ./App/Src/Ui/AttendanceCellWidget.cpp
+    ./App/Src/Ui/DayMarkerDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
+    ./App/Inc/Domain/JournalModels.hpp
+    ./App/Inc/Ui/AttendanceCellWidget.hpp
+    ./App/Inc/Ui/DayMarkerDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp)
 target_link_libraries(journal_ui_tests PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets)
 target_include_directories(journal_ui_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/App/Inc/Domain
     ${CMAKE_SOURCE_DIR}/App/Inc/Ui)
 add_test(NAME journal_ui_tests COMMAND journal_ui_tests)
 set_tests_properties(journal_ui_tests PROPERTIES

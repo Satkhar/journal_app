@@ -34,6 +34,10 @@ public:
   bool removeParticipant(const ParticipantId& id);
   bool saveAttendance(int year, int month,
                       const std::vector<AttendanceRecord>& data);
+  bool saveDayMarker(int year, int month,
+                     const ParticipantDayMarker& marker);
+  bool removeDayMarker(int year, int month,
+                       const ParticipantId& participantId, int day);
 
   std::optional<ParticipantProfile> participantProfile(const ParticipantId& id);
   std::optional<std::vector<ParticipantProfile>>

@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QHashFunctions>
+#include <QFlags>
 #include <QString>
 #include <QUuid>
 #include <QVector>
@@ -68,6 +69,31 @@ struct AttendanceRecord
   bool isChecked;
 };
 
+enum class DayMarkerKind : quint8
+{
+  Payment = 0x01,
+  SpecialTraining = 0x02,
+  FirstVisit = 0x04,
+  Other = 0x08,
+};
+
+Q_DECLARE_FLAGS(DayMarkerKinds, DayMarkerKind)
+Q_DECLARE_OPERATORS_FOR_FLAGS(DayMarkerKinds)
+
+constexpr int kMaxDayMarkerNoteLength = 500;
+
+struct ParticipantDayMarker
+{
+  ParticipantId participantId;
+  int day;
+  DayMarkerKinds kinds;
+  QString note;
+};
+
+bool IsValidDayMarkerKinds(DayMarkerKinds kinds);
+std::optional<DayMarkerKinds> DayMarkerKindsFromInt(int value);
+int CountDayMarkerKinds(DayMarkerKinds kinds);
+
 int CountCheckedActiveDays(const QVector<int>& activeDays,
                            const QHash<int, bool>& attendanceByDay);
 
@@ -91,4 +117,5 @@ struct MonthSnapshot
   std::vector<Participant> participants;
   QVector<int> activeDays;
   std::vector<AttendanceRecord> attendance;
+  std::vector<ParticipantDayMarker> dayMarkers;
 };

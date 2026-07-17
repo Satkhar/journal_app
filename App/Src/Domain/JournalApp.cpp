@@ -114,11 +114,19 @@ MonthSnapshot JournalApp::loadMonth(int year, int month)
     snapshot.errorMessage = storage_->lastError();
     return snapshot;
   }
+  snapshot.dayMarkers = storage_->getDayMarkers(year, month);
+  if (!storage_->lastError().isEmpty())
+  {
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = storage_->lastError();
+    return snapshot;
+  }
 
   qInfo() << "Month loaded:" << year << month
           << "participants:" << snapshot.participants.size()
           << "active days:" << snapshot.activeDays.size()
           << "records:" << snapshot.attendance.size()
+          << "day markers:" << snapshot.dayMarkers.size()
           << "ms:" << timer.elapsed();
   return snapshot;
 }
@@ -201,6 +209,11 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   {
     return {false, 0, 0, storage_->lastError()};
   }
+  const auto targetDayMarkers = storage_->getDayMarkers(toYear, toMonth);
+  if (!storage_->lastError().isEmpty())
+  {
+    return {false, 0, 0, storage_->lastError()};
+  }
   const auto activeProfiles = storage_->listParticipantProfiles(false);
   if (!activeProfiles.has_value())
   {
@@ -258,6 +271,7 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   snapshot.participants = std::move(targetParticipants);
   snapshot.activeDays = std::move(targetDays);
   snapshot.attendance = std::move(mergedAttendance);
+  snapshot.dayMarkers = targetDayMarkers;
   if (!storage_->replaceMonth(toYear, toMonth, snapshot))
   {
     const QString error = storage_->lastError();
@@ -297,6 +311,22 @@ bool JournalApp::saveAttendance(int year, int month,
   currentYear_ = year;
   currentMonth_ = month;
   return storage_->saveAttendance(year, month, data);
+}
+
+bool JournalApp::saveDayMarker(int year, int month,
+                               const ParticipantDayMarker& marker)
+{
+  currentYear_ = year;
+  currentMonth_ = month;
+  return storage_->saveDayMarker(year, month, marker);
+}
+
+bool JournalApp::removeDayMarker(int year, int month,
+                                 const ParticipantId& participantId, int day)
+{
+  currentYear_ = year;
+  currentMonth_ = month;
+  return storage_->removeDayMarker(year, month, participantId, day);
 }
 
 std::optional<ParticipantProfile>

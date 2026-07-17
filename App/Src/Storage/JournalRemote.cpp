@@ -15,7 +15,8 @@
 namespace
 {
 
-constexpr int kRemoteSchemaVersion = 3;
+constexpr int kRemoteProfileSchemaVersion = 3;
+constexpr int kRemoteSchemaVersion = 4;
 
 bool hasExactlyOneAffectedRow(const QJsonArray& results)
 {
@@ -244,6 +245,61 @@ std::vector<AttendanceRecord> JournalRemote::getMonth(int year, int month)
   return result;
 }
 
+std::vector<ParticipantDayMarker> JournalRemote::getDayMarkers(int year,
+                                                               int month)
+{
+  lastError_.clear();
+  std::vector<ParticipantDayMarker> result;
+  if (!QDate(year, month, 1).isValid())
+  {
+    lastError_ = "Invalid year or month";
+    return result;
+  }
+  QJsonArray results;
+  QString error;
+  const QString sql =
+      QString("SELECT participant_id, day, kind_mask, note FROM "
+              "participant_day_markers WHERE year = %1 AND month = %2 "
+              "ORDER BY participant_id, day")
+          .arg(year)
+          .arg(month);
+  if (!executePipeline({sql}, &results, &error))
+  {
+    lastError_ = error;
+    return result;
+  }
+  if (results.isEmpty())
+  {
+    return result;
+  }
+  for (const QJsonValue& value :
+       results.at(0).toObject().value("rows").toArray())
+  {
+    const QJsonArray row = value.toArray();
+    bool dayOk = false;
+    bool kindsOk = false;
+    const int day = cellString(row, 1).toInt(&dayOk);
+    const int kindMask = cellString(row, 2).toInt(&kindsOk);
+    const auto kinds = DayMarkerKindsFromInt(kindMask);
+    ParticipantDayMarker marker{{cellString(row, 0)},
+                                day,
+                                kinds.value_or(DayMarkerKinds()),
+                                cellString(row, 3)};
+    if (row.size() < 4 || !dayOk || !kindsOk || !kinds.has_value() ||
+        !marker.participantId.isValid() ||
+        !QDate(year, month, marker.day).isValid() ||
+        !IsValidDayMarkerKinds(marker.kinds) ||
+        marker.note.size() > kMaxDayMarkerNoteLength)
+    {
+      result.clear();
+      lastError_ = "Invalid remote participant day marker";
+      return result;
+    }
+    result.push_back(std::move(marker));
+  }
+  return result;
+}
+
 bool JournalRemote::getMonthSnapshot(int year, int month,
                                      MonthSnapshot* snapshot)
 {
@@ -271,8 +327,13 @@ bool JournalRemote::getMonthSnapshot(int year, int month,
               "year = %1 AND month = %2 ORDER BY participant_id, day")
           .arg(year)
           .arg(month),
+      QString("SELECT participant_id, day, kind_mask, note FROM "
+              "participant_day_markers WHERE year = %1 AND month = %2 "
+              "ORDER BY participant_id, day")
+          .arg(year)
+          .arg(month),
       "COMMIT"};
-  if (!executePipeline(sql, &results, &error) || results.size() != 3)
+  if (!executePipeline(sql, &results, &error) || results.size() != 4)
   {
     lastError_ = error.isEmpty() ? "Invalid remote month snapshot" : error;
     return false;
@@ -314,6 +375,31 @@ bool JournalRemote::getMonthSnapshot(int year, int month,
           {{cellString(row, 0)}, day, cellString(row, 2) == "1"});
     }
   }
+  for (const QJsonValue& value :
+       results.at(3).toObject().value("rows").toArray())
+  {
+    const QJsonArray row = value.toArray();
+    bool dayOk = false;
+    bool kindsOk = false;
+    const int day = cellString(row, 1).toInt(&dayOk);
+    const int kindMask = cellString(row, 2).toInt(&kindsOk);
+    const auto kinds = DayMarkerKindsFromInt(kindMask);
+    ParticipantDayMarker marker{{cellString(row, 0)},
+                                day,
+                                kinds.value_or(DayMarkerKinds()),
+                                cellString(row, 3)};
+    if (row.size() < 4 || !dayOk || !kindsOk || !kinds.has_value() ||
+        !marker.participantId.isValid() ||
+        !QDate(year, month, marker.day).isValid() ||
+        !IsValidDayMarkerKinds(marker.kinds) ||
+        marker.note.size() > kMaxDayMarkerNoteLength)
+    {
+      lastError_ = "Invalid remote participant day marker";
+      return false;
+    }
+    loaded.dayMarkers.push_back(std::move(marker));
+  }
+  loaded.state = MonthState::Ready;
   *snapshot = std::move(loaded);
   return true;
 }
@@ -344,6 +430,64 @@ bool JournalRemote::saveAttendance(int year, int month,
   sql.push_back("COMMIT");
   QString error;
   if (!executePipeline(sql, nullptr, &error))
+  {
+    lastError_ = error;
+    return false;
+  }
+  return true;
+}
+
+bool JournalRemote::saveDayMarker(int year, int month,
+                                  const ParticipantDayMarker& marker)
+{
+  lastError_.clear();
+  if (!QDate(year, month, marker.day).isValid() ||
+      !marker.participantId.isValid() ||
+      !IsValidDayMarkerKinds(marker.kinds) ||
+      marker.note.size() > kMaxDayMarkerNoteLength)
+  {
+    lastError_ = "Invalid participant day marker";
+    return false;
+  }
+  const QString sql =
+      QString("INSERT INTO participant_day_markers(year, month, day, "
+              "participant_id, kind_mask, note) VALUES(%1, %2, %3, %4, %5, "
+              "%6) ON CONFLICT(year, month, day, participant_id) DO UPDATE "
+              "SET kind_mask = excluded.kind_mask, note = excluded.note")
+          .arg(year)
+          .arg(month)
+          .arg(marker.day)
+          .arg(sqlQuote(marker.participantId.value))
+          .arg(marker.kinds.toInt())
+          .arg(sqlQuote(marker.note));
+  QString error;
+  if (!executePipeline({"BEGIN", sql, "COMMIT"}, nullptr, &error))
+  {
+    lastError_ = error;
+    return false;
+  }
+  return true;
+}
+
+bool JournalRemote::removeDayMarker(int year, int month,
+                                    const ParticipantId& participantId,
+                                    int day)
+{
+  lastError_.clear();
+  if (!QDate(year, month, day).isValid() || !participantId.isValid())
+  {
+    lastError_ = "Invalid participant day marker key";
+    return false;
+  }
+  const QString sql =
+      QString("DELETE FROM participant_day_markers WHERE year = %1 AND "
+              "month = %2 AND day = %3 AND participant_id = %4")
+          .arg(year)
+          .arg(month)
+          .arg(day)
+          .arg(sqlQuote(participantId.value));
+  QString error;
+  if (!executePipeline({sql}, nullptr, &error))
   {
     lastError_ = error;
     return false;
@@ -477,9 +621,29 @@ bool JournalRemote::replaceMonth(int year, int month,
     }
     attendanceKeys.insert(key);
   }
+  QSet<QString> markerKeys;
+  for (const ParticipantDayMarker& marker : snapshot.dayMarkers)
+  {
+    const QString key =
+        marker.participantId.value + ':' + QString::number(marker.day);
+    if (!ids.contains(marker.participantId.value) ||
+        !QDate(year, month, marker.day).isValid() ||
+        !IsValidDayMarkerKinds(marker.kinds) ||
+        marker.note.size() > kMaxDayMarkerNoteLength ||
+        markerKeys.contains(key))
+    {
+      lastError_ = "Invalid or duplicate day marker snapshot";
+      return false;
+    }
+    markerKeys.insert(key);
+  }
 
   QList<QString> sql = {
       "PRAGMA foreign_keys = ON", "BEGIN",
+      QString("DELETE FROM participant_day_markers WHERE year = %1 AND "
+              "month = %2")
+          .arg(year)
+          .arg(month),
       QString("DELETE FROM attendance WHERE year = %1 AND month = %2")
           .arg(year)
           .arg(month),
@@ -523,6 +687,19 @@ bool JournalRemote::replaceMonth(int year, int month,
             .arg(record.day)
             .arg(sqlQuote(record.participantId.value))
             .arg(record.isChecked ? 1 : 0));
+  }
+  for (const ParticipantDayMarker& marker : snapshot.dayMarkers)
+  {
+    sql.push_back(
+        QString("INSERT INTO participant_day_markers(year, month, day, "
+                "participant_id, kind_mask, note) VALUES(%1, %2, %3, %4, "
+                "%5, %6)")
+            .arg(year)
+            .arg(month)
+            .arg(marker.day)
+            .arg(sqlQuote(marker.participantId.value))
+            .arg(marker.kinds.toInt())
+            .arg(sqlQuote(marker.note)));
   }
   sql.push_back("COMMIT");
   QString error;
@@ -630,12 +807,24 @@ bool JournalRemote::ensureSchema(QString* errorMessage)
         "AND 9999), month INTEGER NOT NULL CHECK(month BETWEEN 1 AND 12), day "
         "INTEGER NOT NULL CHECK(day BETWEEN 1 AND 31), PRIMARY KEY(year, "
         "month, day))",
+        "CREATE TABLE participant_day_markers(year INTEGER NOT NULL "
+        "CHECK(year BETWEEN 1 AND 9999), month INTEGER NOT NULL CHECK(month "
+        "BETWEEN 1 AND 12), day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 31), "
+        "participant_id TEXT NOT NULL, kind_mask INTEGER NOT NULL "
+        "CHECK(typeof(kind_mask) = 'integer' AND kind_mask BETWEEN 1 AND 15), "
+        "note TEXT NOT NULL DEFAULT '' "
+        "CHECK(length(note) <= 500), PRIMARY KEY(year, month, day, "
+        "participant_id), FOREIGN KEY(year, month, participant_id) "
+        "REFERENCES month_participants(year, month, participant_id) ON "
+        "DELETE CASCADE)",
         "CREATE INDEX idx_month_participants_order ON month_participants(year, "
         "month, sort_order, participant_id)",
         "CREATE INDEX idx_month_participants_history ON "
         "month_participants(participant_id, year, month)",
         "CREATE INDEX idx_attendance_history ON attendance(participant_id, "
         "year, month, day)",
+        "CREATE INDEX idx_day_markers_history ON participant_day_markers("
+        "participant_id, year, month, day)",
         insertTrigger,
         updateTrigger,
         "COMMIT"};
@@ -723,6 +912,82 @@ bool JournalRemote::ensureSchema(QString* errorMessage)
         insertTrigger,
         updateTrigger,
         QString("UPDATE journal_schema SET version = %1")
+            .arg(kRemoteProfileSchemaVersion),
+        "COMMIT"};
+    if (!executePipeline(migration, nullptr, &error))
+    {
+      return fail(error);
+    }
+    version = kRemoteProfileSchemaVersion;
+  }
+  if (version == kRemoteProfileSchemaVersion)
+  {
+    results = {};
+    if (!executePipeline(
+            {"SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+             "('journal_schema', 'participants', 'month_participants', "
+             "'attendance', 'month_days')",
+             "PRAGMA table_info(participants)",
+             "PRAGMA table_info(month_participants)",
+             "PRAGMA table_info(attendance)", "PRAGMA table_info(month_days)",
+             "PRAGMA foreign_key_check",
+             "SELECT name FROM sqlite_master WHERE type = 'trigger' AND "
+             "name IN ('participants_profile_insert', "
+             "'participants_profile_update')"},
+            &results, &error) ||
+        results.size() != 7)
+    {
+      return fail(error.isEmpty() ? "Cannot verify remote schema v3" : error);
+    }
+    QSet<QString> v3Tables;
+    for (const QJsonValue& value :
+         results.at(0).toObject().value("rows").toArray())
+    {
+      v3Tables.insert(cellString(value.toArray(), 0));
+    }
+    const QList<QPair<int, QSet<QString>>> v3Schema = {
+        {1,
+         {"id", "display_name", "birth_day", "birth_month", "birth_year",
+          "notes", "created_at", "updated_at", "archived_at"}},
+        {2, {"year", "month", "participant_id", "sort_order"}},
+        {3, {"year", "month", "day", "participant_id", "is_checked"}},
+        {4, {"year", "month", "day"}}};
+    for (const auto& entry : v3Schema)
+    {
+      QSet<QString> columns;
+      for (const QJsonValue& value :
+           results.at(entry.first).toObject().value("rows").toArray())
+      {
+        columns.insert(cellString(value.toArray(), 1));
+      }
+      if (!columns.contains(entry.second))
+      {
+        return fail("Remote schema v3 columns are incomplete");
+      }
+    }
+    if (v3Tables.size() != 5 ||
+        !results.at(5).toObject().value("rows").toArray().isEmpty() ||
+        results.at(6).toObject().value("rows").toArray().size() != 2)
+    {
+      return fail("Remote schema v3 integrity check failed");
+    }
+
+    const QList<QString> migration = {
+        "PRAGMA foreign_keys = ON",
+        "BEGIN",
+        "CREATE TABLE participant_day_markers(year INTEGER NOT NULL "
+        "CHECK(year BETWEEN 1 AND 9999), month INTEGER NOT NULL CHECK(month "
+        "BETWEEN 1 AND 12), day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 31), "
+        "participant_id TEXT NOT NULL, kind_mask INTEGER NOT NULL "
+        "CHECK(typeof(kind_mask) = 'integer' AND kind_mask BETWEEN 1 AND 15), "
+        "note TEXT NOT NULL DEFAULT '' "
+        "CHECK(length(note) <= 500), PRIMARY KEY(year, month, day, "
+        "participant_id), FOREIGN KEY(year, month, participant_id) "
+        "REFERENCES month_participants(year, month, participant_id) ON "
+        "DELETE CASCADE)",
+        "CREATE INDEX idx_day_markers_history ON participant_day_markers("
+        "participant_id, year, month, day)",
+        QString("UPDATE journal_schema SET version = %1")
             .arg(kRemoteSchemaVersion),
         "COMMIT"};
     if (!executePipeline(migration, nullptr, &error))
@@ -740,16 +1005,17 @@ bool JournalRemote::ensureSchema(QString* errorMessage)
   if (!executePipeline(
           {"SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
            "('journal_schema', 'participants', 'month_participants', "
-           "'attendance', 'month_days')",
+           "'attendance', 'month_days', 'participant_day_markers')",
            "PRAGMA table_info(participants)",
            "PRAGMA table_info(month_participants)",
            "PRAGMA table_info(attendance)", "PRAGMA table_info(month_days)",
+           "PRAGMA table_info(participant_day_markers)",
            "PRAGMA foreign_key_check",
            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND "
            "name IN ('participants_profile_insert', "
            "'participants_profile_update')"},
           &results, &error) ||
-      results.size() != 7)
+      results.size() != 8)
   {
     return fail(error.isEmpty() ? "Cannot verify remote schema" : error);
   }
@@ -765,7 +1031,8 @@ bool JournalRemote::ensureSchema(QString* errorMessage)
         "created_at", "updated_at", "archived_at"}},
       {2, {"year", "month", "participant_id", "sort_order"}},
       {3, {"year", "month", "day", "participant_id", "is_checked"}},
-      {4, {"year", "month", "day"}}};
+      {4, {"year", "month", "day"}},
+      {5, {"year", "month", "day", "participant_id", "kind_mask", "note"}}};
   for (const auto& entry : schema)
   {
     QSet<QString> columns;
@@ -776,12 +1043,12 @@ bool JournalRemote::ensureSchema(QString* errorMessage)
     }
     if (!columns.contains(entry.second))
     {
-      return fail("Remote schema v3 columns are incomplete");
+      return fail("Remote schema v4 columns are incomplete");
     }
   }
-  if (requiredTables.size() != 5 ||
-      !results.at(5).toObject().value("rows").toArray().isEmpty() ||
-      results.at(6).toObject().value("rows").toArray().size() != 2)
+  if (requiredTables.size() != 6 ||
+      !results.at(6).toObject().value("rows").toArray().isEmpty() ||
+      results.at(7).toObject().value("rows").toArray().size() != 2)
   {
     return fail("Remote schema integrity check failed");
   }

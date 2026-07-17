@@ -23,6 +23,12 @@ public:
   std::vector<AttendanceRecord> getMonth(int year, int month) override;
   bool saveAttendance(int year, int month,
                       const std::vector<AttendanceRecord>& data) override;
+  std::vector<ParticipantDayMarker> getDayMarkers(int year,
+                                                  int month) override;
+  bool saveDayMarker(int year, int month,
+                     const ParticipantDayMarker& marker) override;
+  bool removeDayMarker(int year, int month,
+                       const ParticipantId& participantId, int day) override;
   bool addParticipantToMonth(int year, int month,
                              const Participant& participant) override;
   bool removeParticipantFromMonth(int year, int month,

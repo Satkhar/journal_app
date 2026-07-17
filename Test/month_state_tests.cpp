@@ -146,6 +146,31 @@ bool AttendanceCountUsesOnlyActiveCheckedDays()
   TEST_CHECK(CountCheckedActiveDays({1, 3, 5}, attendanceByDay) == 2);
   TEST_CHECK(CountCheckedActiveDays({3}, attendanceByDay) == 0);
   TEST_CHECK(CountCheckedActiveDays({}, attendanceByDay) == 0);
+  TEST_CHECK(DayMarkerKindsFromInt(3).has_value());
+  TEST_CHECK(!DayMarkerKindsFromInt(0).has_value());
+  TEST_CHECK(!DayMarkerKindsFromInt(257).has_value());
+  return true;
+}
+
+bool DayMarkerSurvivesHiddenDayAndCascadesWithParticipant()
+{
+  TemporaryDatabase db;
+  TEST_CHECK(db.isOpen());
+  const Participant participant = MakeParticipant("Alice");
+  TEST_CHECK(db.storage().saveActiveDays(2026, 7, {1, 2}));
+  TEST_CHECK(db.storage().addParticipantToMonth(2026, 7, participant));
+  const ParticipantDayMarker marker{
+      participant.id, 2,
+      DayMarkerKind::Payment | DayMarkerKind::SpecialTraining,
+      "Оплата + сбор"};
+  TEST_CHECK(db.storage().saveDayMarker(2026, 7, marker));
+  TEST_CHECK(db.storage().saveActiveDays(2026, 7, {1}));
+  const auto hiddenMarkers = db.storage().getDayMarkers(2026, 7);
+  TEST_CHECK(hiddenMarkers.size() == 1);
+  TEST_CHECK(hiddenMarkers.front().day == 2);
+  TEST_CHECK(db.storage().removeParticipantFromMonth(2026, 7,
+                                                      participant.id));
+  TEST_CHECK(db.storage().getDayMarkers(2026, 7).empty());
   return true;
 }
 
@@ -206,6 +231,9 @@ bool CopyWeekdayPatternMapsToTargetDates()
   const Participant participant = MakeParticipant("Alice");
   TEST_CHECK(sqlite->saveActiveDays(2026, 6, {1, 2}));
   TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, participant));
+  TEST_CHECK(sqlite->saveDayMarker(
+      2026, 6,
+      {participant.id, 1, DayMarkerKind::FirstVisit, "Источник"}));
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
@@ -223,6 +251,7 @@ bool CopyWeekdayPatternMapsToTargetDates()
   TEST_CHECK(target.participants.front().id == participant.id);
   TEST_CHECK(target.attendance.size() ==
              static_cast<std::size_t>(expectedDays.size()));
+  TEST_CHECK(target.dayMarkers.empty());
   for (const AttendanceRecord& record : target.attendance)
   {
     TEST_CHECK(expectedDays.contains(record.day));
@@ -239,9 +268,14 @@ bool CopyWithoutScheduleKeepsTargetDates()
   TEST_CHECK(sqlite->open(directory.filePath("journal.db")));
 
   const Participant participant = MakeParticipant("Alice");
+  const Participant targetParticipant = MakeParticipant("Bob");
   TEST_CHECK(sqlite->saveActiveDays(2026, 6, {1, 2}));
   TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, participant));
   TEST_CHECK(sqlite->saveActiveDays(2026, 7, {3, 10}));
+  TEST_CHECK(sqlite->addParticipantToMonth(2026, 7, targetParticipant));
+  TEST_CHECK(sqlite->saveDayMarker(
+      2026, 7,
+      {targetParticipant.id, 10, DayMarkerKind::Payment, "Целевая отметка"}));
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
@@ -252,7 +286,11 @@ bool CopyWithoutScheduleKeepsTargetDates()
 
   const MonthSnapshot target = app.loadMonth(2026, 7);
   TEST_CHECK(target.activeDays == QVector<int>({3, 10}));
-  TEST_CHECK(target.attendance.size() == 2);
+  TEST_CHECK(target.attendance.size() == 4);
+  TEST_CHECK(target.dayMarkers.size() == 1);
+  TEST_CHECK(target.dayMarkers.front().participantId == targetParticipant.id);
+  TEST_CHECK(target.dayMarkers.front().day == 10);
+  TEST_CHECK(target.dayMarkers.front().note == "Целевая отметка");
   for (const AttendanceRecord& record : target.attendance)
   {
     TEST_CHECK(record.day == 3 || record.day == 10);
@@ -319,6 +357,8 @@ int main(int argc, char* argv[])
        DisabledDayAttendanceIsPreserved},
       {"attendance count uses active checked days",
        AttendanceCountUsesOnlyActiveCheckedDays},
+      {"day marker survives hidden day and cascades",
+       DayMarkerSurvivesHiddenDayAndCascadesWithParticipant},
       {"failed replace does not modify month", FailedReplaceDoesNotModifyMonth},
       {"storage error is not missing", StorageErrorIsNotReportedAsMissing},
       {"copy from empty source creates target",

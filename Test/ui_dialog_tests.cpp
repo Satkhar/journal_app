@@ -1,11 +1,15 @@
+#include "AttendanceCellWidget.hpp"
+#include "DayMarkerDialog.hpp"
 #include "MonthDaysDialog.hpp"
 
 #include <QApplication>
 #include <QCalendarWidget>
 #include <QCheckBox>
 #include <QDate>
+#include <QLineEdit>
 #include <QMetaObject>
 #include <QPushButton>
+#include <QToolButton>
 
 #include <iostream>
 
@@ -116,13 +120,107 @@ bool BulkControlsStaySynchronized()
                "partial state not restored after date click");
 }
 
+bool DayMarkerDialogSupportsMultipleKindsAndClear()
+{
+  DayMarkerDialog dialog(
+      "Alice", QDate(2026, 7, 16),
+      DayMarkerKind::Payment | DayMarkerKind::SpecialTraining, "Сбор");
+  auto* payment =
+      dialog.findChild<QCheckBox*>("paymentMarkerCheckBox");
+  auto* special =
+      dialog.findChild<QCheckBox*>("specialTrainingMarkerCheckBox");
+  auto* firstVisit =
+      dialog.findChild<QCheckBox*>("firstVisitMarkerCheckBox");
+  auto* save = dialog.findChild<QPushButton*>("saveDayMarkerButton");
+  if (!Check(payment && special && firstVisit && save,
+             "day marker dialog controls missing"))
+  {
+    return false;
+  }
+  firstVisit->setChecked(true);
+  save->click();
+  if (!Check(dialog.result() == QDialog::Accepted &&
+                 dialog.selectedKinds().testFlag(DayMarkerKind::Payment) &&
+                 dialog.selectedKinds().testFlag(
+                     DayMarkerKind::SpecialTraining) &&
+                 dialog.selectedKinds().testFlag(DayMarkerKind::FirstVisit) &&
+                 dialog.note() == "Сбор" && !dialog.clearRequested(),
+             "multiple marker kinds were not saved"))
+  {
+    return false;
+  }
+
+  DayMarkerDialog clearDialog("Alice", QDate(2026, 7, 16),
+                              DayMarkerKind::Payment, "Оплата");
+  auto* clear =
+      clearDialog.findChild<QPushButton*>("clearDayMarkerButton");
+  if (!Check(clear != nullptr, "clear marker button missing"))
+  {
+    return false;
+  }
+  clear->click();
+  return Check(clearDialog.result() == QDialog::Accepted &&
+                   clearDialog.clearRequested(),
+               "clear marker action was not accepted");
+}
+
+bool NoteOnlyMarkerBecomesOther()
+{
+  DayMarkerDialog dialog("Alice", QDate(2026, 7, 16), DayMarkerKinds(), "");
+  auto* note = dialog.findChild<QLineEdit*>("dayMarkerNoteEdit");
+  auto* save = dialog.findChild<QPushButton*>("saveDayMarkerButton");
+  if (!Check(note && save, "note-only marker controls missing"))
+  {
+    return false;
+  }
+  note->setText("Пробная заметка");
+  save->click();
+  return Check(
+      dialog.selectedKinds().testFlag(DayMarkerKind::Other) &&
+          CountDayMarkerKinds(dialog.selectedKinds()) == 1,
+      "note-only marker did not select Other");
+}
+
+bool AttendanceCellUsesCompactSemanticBadge()
+{
+  const ParticipantId id{"12345678-1234-1234-1234-123456789abc"};
+  const ParticipantDayMarker marker{
+      id, 16, DayMarkerKind::Payment | DayMarkerKind::FirstVisit,
+      "<оплачено>"};
+  AttendanceCellWidget cell(false, "Alice", QDate(2026, 7, 16), marker);
+  auto* checkBox = cell.attendanceCheckBox();
+  auto* markerButton = cell.markerButton();
+  if (!Check(checkBox && markerButton, "attendance cell controls missing"))
+  {
+    return false;
+  }
+  markerButton->click();
+  if (!Check(!checkBox->isChecked(),
+             "marker click changed attendance state") ||
+      !Check(markerButton->height() <= 22 && markerButton->text() == "2",
+             "marker badge is not compact or does not show kind count") ||
+      !Check(markerButton->toolTip().contains("Оплата") &&
+                 markerButton->toolTip().contains("Первое посещение") &&
+                 markerButton->toolTip().contains("&lt;оплачено&gt;"),
+             "marker tooltip lost semantics or escaping"))
+  {
+    return false;
+  }
+  cell.setEditable(false);
+  return Check(!checkBox->isEnabled() && !markerButton->isEnabled(),
+               "read-only marker cell remains editable");
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
 {
   QApplication app(argc, argv);
   if (!WeekdayClickSelectsAndClearsGroup() ||
-      !BulkControlsStaySynchronized())
+      !BulkControlsStaySynchronized() ||
+      !DayMarkerDialogSupportsMultipleKindsAndClear() ||
+      !NoteOnlyMarkerBecomesOther() ||
+      !AttendanceCellUsesCompactSemanticBadge())
   {
     return 1;
   }

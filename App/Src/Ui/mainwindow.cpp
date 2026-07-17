@@ -12,12 +12,15 @@
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QTimer>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <QHash>
 #include <memory>
 
+#include "AttendanceCellWidget.hpp"
 #include "CopyUsersDialog.hpp"
+#include "DayMarkerDialog.hpp"
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
 #include "MonthDaysDialog.hpp"
@@ -448,6 +451,13 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     marksByParticipant[record.participantId.value][record.day] =
         record.isChecked;
   }
+  QHash<QString, QHash<int, ParticipantDayMarker>>
+      dayMarkersByParticipant;
+  for (const ParticipantDayMarker& marker : snapshot.dayMarkers)
+  {
+    dayMarkersByParticipant[marker.participantId.value].insert(marker.day,
+                                                               marker);
+  }
 
   for (const Participant& participant : snapshot.participants)
   {
@@ -475,7 +485,19 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
       const int column = index + kFirstDayColumn;
       const bool checked =
           marksByParticipant.value(participant.id.value).value(day, false);
-      addCheckBox(tableWidget, row, column, checked);
+      std::optional<ParticipantDayMarker> marker;
+      const auto participantMarkers =
+          dayMarkersByParticipant.constFind(participant.id.value);
+      if (participantMarkers != dayMarkersByParticipant.cend())
+      {
+        const auto dayMarker = participantMarkers->constFind(day);
+        if (dayMarker != participantMarkers->cend())
+        {
+          marker = dayMarker.value();
+        }
+      }
+      addAttendanceCell(tableWidget, row, column, checked, participant, day,
+                        marker);
     }
     updateAttendanceCount(tableWidget, row);
   }
@@ -512,11 +534,10 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const
       const int day = activeDays_.at(index);
       const int column = index + kFirstDayColumn;
 
-      QCheckBox* checkBox =
-          qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, column));
+      const auto* cell = qobject_cast<AttendanceCellWidget*>(
+          tableWidget->cellWidget(row, column));
 
-      data.push_back(
-          {participantId, day, checkBox ? checkBox->isChecked() : false});
+      data.push_back({participantId, day, cell ? cell->isChecked() : false});
     }
   }
 
@@ -608,9 +629,10 @@ void MainWindow::createEmptyTable()
   }
 
   connect(tableWidget, &QTableWidget::cellDoubleClicked, this,
-          [this, tableWidget](int row, int)
+          [this, tableWidget](int row, int column)
           {
-            if (row < kFirstParticipantRow)
+            if (row < kFirstParticipantRow ||
+                (column != kIdColumn && column != kNameColumn))
             {
               return;
             }
@@ -1072,11 +1094,11 @@ void MainWindow::updateEditControlsByMode()
       for (int index = 0; index < activeDays_.size(); ++index)
       {
         const int column = index + kFirstDayColumn;
-        QCheckBox* checkBox = qobject_cast<QCheckBox*>(
+        auto* cell = qobject_cast<AttendanceCellWidget*>(
             tableWidget->cellWidget(row, column));
-        if (checkBox)
+        if (cell)
         {
-          checkBox->setEnabled(canEditMonth);
+          cell->setEditable(canEditMonth);
         }
       }
     }
@@ -1244,16 +1266,72 @@ void MainWindow::pullCurrentMonthFromServer()
 
 //---------------------------------------------------------------
 
-void MainWindow::addCheckBox(QTableWidget* tableWidget, int row, int column,
-                             bool is_checked)
+void MainWindow::addAttendanceCell(
+    QTableWidget* tableWidget, int row, int column, bool isChecked,
+    const Participant& participant, int day,
+    const std::optional<ParticipantDayMarker>& marker)
 {
-  // Ячейка посещаемости всегда представлена чекбоксом.
-  QCheckBox* checkBox = new QCheckBox();
-  checkBox->setChecked(is_checked);
-  tableWidget->setCellWidget(row, column, checkBox);
-  connect(checkBox, &QCheckBox::toggled, tableWidget,
+  const QDate date(static_cast<int>(year), static_cast<int>(month), day);
+  auto* cell = new AttendanceCellWidget(isChecked, participant.displayName,
+                                        date, marker, tableWidget);
+  tableWidget->setCellWidget(row, column, cell);
+  connect(cell->attendanceCheckBox(), &QCheckBox::toggled, tableWidget,
           [this, tableWidget, row](bool)
           { updateAttendanceCount(tableWidget, row); });
+  connect(cell->markerButton(), &QToolButton::clicked, cell,
+          [this, cell, participant, day]()
+          { editDayMarker(cell, participant, day); });
+}
+
+//---------------------------------------------------------------
+
+void MainWindow::editDayMarker(AttendanceCellWidget* cell,
+                               const Participant& participant, int day)
+{
+  if (!cell || !journalApp_ || activeStorageMode_ == "server" ||
+      isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+      !monthDataValid_)
+  {
+    ui->statusbar->showMessage("Редактирование отметки сейчас недоступно");
+    return;
+  }
+
+  const DayMarkerKinds initialKinds =
+      cell->marker().has_value() ? cell->marker()->kinds : DayMarkerKinds();
+  const QString initialNote =
+      cell->marker().has_value() ? cell->marker()->note : QString();
+  const QDate date(static_cast<int>(year), static_cast<int>(month), day);
+  DayMarkerDialog dialog(participant.displayName, date, initialKinds,
+                         initialNote, this);
+  if (dialog.exec() != QDialog::Accepted)
+  {
+    return;
+  }
+
+  if (dialog.clearRequested())
+  {
+    if (!journalApp_->removeDayMarker(static_cast<int>(year),
+                                      static_cast<int>(month), participant.id,
+                                      day))
+    {
+      ui->statusbar->showMessage("Не удалось удалить отметку дня", 5000);
+      return;
+    }
+    cell->setMarker(std::nullopt);
+    ui->statusbar->showMessage("Отметка дня удалена", 3000);
+    return;
+  }
+
+  const ParticipantDayMarker marker{participant.id, day,
+                                    dialog.selectedKinds(), dialog.note()};
+  if (!journalApp_->saveDayMarker(static_cast<int>(year),
+                                  static_cast<int>(month), marker))
+  {
+    ui->statusbar->showMessage("Не удалось сохранить отметку дня", 5000);
+    return;
+  }
+  cell->setMarker(marker);
+  ui->statusbar->showMessage("Отметка дня сохранена", 3000);
 }
 
 //---------------------------------------------------------------
@@ -1271,10 +1349,10 @@ void MainWindow::updateAttendanceCount(QTableWidget* tableWidget, int row)
   for (int index = 0; index < activeDays_.size(); ++index)
   {
     const int column = index + kFirstDayColumn;
-    const QCheckBox* checkBox =
-        qobject_cast<QCheckBox*>(tableWidget->cellWidget(row, column));
+    const auto* cell = qobject_cast<AttendanceCellWidget*>(
+        tableWidget->cellWidget(row, column));
     attendanceByDay.insert(activeDays_.at(index),
-                           checkBox && checkBox->isChecked());
+                           cell && cell->isChecked());
   }
 
   QTableWidgetItem* countItem =

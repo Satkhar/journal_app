@@ -42,6 +42,25 @@ bool JournalLocal::saveAttendance(int year, int month,
   return sqlite_->saveAttendance(year, month, data);
 }
 
+std::vector<ParticipantDayMarker> JournalLocal::getDayMarkers(int year,
+                                                              int month)
+{
+  return sqlite_->getDayMarkers(year, month);
+}
+
+bool JournalLocal::saveDayMarker(int year, int month,
+                                 const ParticipantDayMarker& marker)
+{
+  return sqlite_->saveDayMarker(year, month, marker);
+}
+
+bool JournalLocal::removeDayMarker(int year, int month,
+                                   const ParticipantId& participantId,
+                                   int day)
+{
+  return sqlite_->removeDayMarker(year, month, participantId, day);
+}
+
 bool JournalLocal::addParticipantToMonth(int year, int month,
                                          const Participant& participant)
 {
