@@ -23,7 +23,6 @@
 #include <QMessageBox>
 #include <QProcessEnvironment>
 #include <QPushButton>
-#include <QSettings>
 #include <QSizePolicy>
 #include <QStandardPaths>
 #include <QTimer>
@@ -58,8 +57,6 @@ constexpr int kNameColumn = 0;
 constexpr int kRankColumn = 1;
 constexpr int kAttendanceCountColumn = 2;
 constexpr int kFirstDayColumn = 3;
-constexpr char kCalendarExpandedSetting[] = "ui/calendarExpanded";
-
 QString applicationDataFilePath(const QString& fileName)
 {
   const QString dataDirectory =
@@ -218,16 +215,13 @@ void MainWindow::setupCalendarControls()
   connect(ui->nextMonthButton, &QToolButton::clicked, ui->calendarWidget,
           &QCalendarWidget::showNextMonth);
 
-  const bool expanded =
-      QSettings().value(kCalendarExpandedSetting, true).toBool();
-  ui->toggleCalendarButton->setChecked(expanded);
-  applyCalendarExpanded(expanded);
+  ui->toggleCalendarButton->setChecked(false);
+  applyCalendarExpanded(false);
 
   connect(ui->toggleCalendarButton, &QToolButton::toggled, this,
           [this](bool isExpanded)
           {
             applyCalendarExpanded(isExpanded);
-            QSettings().setValue(kCalendarExpandedSetting, isExpanded);
           });
 
   updateDisplayedMonthLabel(ui->calendarWidget->yearShown(),
@@ -258,7 +252,7 @@ void MainWindow::updateDisplayedMonthLabel(int shownYear, int shownMonth)
   }
 
   const QLocale russian(QLocale::Russian, QLocale::Russia);
-  QString label = russian.toString(firstDay, "LLLL yyyy");
+  QString label = russian.toString(firstDay, "MMMM yyyy");
   if (!label.isEmpty())
   {
     label.replace(0, 1, label.left(1).toUpper());
