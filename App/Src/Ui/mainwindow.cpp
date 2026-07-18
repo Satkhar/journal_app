@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontMetrics>
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -50,9 +51,7 @@
 namespace
 {
 
-constexpr int kDateRow = 0;
-constexpr int kWeekdayRow = 1;
-constexpr int kFirstParticipantRow = 2;
+constexpr int kFirstContentRow = 0;
 constexpr int kNameColumn = 0;
 constexpr int kRankColumn = 1;
 constexpr int kAttendanceCountColumn = 2;
@@ -111,6 +110,19 @@ QVector<int> fullMonthDays(int year, int month)
     days.push_back(day);
   }
   return days;
+}
+
+QString dayHeaderLabel(int year, int month, int day)
+{
+  const QDate date(year, month, day);
+  if (!date.isValid())
+  {
+    return {};
+  }
+  return QString("%1.%2\n%3")
+      .arg(day, 2, 10, QLatin1Char('0'))
+      .arg(month, 2, 10, QLatin1Char('0'))
+      .arg(kDaysOfWeek.at(date.dayOfWeek() - 1));
 }
 
 } // namespace
@@ -357,15 +369,13 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
         fullMonthDays(static_cast<int>(year), static_cast<int>(month));
   }
 
-  // Всегда заново рисуем служебные строки и все user-строки,
-  // чтобы таблица была полностью консистентна snapshot.
+  // Даты находятся в horizontal header, поэтому остаются видимыми при
+  // вертикальной прокрутке списка участников.
   tableWidget->clearContents();
-  tableWidget->setRowCount(kFirstParticipantRow);
+  tableWidget->setRowCount(kFirstContentRow);
   tableWidget->setColumnCount(kFirstDayColumn +
                               static_cast<int>(activeDays_.size()));
 
-  tableWidget->setItem(kDateRow, kNameColumn, new QTableWidgetItem("Дата"));
-  tableWidget->setItem(kWeekdayRow, kNameColumn, new QTableWidgetItem("День"));
   tableWidget->setHorizontalHeaderItem(kNameColumn,
                                        new QTableWidgetItem("Участник"));
   tableWidget->setHorizontalHeaderItem(kRankColumn,
@@ -377,17 +387,10 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   {
     const int day = activeDays_.at(index);
     const int column = index + kFirstDayColumn;
-    const QString dateLabel = QString("%1.%2")
-                                  .arg(day, 2, 10, QLatin1Char('0'))
-                                  .arg(month, 2, 10, QLatin1Char('0'));
-    tableWidget->setItem(kDateRow, column, new QTableWidgetItem(dateLabel));
-
-    const QDate date(static_cast<int>(year), static_cast<int>(month),
-                     static_cast<int>(day));
-    tableWidget->setItem(
-        kWeekdayRow, column,
-        new QTableWidgetItem(kDaysOfWeek[date.dayOfWeek() - 1]));
-    tableWidget->setHorizontalHeaderItem(column, new QTableWidgetItem(" "));
+    tableWidget->setHorizontalHeaderItem(
+        column,
+        new QTableWidgetItem(dayHeaderLabel(static_cast<int>(year),
+                                            static_cast<int>(month), day)));
   }
 
   QHash<QString, QHash<int, bool>> marksByParticipant;
@@ -500,7 +503,7 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const
   }
 
   // Читаем только колонки активных дат. Служебные колонки не сериализуются.
-  for (int row = kFirstParticipantRow; row < tableWidget->rowCount(); ++row)
+  for (int row = kFirstContentRow; row < tableWidget->rowCount(); ++row)
   {
     const QTableWidgetItem* idItem = tableWidget->item(row, kNameColumn);
     const ParticipantId participantId{
@@ -529,8 +532,7 @@ std::vector<AttendanceRecord> MainWindow::collectMonthFromTable() const
 
 void MainWindow::createEmptyTable()
 {
-  // Пересоздаем основную таблицу под выбранный месяц (2 служебные строки +
-  // дни).
+  // Пересоздаем основную таблицу под выбранный месяц.
   updateCalendarVariables(ui->calendarWidget);
 
   // При смене месяца/страницы календаря удаляем старую таблицу целиком
@@ -546,7 +548,7 @@ void MainWindow::createEmptyTable()
           ? fullMonthDays(static_cast<int>(year), static_cast<int>(month))
           : activeDays_;
   QTableWidget* tableWidget = new QTableWidget(
-      kFirstParticipantRow,
+      kFirstContentRow,
       kFirstDayColumn + static_cast<int>(tableDays.size()), this);
   tableWidget->setObjectName("bigTable");
 
@@ -558,13 +560,18 @@ void MainWindow::createEmptyTable()
                                        new QTableWidgetItem("Посещено"));
   for (int i = 0; i < tableDays.size(); ++i)
   {
-    tableWidget->setHorizontalHeaderItem(i + kFirstDayColumn,
-                                         new QTableWidgetItem(" "));
+    tableWidget->setHorizontalHeaderItem(
+        i + kFirstDayColumn,
+        new QTableWidgetItem(dayHeaderLabel(
+            static_cast<int>(year), static_cast<int>(month),
+            tableDays.at(i))));
   }
 
   tableWidget->resizeColumnsToContents();
-  tableWidget->horizontalHeader()->setSectionResizeMode(
-      QHeaderView::Interactive);
+  auto* header = tableWidget->horizontalHeader();
+  header->setDefaultAlignment(Qt::AlignCenter);
+  header->setMinimumHeight(tableWidget->fontMetrics().lineSpacing() * 2 + 10);
+  header->setSectionResizeMode(QHeaderView::Interactive);
   tableWidget->setMinimumHeight(260);
   tableWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
@@ -581,7 +588,7 @@ void MainWindow::createEmptyTable()
   connect(tableWidget, &QTableWidget::cellDoubleClicked, this,
           [this, tableWidget](int row, int column)
           {
-            if (row < kFirstParticipantRow ||
+            if (row < kFirstContentRow ||
                 (column != kNameColumn && column != kRankColumn))
             {
               return;
@@ -747,7 +754,7 @@ void MainWindow::removeSelectedParticipantFromMonth()
 
   QTableWidget* table = findChild<QTableWidget*>("bigTable");
   const int row = table ? table->currentRow() : -1;
-  if (row < kFirstParticipantRow)
+  if (row < kFirstContentRow)
   {
     ui->statusbar->showMessage("Выберите строку участника");
     return;
@@ -1227,7 +1234,7 @@ void MainWindow::updateEditControlsByMode()
   QTableWidget* tableWidget = findChild<QTableWidget*>("bigTable");
   if (tableWidget)
   {
-    for (int row = kFirstParticipantRow; row < tableWidget->rowCount(); ++row)
+    for (int row = kFirstContentRow; row < tableWidget->rowCount(); ++row)
     {
       for (int index = 0; index < activeDays_.size(); ++index)
       {
@@ -1474,7 +1481,7 @@ void MainWindow::editDayMarker(AttendanceCellWidget* cell,
 
 void MainWindow::updateAttendanceCount(QTableWidget* tableWidget, int row)
 {
-  if (!tableWidget || row < kFirstParticipantRow ||
+  if (!tableWidget || row < kFirstContentRow ||
       row >= tableWidget->rowCount())
   {
     return;
