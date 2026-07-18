@@ -32,8 +32,10 @@ int main(int argc, char *argv[])
   QApplication app(argc, argv);
   QCoreApplication::setOrganizationName("Satkhar");
   QCoreApplication::setApplicationName("journal_app");
-  // Единая минимальная высота нужна и главным действиям, и кнопкам диалогов.
-  app.setStyleSheet("QPushButton { min-height: 36px; }");
+  // Главная панель компактнее диалогов: основное рабочее место занимает
+  // таблица, а подтверждающие кнопки в диалогах остаются крупными.
+  app.setStyleSheet("QMainWindow QPushButton { min-height: 30px; }"
+                    "QDialog QPushButton { min-height: 36px; }");
 
   // Главное окно само внутри инициализирует UI и подключение к storage.
   MainWindow mainWindow;

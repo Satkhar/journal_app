@@ -747,9 +747,10 @@ void MainWindow::setupActionPanels()
   }
 
   // Сгенерированный UI оставлял под кнопками обязательный отступ 108 px.
-  // После добавления панелей действий он переполнял верхнюю строку окна.
-  ui->verticalSpacer->changeSize(0, 0, QSizePolicy::Minimum,
-                                 QSizePolicy::Expanding);
+  // Верхняя строка должна занимать только высоту календаря и действий.
+  ui->verticalSpacer->changeSize(0, 0, QSizePolicy::Fixed,
+                                 QSizePolicy::Fixed);
+  layout->setSpacing(4);
   layout->invalidate();
 
   setupConnectionPanel(layout);
@@ -761,12 +762,13 @@ void MainWindow::setupConnectionPanel(QVBoxLayout* parentLayout)
 {
   connectionGroup_ = new QGroupBox("Подключение", this);
   auto* storagePanelLayout = new QVBoxLayout(connectionGroup_);
+  storagePanelLayout->setSpacing(4);
   auto* controlsLayout = new QHBoxLayout();
   controlsLayout->addWidget(new QLabel("Server URL:", this));
 
   serverUrlEdit_ = new QLineEdit(this);
   serverUrlEdit_->setPlaceholderText("http://127.0.0.1:7070");
-  controlsLayout->addWidget(serverUrlEdit_);
+  controlsLayout->addWidget(serverUrlEdit_, 1);
 
   connectLocalBtn_ = new QPushButton("Local", this);
   controlsLayout->addWidget(connectLocalBtn_);
@@ -785,8 +787,8 @@ void MainWindow::setupConnectionPanel(QVBoxLayout* parentLayout)
                                  "  font-weight: 600;"
                                  "}");
 
+  controlsLayout->addWidget(modeBadgeLabel_);
   storagePanelLayout->addLayout(controlsLayout);
-  storagePanelLayout->addWidget(modeBadgeLabel_, 0, Qt::AlignLeft);
   parentLayout->insertWidget(0, connectionGroup_);
 
   connect(connectLocalBtn_, &QPushButton::clicked, this,
@@ -799,13 +801,14 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout)
 {
   monthGroup_ = new QGroupBox("Текущий месяц", this);
   auto* monthLayout = new QVBoxLayout(monthGroup_);
+  monthLayout->setSpacing(4);
 
   auto* userButtonsLayout = new QHBoxLayout();
+  ui->lineEdit->setPlaceholderText("Историчное имя нового участника");
+  userButtonsLayout->addWidget(ui->lineEdit, 1);
   userButtonsLayout->addWidget(ui->btnAdd);
   userButtonsLayout->addWidget(ui->btnDel);
   monthLayout->addLayout(userButtonsLayout);
-  ui->lineEdit->setPlaceholderText("Историчное имя нового участника");
-  monthLayout->addWidget(ui->lineEdit);
 
   configureMonthBtn_ = new QPushButton("Настроить конкретные даты", this);
 
@@ -839,14 +842,15 @@ void MainWindow::setupDataPanel(QVBoxLayout* parentLayout)
 {
   dataGroup_ = new QGroupBox("Данные", this);
   auto* dataLayout = new QVBoxLayout(dataGroup_);
+  dataLayout->setSpacing(4);
 
   ui->btnReadBase->setText("Прочитать месяц");
   ui->btnSaveCurTable->setText("Сохранить месяц");
-  auto* dataActionsLayout = new QGridLayout();
-  dataActionsLayout->addWidget(ui->btnReadBase, 0, 0);
-  dataActionsLayout->addWidget(ui->btnSaveCurTable, 0, 1);
-  dataActionsLayout->addWidget(ui->btnCreateTable, 1, 0);
-  dataActionsLayout->addWidget(ui->btnPullServer, 1, 1);
+  auto* dataActionsLayout = new QHBoxLayout();
+  dataActionsLayout->addWidget(ui->btnReadBase, 1);
+  dataActionsLayout->addWidget(ui->btnSaveCurTable, 1);
+  dataActionsLayout->addWidget(ui->btnCreateTable, 1);
+  dataActionsLayout->addWidget(ui->btnPullServer, 1);
   eventsBtn_ = new QPushButton("Турниры", this);
   const QString eventsPath = eventDatabasePath();
   eventsBtn_->setToolTip(
@@ -854,9 +858,7 @@ void MainWindow::setupDataPanel(QVBoxLayout* parentLayout)
           ? "Отдельная локальная БД турниров"
           : QString("Отдельная локальная БД турниров: %1")
                 .arg(QDir::toNativeSeparators(eventsPath)));
-  dataActionsLayout->addWidget(eventsBtn_, 2, 0, 1, 2);
-  dataActionsLayout->setColumnStretch(0, 1);
-  dataActionsLayout->setColumnStretch(1, 1);
+  dataActionsLayout->addWidget(eventsBtn_, 1);
   dataLayout->addLayout(dataActionsLayout);
 
   connect(eventsBtn_, &QPushButton::clicked, this,
