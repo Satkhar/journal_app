@@ -1,4 +1,6 @@
-> **Статус:** документ описывает schema v1 и сохранен как historical reference. Актуальная доменная модель и schema v5: doc/arch.md. План карточек: doc/participant_profiles_plan.md.
+> **Статус:** документ описывает schema v1 и сохранен как historical reference.
+> Актуальная доменная модель и schema v7: doc/arch.md. План карточек:
+> doc/participant_profiles_plan.md.
 
 # Project Navigation
 
@@ -31,7 +33,7 @@ journal_app/
 
   App/
     Inc/                      # публичные заголовки проекта
-      config.h                # DB_PATH, режим/URL сервера по умолчанию, timeout
+      config.h                # имена БД, режим/URL сервера, timeout
       journal_app.h           # сгенерированный/зафиксированный UI header
       Domain/
         IJournalStorage.hpp   # общий контракт local/remote storage и модели
@@ -179,7 +181,8 @@ CREATE TABLE IF NOT EXISTS month_days (
 
 Локальная дата сейчас пишется в старом формате `dd.MM`, а чтение месяца ищет
 `__.MM%`, чтобы сохранить совместимость со старой БД. Путь к БД задан в
-`App/Inc/config.h` как `DB_PATH "test_data.db"`.
+Имя основной БД задано в `App/Inc/config.h` как
+`DB_FILENAME "test_data.db"`.
 
 `month_days` хранит выбранные дни учета для local-месяца. Если записей для
 `(year, month)` нет, `SqliteConnect::getActiveDays` возвращает полный месяц.

@@ -6,9 +6,11 @@
 - `month_participants` — участие человека в конкретном месяце.
 - `attendance` ссылается на membership через составной FK.
 - Удаление из месяца не удаляет глобального участника.
-- Local schema version — `PRAGMA user_version = 3`.
-- Старые development-БД не мигрируются: приложение отклоняет их явно.
-- Remote legacy schema автоматически не мигрируется.
+- Local schema version — `PRAGMA user_version = 7`.
+- Versioned local/remote schema v2-v5 мигрируют последовательно до v7.
+- Промежуточная development-v6 с `is_trainer` чинится при открытии; колонка
+  удаляется, прежние значения сохраняются в compatibility-таблице.
+- Unversioned remote legacy schema автоматически не мигрируется.
 
 ## Этап 2. Профиль участника — выполнен
 
@@ -20,14 +22,18 @@
 - в БД: nullable `birth_day`, `birth_month`, `birth_year`;
 - полная календарная валидность проверяется domain/use-case слоем до SQL.
 
-Контакты отложены до появления требований. Заметка — plain text, максимум 4096
-символов.
+ФИО и один контакт необязательны. Контакт — opaque строка для VK, Telegram или
+телефона, без автоматического открытия. Заметка — plain text, максимум 4096
+символов. Кто вёл тренировку — свойство участника в конкретную дату; оно
+хранится как `LedTraining` в `participant_day_markers`, а не в профиле.
 
 ### Реализовано
 
 1. Schema migration v2 -> v3 и fresh schema v3.
 2. Добавить типизированные поля профиля:
    - дата рождения с точностью;
+   - ФИО;
+   - контакт;
    - заметка;
    - `archived_at` уже заложен в v2.
 3. Добавить storage API чтения/редактирования профиля по `ParticipantId`.
