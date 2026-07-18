@@ -54,6 +54,7 @@ private:
   QPushButton* configureMonthBtn_;
   QPushButton* copyUsersBtn_;
   QPushButton* participantsBtn_;
+  QPushButton* eventsBtn_;
 
   // Текущее активное подключение (используется для защиты от лишних reconnect).
   QString activeStorageMode_;
@@ -104,6 +105,7 @@ private:
   void copyUsersFromMonth(bool copyWeekdayPatternByDefault = false);
   void openParticipantProfile(const ParticipantId& id);
   void openParticipantDirectory();
+  void openEventDirectory();
   // Обновляет визуальный индикатор режима.
   void updateModeBadge();
   // Включает/выключает кнопки редактирования в зависимости от режима.

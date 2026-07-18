@@ -24,6 +24,7 @@ DayMarkerDialog::DayMarkerDialog(const QString& participantName,
           new QCheckBox("Особенная тренировка", this)),
       firstVisitCheckBox_(new QCheckBox("Первое посещение", this)),
       otherCheckBox_(new QCheckBox("Другое", this)),
+      trainerCheckBox_(new QCheckBox("Вёл тренировку", this)),
       noteEdit_(new QLineEdit(this)), clearRequested_(false)
 {
   setWindowTitle("Отметка дня");
@@ -49,16 +50,20 @@ DayMarkerDialog::DayMarkerDialog(const QString& participantName,
       "specialTrainingMarkerCheckBox");
   firstVisitCheckBox_->setObjectName("firstVisitMarkerCheckBox");
   otherCheckBox_->setObjectName("otherMarkerCheckBox");
+  trainerCheckBox_->setObjectName("trainerMarkerCheckBox");
   paymentCheckBox_->setChecked(initialKinds.testFlag(DayMarkerKind::Payment));
   specialTrainingCheckBox_->setChecked(
       initialKinds.testFlag(DayMarkerKind::SpecialTraining));
   firstVisitCheckBox_->setChecked(
       initialKinds.testFlag(DayMarkerKind::FirstVisit));
   otherCheckBox_->setChecked(initialKinds.testFlag(DayMarkerKind::Other));
+  trainerCheckBox_->setChecked(
+      initialKinds.testFlag(DayMarkerKind::LedTraining));
   layout->addWidget(paymentCheckBox_);
   layout->addWidget(specialTrainingCheckBox_);
   layout->addWidget(firstVisitCheckBox_);
   layout->addWidget(otherCheckBox_);
+  layout->addWidget(trainerCheckBox_);
 
   noteEdit_->setObjectName("dayMarkerNoteEdit");
   noteEdit_->setMaxLength(kMaxDayMarkerNoteLength);
@@ -118,6 +123,10 @@ DayMarkerKinds DayMarkerDialog::selectedKinds() const
   if (otherCheckBox_->isChecked())
   {
     kinds |= DayMarkerKind::Other;
+  }
+  if (trainerCheckBox_->isChecked())
+  {
+    kinds |= DayMarkerKind::LedTraining;
   }
   return kinds;
 }

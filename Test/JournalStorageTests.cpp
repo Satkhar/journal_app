@@ -39,7 +39,7 @@ bool invalidMarkerMaskIsRejected(const QString& path,
     QSqlQuery query(db);
     query.prepare("INSERT INTO participant_day_markers(year, month, day, "
                   "participant_id, kind_mask, note) "
-                  "VALUES(2025, 7, 3, :id, 16, '')");
+                  "VALUES(2025, 7, 3, :id, 32, '')");
     query.bindValue(":id", participantId.value);
     rejected = !query.exec();
   }
@@ -49,7 +49,47 @@ bool invalidMarkerMaskIsRejected(const QString& path,
   return rejected;
 }
 
-bool createOldDevelopmentDatabase(const QString& path)
+bool isNormalizedSchemaV7(const QString& path, bool expectsTrainerBackup)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  bool versionOk = false;
+  bool hasTrainerColumn = false;
+  bool backupOk = !expectsTrainerBackup;
+  if (db.open())
+  {
+    QSqlQuery query(db);
+    versionOk = query.exec("PRAGMA user_version") && query.next() &&
+                query.value(0).toInt() == 7;
+    if (query.exec("PRAGMA table_info(participants)"))
+    {
+      while (query.next())
+      {
+        hasTrainerColumn =
+            hasTrainerColumn || query.value(1).toString() == "is_trainer";
+      }
+    }
+    else
+    {
+      versionOk = false;
+    }
+    if (expectsTrainerBackup)
+    {
+      backupOk =
+          query.exec("SELECT count(*) FROM "
+                     "legacy_v6_participant_trainer_flags WHERE "
+                     "is_trainer = 1") &&
+          query.next() && query.value(0).toInt() == 1;
+    }
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return versionOk && !hasTrainerColumn && backupOk;
+}
+
+bool createSchemaV5Database(const QString& path, const Participant& person)
 {
   const QString connection = QUuid::createUuid().toString();
   QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
@@ -58,125 +98,85 @@ bool createOldDevelopmentDatabase(const QString& path)
   {
     return false;
   }
-  QSqlQuery query(db);
-  const bool ok = query.exec(
-      "CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT "
-      "NULL, date TEXT NOT NULL, is_checked INTEGER NOT NULL)");
+  bool ok = true;
+  {
+    QSqlQuery query(db);
+    const QStringList statements = {
+        "PRAGMA foreign_keys = ON",
+        "CREATE TABLE participants(id TEXT PRIMARY KEY NOT NULL, "
+        "display_name TEXT NOT NULL, birth_day INTEGER, birth_month INTEGER, "
+        "birth_year INTEGER, notes TEXT NOT NULL DEFAULT '', created_at TEXT "
+        "NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT "
+        "CURRENT_TIMESTAMP, archived_at TEXT, rank TEXT NOT NULL DEFAULT "
+        "'guest' CHECK(rank IN ('page', 'squire', 'novice', 'recruit', "
+        "'guest', 'knight')))",
+        "CREATE TABLE month_participants(year INTEGER NOT NULL, month INTEGER "
+        "NOT NULL, participant_id TEXT NOT NULL, sort_order INTEGER NOT NULL, "
+        "PRIMARY KEY(year, month, participant_id), FOREIGN KEY(participant_id) "
+        "REFERENCES participants(id))",
+        "CREATE TABLE attendance(year INTEGER NOT NULL, month INTEGER NOT "
+        "NULL, day INTEGER NOT NULL, participant_id TEXT NOT NULL, is_checked "
+        "INTEGER NOT NULL, PRIMARY KEY(year, month, day, participant_id), "
+        "FOREIGN KEY(year, month, participant_id) REFERENCES "
+        "month_participants(year, month, participant_id) ON DELETE CASCADE)",
+        "CREATE TABLE month_days(year INTEGER NOT NULL, month INTEGER NOT "
+        "NULL, day INTEGER NOT NULL, PRIMARY KEY(year, month, day))",
+        "CREATE TABLE participant_day_markers(year INTEGER NOT NULL, month "
+        "INTEGER NOT NULL, day INTEGER NOT NULL, participant_id TEXT NOT NULL, "
+        "kind_mask INTEGER NOT NULL CHECK(kind_mask BETWEEN 1 AND 15), note "
+        "TEXT NOT NULL DEFAULT '', PRIMARY KEY(year, month, day, "
+        "participant_id), FOREIGN KEY(year, month, participant_id) REFERENCES "
+        "month_participants(year, month, participant_id) ON DELETE CASCADE)",
+        "CREATE INDEX idx_day_markers_history ON participant_day_markers("
+        "participant_id, year, month, day)",
+        "CREATE TRIGGER participants_profile_insert BEFORE INSERT ON "
+        "participants BEGIN SELECT 1; END",
+        "CREATE TRIGGER participants_profile_update BEFORE UPDATE ON "
+        "participants BEGIN SELECT 1; END"};
+    for (const QString& statement : statements)
+    {
+      if (!query.exec(statement))
+      {
+        ok = false;
+        break;
+      }
+    }
+    if (ok)
+    {
+      query.prepare("INSERT INTO participants(id, display_name, rank) "
+                    "VALUES(:id, :name, 'knight')");
+      query.bindValue(":id", person.id.value);
+      query.bindValue(":name", person.displayName);
+      ok = query.exec();
+    }
+    if (ok)
+    {
+      query.prepare("INSERT INTO month_participants "
+                    "VALUES(2025, 7, :id, 0)");
+      query.bindValue(":id", person.id.value);
+      ok = query.exec();
+    }
+    if (ok)
+    {
+      query.prepare("INSERT INTO participant_day_markers(year, month, day, "
+                    "participant_id, kind_mask, note) VALUES(2025, 7, 1, "
+                    ":id, 1, 'v5 marker')");
+      query.bindValue(":id", person.id.value);
+      ok = query.exec();
+    }
+    ok = ok && query.exec("PRAGMA user_version = 5");
+  }
   db.close();
   db = QSqlDatabase();
   QSqlDatabase::removeDatabase(connection);
   return ok;
 }
 
-bool createSchemaV2Database(const QString& path, const Participant& person)
+bool createObsoleteSchemaV6Database(const QString& path,
+                                    const Participant& person,
+                                    bool withTrainerColumn)
 {
-  const QString connection = QUuid::createUuid().toString();
-  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
-  db.setDatabaseName(path);
-  if (!db.open())
-  {
-    return false;
-  }
-  QSqlQuery query(db);
-  const QStringList statements = {
-      "PRAGMA foreign_keys = ON",
-      "CREATE TABLE participants(id TEXT PRIMARY KEY NOT NULL, display_name "
-      "TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-      "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, archived_at TEXT)",
-      "CREATE TABLE month_participants(year INTEGER NOT NULL, month INTEGER "
-      "NOT NULL, participant_id TEXT NOT NULL, sort_order INTEGER NOT NULL, "
-      "PRIMARY KEY(year, month, participant_id), FOREIGN KEY(participant_id) "
-      "REFERENCES participants(id))",
-      "CREATE TABLE attendance(year INTEGER NOT NULL, month INTEGER NOT NULL, "
-      "day INTEGER NOT NULL, participant_id TEXT NOT NULL, is_checked INTEGER "
-      "NOT NULL, PRIMARY KEY(year, month, day, participant_id), FOREIGN KEY("
-      "year, month, participant_id) REFERENCES month_participants(year, "
-      "month, participant_id) ON DELETE CASCADE)",
-      "CREATE TABLE month_days(year INTEGER NOT NULL, month INTEGER NOT NULL, "
-      "day INTEGER NOT NULL, PRIMARY KEY(year, month, day))"};
-  bool ok = true;
-  for (const QString& statement : statements)
-  {
-    ok = ok && query.exec(statement);
-  }
-  query.prepare(
-      "INSERT INTO participants(id, display_name) VALUES(:id, :name)");
-  query.bindValue(":id", person.id.value);
-  query.bindValue(":name", person.displayName);
-  ok = ok && query.exec();
-  query.prepare("INSERT INTO month_participants VALUES(2025, 7, :id, 0)");
-  query.bindValue(":id", person.id.value);
-  ok = ok && query.exec();
-  ok = ok && query.exec("INSERT INTO month_days VALUES(2025, 7, 1)");
-  query.prepare("INSERT INTO attendance VALUES(2025, 7, 1, :id, 1)");
-  query.bindValue(":id", person.id.value);
-  ok = ok && query.exec();
-  ok = ok && query.exec("PRAGMA user_version = 2");
-  db.close();
-  db = QSqlDatabase();
-  QSqlDatabase::removeDatabase(connection);
-  return ok;
-}
-
-bool createSchemaV3Database(const QString& path, const Participant& person)
-{
-  const QString connection = QUuid::createUuid().toString();
-  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
-  db.setDatabaseName(path);
-  if (!db.open())
-  {
-    return false;
-  }
-  QSqlQuery query(db);
-  const QStringList statements = {
-      "PRAGMA foreign_keys = ON",
-      "CREATE TABLE participants(id TEXT PRIMARY KEY NOT NULL, display_name "
-      "TEXT NOT NULL, birth_day INTEGER, birth_month INTEGER, birth_year "
-      "INTEGER, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL "
-      "DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT "
-      "CURRENT_TIMESTAMP, archived_at TEXT)",
-      "CREATE TABLE month_participants(year INTEGER NOT NULL, month INTEGER "
-      "NOT NULL, participant_id TEXT NOT NULL, sort_order INTEGER NOT NULL, "
-      "PRIMARY KEY(year, month, participant_id), FOREIGN KEY(participant_id) "
-      "REFERENCES participants(id))",
-      "CREATE TABLE attendance(year INTEGER NOT NULL, month INTEGER NOT NULL, "
-      "day INTEGER NOT NULL, participant_id TEXT NOT NULL, is_checked INTEGER "
-      "NOT NULL, PRIMARY KEY(year, month, day, participant_id), FOREIGN KEY("
-      "year, month, participant_id) REFERENCES month_participants(year, "
-      "month, participant_id) ON DELETE CASCADE)",
-      "CREATE TABLE month_days(year INTEGER NOT NULL, month INTEGER NOT NULL, "
-      "day INTEGER NOT NULL, PRIMARY KEY(year, month, day))",
-      "CREATE TRIGGER participants_profile_insert BEFORE INSERT ON "
-      "participants BEGIN SELECT 1; END",
-      "CREATE TRIGGER participants_profile_update BEFORE UPDATE ON "
-      "participants BEGIN SELECT 1; END"};
-  bool ok = true;
-  for (const QString& statement : statements)
-  {
-    ok = ok && query.exec(statement);
-  }
-  query.prepare(
-      "INSERT INTO participants(id, display_name) VALUES(:id, :name)");
-  query.bindValue(":id", person.id.value);
-  query.bindValue(":name", person.displayName);
-  ok = ok && query.exec();
-  query.prepare("INSERT INTO month_participants VALUES(2025, 7, :id, 0)");
-  query.bindValue(":id", person.id.value);
-  ok = ok && query.exec();
-  ok = ok && query.exec("INSERT INTO month_days VALUES(2025, 7, 1)");
-  query.prepare("INSERT INTO attendance VALUES(2025, 7, 1, :id, 1)");
-  query.bindValue(":id", person.id.value);
-  ok = ok && query.exec();
-  ok = ok && query.exec("PRAGMA user_version = 3");
-  db.close();
-  db = QSqlDatabase();
-  QSqlDatabase::removeDatabase(connection);
-  return ok;
-}
-
-bool createSchemaV4Database(const QString& path, const Participant& person)
-{
-  if (!createSchemaV3Database(path, person))
+  if (!createSchemaV5Database(path, person))
   {
     return false;
   }
@@ -187,22 +187,25 @@ bool createSchemaV4Database(const QString& path, const Participant& person)
   {
     return false;
   }
-  QSqlQuery query(db);
-  const QStringList statements = {
-      "PRAGMA foreign_keys = ON",
-      "CREATE TABLE participant_day_markers(year INTEGER NOT NULL, month "
-      "INTEGER NOT NULL, day INTEGER NOT NULL, participant_id TEXT NOT NULL, "
-      "kind_mask INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', PRIMARY "
-      "KEY(year, month, day, participant_id), FOREIGN KEY(year, month, "
-      "participant_id) REFERENCES month_participants(year, month, "
-      "participant_id) ON DELETE CASCADE)",
-      "CREATE INDEX idx_day_markers_history ON participant_day_markers("
-      "participant_id, year, month, day)",
-      "PRAGMA user_version = 4"};
   bool ok = true;
-  for (const QString& statement : statements)
   {
-    ok = ok && query.exec(statement);
+    QSqlQuery query(db);
+    ok = query.exec("ALTER TABLE participants ADD COLUMN full_name TEXT NOT "
+                    "NULL DEFAULT '' CHECK(length(full_name) <= 300 AND "
+                    "instr(full_name, char(10)) = 0 AND "
+                    "instr(full_name, char(13)) = 0)") &&
+         query.exec("ALTER TABLE participants ADD COLUMN contact TEXT NOT "
+                    "NULL DEFAULT '' CHECK(length(contact) <= 500 AND "
+                    "instr(contact, char(10)) = 0 AND "
+                    "instr(contact, char(13)) = 0)");
+    if (ok && withTrainerColumn)
+    {
+      ok = query.exec("ALTER TABLE participants ADD COLUMN is_trainer "
+                      "INTEGER NOT NULL DEFAULT 0 CHECK(typeof(is_trainer) = "
+                      "'integer' AND is_trainer IN (0, 1))") &&
+           query.exec("UPDATE participants SET is_trainer = 1");
+    }
+    ok = ok && query.exec("PRAGMA user_version = 6");
   }
   db.close();
   db = QSqlDatabase();
@@ -250,7 +253,9 @@ bool freshDatabaseTest(const QString& path)
     return false;
   }
   const ParticipantDayMarker marker{
-      alice.id, 2, DayMarkerKind::Payment | DayMarkerKind::FirstVisit,
+      alice.id, 2,
+      DayMarkerKind::Payment | DayMarkerKind::FirstVisit |
+          DayMarkerKind::LedTraining,
       "First paid visit"};
   if (!check(storage.saveDayMarker(2025, 7, marker), "day marker save failed"))
   {
@@ -298,6 +303,8 @@ bool freshDatabaseTest(const QString& path)
     return false;
   }
   profile->displayName = "Alice Updated";
+  profile->fullName = "Alice Example Smith";
+  profile->contact = "@alice_example";
   profile->birthday = Birthday{29, 2, std::nullopt};
   profile->rank = ParticipantRank::Squire;
   profile->notes = "Plain text note";
@@ -311,8 +318,10 @@ bool freshDatabaseTest(const QString& path)
   if (!check(renamed.size() == 1 && updatedProfile.has_value() &&
                  renamed.front().displayName == "Alice Updated" &&
                  renamed.front().id == alice.id &&
+                 updatedProfile->fullName == "Alice Example Smith" &&
+                 updatedProfile->contact == "@alice_example" &&
                  updatedProfile->rank == ParticipantRank::Squire,
-             "profile update lost name, ID, or rank"))
+             "profile update lost identity, contact, or rank"))
   {
     return false;
   }
@@ -335,6 +344,20 @@ bool freshDatabaseTest(const QString& path)
   invalid.rank = static_cast<ParticipantRank>(999);
   if (!check(!storage.updateParticipantProfile(invalid),
              "unknown participant rank was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.fullName = QString(kMaxParticipantFullNameLength + 1, 'x');
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "oversized full name was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.contact = "@alice\nsecond-line";
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "multiline contact was accepted"))
   {
     return false;
   }
@@ -386,132 +409,58 @@ bool freshDatabaseTest(const QString& path)
                "membership removal deleted global profile");
 }
 
-bool migrationV2ToV5Test(const QString& path)
+bool migrationV5ToV7Test(const QString& path)
 {
-  const Participant alice = participant("Migrated Alice");
-  if (!createSchemaV2Database(path, alice))
+  const Participant alice = participant("V5 Alice");
+  if (!createSchemaV5Database(path, alice))
   {
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v2 to v5 migration failed"))
+  if (!check(storage.open(path), "schema v5 to v7 migration failed"))
   {
     return false;
   }
   const auto profile = storage.getParticipantProfile(alice.id);
-  const auto attendance = storage.getMonth(2025, 7);
-  return check(profile.has_value() && profile->notes.isEmpty() &&
-                   profile->rank == ParticipantRank::Guest &&
-                   !profile->birthday.has_value(),
-               "migration produced invalid profile defaults") &&
-         check(attendance.size() == 1 && attendance.front().isChecked,
-               "migration lost attendance") &&
-         check(storage.getDayMarkers(2025, 7).empty(),
-               "v2 migration created phantom day markers") &&
-         check(storage.open(path), "schema v5 reopen is not idempotent");
+  const auto migratedMarkers = storage.getDayMarkers(2025, 7);
+  const ParticipantDayMarker trainerMarker{alice.id, 2,
+                                           DayMarkerKind::LedTraining,
+                                           "Вёл тренировку"};
+  return check(profile.has_value() &&
+                   profile->rank == ParticipantRank::Knight &&
+                   profile->fullName.isEmpty() && profile->contact.isEmpty(),
+               "v5 migration lost rank or assigned invalid detail defaults") &&
+         check(migratedMarkers.size() == 1 &&
+                   migratedMarkers.front().kinds == DayMarkerKind::Payment,
+               "v5 migration lost old day marker") &&
+         check(storage.saveDayMarker(2025, 7, trainerMarker),
+               "v7 schema rejected trainer day marker") &&
+         check(storage.open(path), "migrated v7 reopen is not idempotent") &&
+         check(isNormalizedSchemaV7(path, false),
+               "v5 migration did not produce clean schema v7");
 }
 
-bool migrationV3ToV5Test(const QString& path)
+bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
 {
-  const Participant alice = participant("V3 Alice");
-  if (!createSchemaV3Database(path, alice))
+  const Participant alice = participant("Obsolete V6 Alice");
+  if (!createObsoleteSchemaV6Database(path, alice, withTrainerColumn))
   {
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v3 to v5 migration failed"))
+  if (!check(storage.open(path), "development schema v6 repair failed"))
   {
     return false;
   }
-  const auto attendance = storage.getMonth(2025, 7);
-  const ParticipantDayMarker marker{alice.id, 1, DayMarkerKind::Payment,
-                                    "Migrated DB marker"};
-  return check(attendance.size() == 1 && attendance.front().isChecked,
-               "v3 migration lost attendance") &&
-         check(storage.getDayMarkers(2025, 7).empty(),
-               "v3 migration created phantom markers") &&
-         check(storage.saveDayMarker(2025, 7, marker),
-               "migrated v4 marker table is not writable") &&
-         check(storage.getDayMarkers(2025, 7).size() == 1,
-               "migrated v4 marker is not readable") &&
-         check(storage.getParticipantProfile(alice.id)->rank ==
-                   ParticipantRank::Guest,
-               "v3 migration did not assign Guest rank") &&
-         check(storage.open(path), "migrated v5 reopen is not idempotent");
-}
-
-bool migrationV4ToV5Test(const QString& path)
-{
-  const Participant alice = participant("V4 Alice");
-  if (!createSchemaV4Database(path, alice))
-  {
-    return false;
-  }
-  SqliteConnect storage;
-  if (!check(storage.open(path), "schema v4 to v5 migration failed"))
-  {
-    return false;
-  }
-  const auto profile = storage.getParticipantProfile(alice.id);
-  return check(profile.has_value() && profile->rank == ParticipantRank::Guest,
-               "v4 migration did not assign Guest rank") &&
-         check(storage.open(path), "migrated v5 reopen is not idempotent");
-}
-
-bool migrationRollbackTest(const QString& path)
-{
-  const Participant invalid = participant("   ");
-  if (!createSchemaV2Database(path, invalid))
-  {
-    return false;
-  }
-  {
-    SqliteConnect storage;
-    if (!check(!storage.open(path), "invalid schema v2 migration succeeded"))
-    {
-      return false;
-    }
-  }
-
-  const QString connection = QUuid::createUuid().toString();
-  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
-  db.setDatabaseName(path);
-  if (!db.open())
-  {
-    return false;
-  }
-  QSqlQuery query(db);
-  bool ok = query.exec("PRAGMA user_version") && query.next() &&
-            query.value(0).toInt() == 2;
-  bool hasBirthDay = false;
-  if (query.exec("PRAGMA table_info(participants)"))
-  {
-    while (query.next())
-    {
-      hasBirthDay = hasBirthDay || query.value(1).toString() == "birth_day";
-    }
-  }
-  else
-  {
-    ok = false;
-  }
-  db.close();
-  db = QSqlDatabase();
-  QSqlDatabase::removeDatabase(connection);
-  return check(ok && !hasBirthDay,
-               "failed migration did not roll back schema and version");
-}
-bool legacyDatabaseMigrationTest(const QString& path)
-{
-  if (!createOldDevelopmentDatabase(path))
-  {
-    return false;
-  }
-  SqliteConnect storage;
-  return check(storage.open(path),
-               "old unversioned development database migration failed") &&
-         check(storage.listParticipantProfiles(true).has_value(),
-               "migrated participant catalog is unreadable");
+  const ParticipantDayMarker trainerMarker{alice.id, 2,
+                                           DayMarkerKind::LedTraining,
+                                           "Вёл тренировку"};
+  return check(storage.saveDayMarker(2025, 7, trainerMarker),
+               "repaired schema v6 rejected trainer marker") &&
+         check(storage.open(path),
+               "repaired development schema v6 reopen failed") &&
+         check(isNormalizedSchemaV7(path, withTrainerColumn),
+               "development schema v6 was not normalized to v7");
 }
 
 } // namespace
@@ -526,10 +475,10 @@ int main(int argc, char* argv[])
   }
   const bool ok = birthdayValidationTest() &&
                   freshDatabaseTest(directory.filePath("fresh.db")) &&
-                  migrationV2ToV5Test(directory.filePath("v2.db")) &&
-                  migrationV3ToV5Test(directory.filePath("v3.db")) &&
-                  migrationV4ToV5Test(directory.filePath("v4.db")) &&
-                  migrationRollbackTest(directory.filePath("invalid-v2.db")) &&
-                  legacyDatabaseMigrationTest(directory.filePath("old.db"));
+                  migrationV5ToV7Test(directory.filePath("v5.db")) &&
+                  developmentV6IsRepaired(
+                      directory.filePath("old-v6-trainer.db"), true) &&
+                  developmentV6IsRepaired(
+                      directory.filePath("old-v6-marker.db"), false);
   return ok ? 0 : 1;
 }

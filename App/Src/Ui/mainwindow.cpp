@@ -3,6 +3,8 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QDate>
+#include <QDir>
+#include <QFileInfo>
 #include <QFont>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -13,6 +15,7 @@
 #include <QProcessEnvironment>
 #include <QPushButton>
 #include <QSizePolicy>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -24,6 +27,9 @@
 #include "AttendanceCellWidget.hpp"
 #include "CopyUsersDialog.hpp"
 #include "DayMarkerDialog.hpp"
+#include "EventApp.hpp"
+#include "EventDirectoryDialog.hpp"
+#include "EventSqliteStorage.hpp"
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
 #include "MonthDaysDialog.hpp"
@@ -46,6 +52,49 @@ constexpr int kRankColumn = 1;
 constexpr int kAttendanceCountColumn = 2;
 constexpr int kFirstDayColumn = 3;
 
+QString applicationDataFilePath(const QString& fileName)
+{
+  const QString dataDirectory =
+      QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+  return dataDirectory.isEmpty()
+             ? QString()
+             : QDir(dataDirectory).filePath(fileName);
+}
+
+const QString& journalDatabasePath()
+{
+  static const QString path = []()
+  {
+    const QString legacyPath =
+        QFileInfo(QString::fromUtf8(DB_FILENAME)).absoluteFilePath();
+    const QString stablePath =
+        applicationDataFilePath(QString::fromUtf8(DB_FILENAME));
+    if (QFileInfo::exists(legacyPath) || stablePath.isEmpty())
+    {
+      return legacyPath;
+    }
+    if (QFileInfo::exists(stablePath))
+    {
+      return stablePath;
+    }
+    return stablePath;
+  }();
+  return path;
+}
+
+QString eventDatabasePath()
+{
+  return QFileInfo(journalDatabasePath())
+      .dir()
+      .filePath(EVENT_DB_FILENAME);
+}
+
+bool ensureDatabaseDirectory(const QString& databasePath)
+{
+  return !databasePath.isEmpty() &&
+         QDir().mkpath(QFileInfo(databasePath).absolutePath());
+}
+
 QVector<int> fullMonthDays(int year, int month)
 {
   QVector<int> days;
@@ -67,7 +116,8 @@ MainWindow::MainWindow(QWidget* parent)
       monthGroup_(nullptr), dataGroup_(nullptr), modeBadgeLabel_(nullptr),
       serverUrlEdit_(nullptr), connectLocalBtn_(nullptr),
       connectRemoteBtn_(nullptr), configureMonthBtn_(nullptr),
-      copyUsersBtn_(nullptr), participantsBtn_(nullptr), activeStorageMode_(),
+      copyUsersBtn_(nullptr), participantsBtn_(nullptr), eventsBtn_(nullptr),
+      activeStorageMode_(),
       activeServerUrl_(), isConnectingStorage_(false), syncInProgress_(false),
       refreshInProgress_(false), monthDataValid_(false),
       monthSetupPromptOpen_(false), monthSetupRequestId_(0),
@@ -425,7 +475,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   tableWidget->setItem(kDateRow, kNameColumn, new QTableWidgetItem("Дата"));
   tableWidget->setItem(kWeekdayRow, kNameColumn, new QTableWidgetItem("День"));
   tableWidget->setHorizontalHeaderItem(kNameColumn,
-                                       new QTableWidgetItem("Имя"));
+                                       new QTableWidgetItem("Историчное имя"));
   tableWidget->setHorizontalHeaderItem(kRankColumn,
                                        new QTableWidgetItem("Звание"));
   tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
@@ -640,7 +690,7 @@ void MainWindow::createEmptyTable()
   tableWidget->setObjectName("bigTable");
 
   tableWidget->setHorizontalHeaderItem(kNameColumn,
-                                       new QTableWidgetItem("Имя"));
+                                       new QTableWidgetItem("Историчное имя"));
   tableWidget->setHorizontalHeaderItem(kRankColumn,
                                        new QTableWidgetItem("Звание"));
   tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
@@ -754,6 +804,7 @@ void MainWindow::setupMonthPanel(QVBoxLayout* parentLayout)
   userButtonsLayout->addWidget(ui->btnAdd);
   userButtonsLayout->addWidget(ui->btnDel);
   monthLayout->addLayout(userButtonsLayout);
+  ui->lineEdit->setPlaceholderText("Историчное имя нового участника");
   monthLayout->addWidget(ui->lineEdit);
 
   configureMonthBtn_ = new QPushButton("Настроить конкретные даты", this);
@@ -796,11 +847,62 @@ void MainWindow::setupDataPanel(QVBoxLayout* parentLayout)
   dataActionsLayout->addWidget(ui->btnSaveCurTable, 0, 1);
   dataActionsLayout->addWidget(ui->btnCreateTable, 1, 0);
   dataActionsLayout->addWidget(ui->btnPullServer, 1, 1);
+  eventsBtn_ = new QPushButton("Турниры", this);
+  const QString eventsPath = eventDatabasePath();
+  eventsBtn_->setToolTip(
+      eventsPath.isEmpty()
+          ? "Отдельная локальная БД турниров"
+          : QString("Отдельная локальная БД турниров: %1")
+                .arg(QDir::toNativeSeparators(eventsPath)));
+  dataActionsLayout->addWidget(eventsBtn_, 2, 0, 1, 2);
   dataActionsLayout->setColumnStretch(0, 1);
   dataActionsLayout->setColumnStretch(1, 1);
   dataLayout->addLayout(dataActionsLayout);
 
+  connect(eventsBtn_, &QPushButton::clicked, this,
+          [this]() { openEventDirectory(); });
+
   parentLayout->insertWidget(2, dataGroup_);
+}
+
+void MainWindow::openEventDirectory()
+{
+  const QString databasePath = eventDatabasePath();
+  if (!ensureDatabaseDirectory(databasePath))
+  {
+    QMessageBox::warning(this, "Ошибка БД турниров",
+                         "Не удалось создать каталог данных приложения.");
+    return;
+  }
+  auto storage = std::make_unique<EventSqliteStorage>();
+  if (!storage->open(databasePath))
+  {
+    QMessageBox::warning(
+        this, "Ошибка БД турниров",
+        QString("%1\n\nФайл: %2")
+            .arg(storage->lastError(),
+                 QDir::toNativeSeparators(databasePath)));
+    return;
+  }
+  std::vector<ParticipantProfile> profiles;
+  if (journalApp_)
+  {
+    const auto loaded = journalApp_->participantProfiles(true);
+    if (loaded.has_value())
+    {
+      profiles = *loaded;
+    }
+    else
+    {
+      QMessageBox::warning(
+          this, "Общий список недоступен",
+          "Не удалось загрузить участников журнала. Турниры откроются, "
+          "но выбирать наших участников для новых записей нельзя.");
+    }
+  }
+  EventApp eventApp(std::move(storage));
+  EventDirectoryDialog dialog(eventApp, std::move(profiles), this);
+  dialog.exec();
 }
 
 bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
@@ -848,14 +950,24 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
 
 bool MainWindow::openLocalDatabase(SqliteConnect& sqlite)
 {
-  if (sqlite.open(DB_PATH))
+  const QString databasePath = journalDatabasePath();
+  if (!ensureDatabaseDirectory(databasePath))
+  {
+    QMessageBox::warning(this, "Ошибка локальной базы",
+                         "Не удалось создать каталог данных приложения.");
+    return false;
+  }
+  if (sqlite.open(databasePath))
   {
     return true;
   }
-  QMessageBox::warning(this, "Ошибка локальной базы",
-                       sqlite.lastError().isEmpty()
-                           ? "Не удалось открыть локальную базу"
-                           : sqlite.lastError());
+  const QString error = sqlite.lastError().isEmpty()
+                            ? "Не удалось открыть локальную базу"
+                            : sqlite.lastError();
+  QMessageBox::warning(
+      this, "Ошибка локальной базы",
+      QString("%1\n\nФайл: %2")
+          .arg(error, QDir::toNativeSeparators(databasePath)));
   return false;
 }
 void MainWindow::connectLocalFromUi()
@@ -1116,6 +1228,10 @@ void MainWindow::updateEditControlsByMode()
   if (participantsBtn_)
   {
     participantsBtn_->setEnabled(controlsIdle && journalApp_ != nullptr);
+  }
+  if (eventsBtn_)
+  {
+    eventsBtn_->setEnabled(controlsIdle);
   }
   ui->btnReadBase->setEnabled(controlsIdle);
   ui->calendarWidget->setEnabled(controlsIdle);

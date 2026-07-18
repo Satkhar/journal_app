@@ -147,7 +147,9 @@ bool AttendanceCountUsesOnlyActiveCheckedDays()
   TEST_CHECK(CountCheckedActiveDays({3}, attendanceByDay) == 0);
   TEST_CHECK(CountCheckedActiveDays({}, attendanceByDay) == 0);
   TEST_CHECK(DayMarkerKindsFromInt(3).has_value());
+  TEST_CHECK(DayMarkerKindsFromInt(16).has_value());
   TEST_CHECK(!DayMarkerKindsFromInt(0).has_value());
+  TEST_CHECK(!DayMarkerKindsFromInt(32).has_value());
   TEST_CHECK(!DayMarkerKindsFromInt(257).has_value());
   return true;
 }

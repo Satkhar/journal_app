@@ -72,6 +72,8 @@ struct ParticipantProfile
 {
   ParticipantId id;
   QString displayName;
+  QString fullName;
+  QString contact;
   std::optional<Birthday> birthday;
   ParticipantRank rank{ParticipantRank::Guest};
   QString notes;
@@ -79,6 +81,9 @@ struct ParticipantProfile
 
   bool isValid() const;
 };
+
+constexpr int kMaxParticipantFullNameLength = 300;
+constexpr int kMaxParticipantContactLength = 500;
 
 struct AttendanceRecord
 {
@@ -93,6 +98,7 @@ enum class DayMarkerKind : quint8
   SpecialTraining = 0x02,
   FirstVisit = 0x04,
   Other = 0x08,
+  LedTraining = 0x10,
 };
 
 Q_DECLARE_FLAGS(DayMarkerKinds, DayMarkerKind)

@@ -18,6 +18,8 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
                                      bool editable, QWidget* parent)
     : QDialog(parent), original_(profile), action_(Action::Cancel),
       nameEdit_(new QLineEdit(profile.displayName, this)),
+      fullNameEdit_(new QLineEdit(profile.fullName, this)),
+      contactEdit_(new QLineEdit(profile.contact, this)),
       birthdayCheck_(new QCheckBox("Дата рождения известна", this)),
       daySpin_(new QSpinBox(this)), monthSpin_(new QSpinBox(this)),
       yearSpin_(new QSpinBox(this)), rankCombo_(new QComboBox(this)),
@@ -26,6 +28,15 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
 {
   setWindowTitle("Карточка участника");
   setMinimumWidth(460);
+
+  nameEdit_->setObjectName("participantHistoricalNameEdit");
+  nameEdit_->setMaxLength(200);
+  fullNameEdit_->setObjectName("participantFullNameEdit");
+  fullNameEdit_->setMaxLength(kMaxParticipantFullNameLength);
+  fullNameEdit_->setPlaceholderText("Фамилия Имя Отчество");
+  contactEdit_->setObjectName("participantContactEdit");
+  contactEdit_->setMaxLength(kMaxParticipantContactLength);
+  contactEdit_->setPlaceholderText("VK, Telegram или телефон");
 
   daySpin_->setRange(1, 31);
   monthSpin_->setRange(1, 12);
@@ -67,7 +78,9 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   idLabel->setObjectName("participantIdLabel");
   idLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
   form->addRow("ID", idLabel);
-  form->addRow("Имя", nameEdit_);
+  form->addRow("Историчное имя", nameEdit_);
+  form->addRow("ФИО", fullNameEdit_);
+  form->addRow("Контакт", contactEdit_);
   form->addRow("Звание", rankCombo_);
   form->addRow(QString(), birthdayCheck_);
   form->addRow("Дата рождения", birthdayLayout);
@@ -101,12 +114,18 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   else
   {
     nameEdit_->setReadOnly(true);
+    fullNameEdit_->setReadOnly(true);
+    contactEdit_->setReadOnly(true);
     rankCombo_->setEnabled(false);
     birthdayCheck_->setEnabled(false);
     notesEdit_->setReadOnly(true);
   }
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
   connect(nameEdit_, &QLineEdit::textChanged, this,
+          [this]() { dirty_ = true; });
+  connect(fullNameEdit_, &QLineEdit::textChanged, this,
+          [this]() { dirty_ = true; });
+  connect(contactEdit_, &QLineEdit::textChanged, this,
           [this]() { dirty_ = true; });
   connect(birthdayCheck_, &QCheckBox::toggled, this,
           [this]()
@@ -139,6 +158,8 @@ ParticipantProfile ParticipantDialog::profile() const
 {
   ParticipantProfile result = original_;
   result.displayName = nameEdit_->text().trimmed();
+  result.fullName = fullNameEdit_->text().trimmed();
+  result.contact = contactEdit_->text().trimmed();
   result.rank = static_cast<ParticipantRank>(rankCombo_->currentData().toInt());
   result.notes = notesEdit_->toPlainText();
   result.birthday = std::nullopt;
@@ -174,8 +195,8 @@ void ParticipantDialog::save()
   if (!edited.isValid())
   {
     QMessageBox::warning(this, "Некорректный профиль",
-                         "Проверьте имя, дату рождения и длину заметки (не "
-                         "более 4096 символов).");
+                         "Проверьте историчное имя, ФИО, контакт, дату "
+                         "рождения и длину заметки (не более 4096 символов).");
     return;
   }
   action_ = Action::Save;

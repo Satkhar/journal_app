@@ -31,6 +31,10 @@ QStringList markerKindNames(DayMarkerKinds kinds)
   {
     names.push_back("Другое");
   }
+  if (kinds.testFlag(DayMarkerKind::LedTraining))
+  {
+    names.push_back("Вёл тренировку");
+  }
   return names;
 }
 
@@ -119,7 +123,13 @@ void AttendanceCellWidget::updateMarkerPresentation()
   const int kindCount = CountDayMarkerKinds(marker_->kinds);
   QString symbol;
   QString color;
-  if (kindCount > 1)
+  if (kindCount > 1 &&
+      marker_->kinds.testFlag(DayMarkerKind::LedTraining))
+  {
+    symbol = "Т+";
+    color = "#6D4C41";
+  }
+  else if (kindCount > 1)
   {
     symbol = QString::number(kindCount);
     color = "#455A64";
@@ -138,6 +148,11 @@ void AttendanceCellWidget::updateMarkerPresentation()
   {
     symbol = "1";
     color = "#1565C0";
+  }
+  else if (marker_->kinds.testFlag(DayMarkerKind::LedTraining))
+  {
+    symbol = "Т";
+    color = "#8D4E1F";
   }
   else
   {

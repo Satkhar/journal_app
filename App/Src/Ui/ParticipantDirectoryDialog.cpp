@@ -14,9 +14,10 @@ ParticipantDirectoryDialog::ParticipantDirectoryDialog(
     : QDialog(parent), table_(new QTableWidget(this))
 {
   setWindowTitle("Все участники");
-  resize(620, 420);
-  table_->setColumnCount(3);
-  table_->setHorizontalHeaderLabels({"Имя", "Звание", "Статус"});
+  resize(800, 420);
+  table_->setColumnCount(4);
+  table_->setHorizontalHeaderLabels(
+      {"Историчное имя", "ФИО", "Звание", "Статус"});
   table_->setSelectionBehavior(QAbstractItemView::SelectRows);
   table_->setSelectionMode(QAbstractItemView::SingleSelection);
   table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -40,21 +41,25 @@ ParticipantDirectoryDialog::ParticipantDirectoryDialog(
     nameItem->setData(Qt::UserRole, profile.id.value);
     auto* rankItem =
         new QTableWidgetItem(ParticipantRankDisplayName(profile.rank));
+    auto* fullNameItem = new QTableWidgetItem(profile.fullName);
     const QColor groupColor = ParticipantRankSortKey(profile.rank) % 2 == 0
                                   ? QColor(245, 248, 252)
                                   : QColor(235, 241, 248);
     nameItem->setBackground(groupColor);
+    fullNameItem->setBackground(groupColor);
     rankItem->setBackground(groupColor);
     table_->setItem(row, 0, nameItem);
-    table_->setItem(row, 1, rankItem);
+    table_->setItem(row, 1, fullNameItem);
+    table_->setItem(row, 2, rankItem);
     table_->setItem(
-        row, 2, new QTableWidgetItem(profile.archived ? "Архив" : "Активен"));
+        row, 3, new QTableWidgetItem(profile.archived ? "Архив" : "Активен"));
   }
   table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-  table_->horizontalHeader()->setSectionResizeMode(
-      1, QHeaderView::ResizeToContents);
+  table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
   table_->horizontalHeader()->setSectionResizeMode(
       2, QHeaderView::ResizeToContents);
+  table_->horizontalHeader()->setSectionResizeMode(
+      3, QHeaderView::ResizeToContents);
 
   auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
   auto* openButton =

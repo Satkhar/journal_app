@@ -15,7 +15,8 @@ constexpr int kKnownDayMarkerKindsMask =
     static_cast<int>(DayMarkerKind::Payment) |
     static_cast<int>(DayMarkerKind::SpecialTraining) |
     static_cast<int>(DayMarkerKind::FirstVisit) |
-    static_cast<int>(DayMarkerKind::Other);
+    static_cast<int>(DayMarkerKind::Other) |
+    static_cast<int>(DayMarkerKind::LedTraining);
 
 } // namespace
 
@@ -106,6 +107,10 @@ bool ParticipantProfile::isValid() const
   const QString trimmedName = displayName.trimmed();
   return id.isValid() && !trimmedName.isEmpty() &&
          trimmedName.size() <= kMaxDisplayNameLength &&
+         fullName.size() <= kMaxParticipantFullNameLength &&
+         !fullName.contains('\n') && !fullName.contains('\r') &&
+         contact.size() <= kMaxParticipantContactLength &&
+         !contact.contains('\n') && !contact.contains('\r') &&
          !ParticipantRankStorageValue(rank).isEmpty() &&
          notes.size() <= kMaxNotesLength &&
          (!birthday.has_value() || birthday->isValid());

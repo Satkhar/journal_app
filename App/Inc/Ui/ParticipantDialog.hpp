@@ -34,6 +34,8 @@ private:
   ParticipantProfile original_;
   Action action_;
   QLineEdit* nameEdit_;
+  QLineEdit* fullNameEdit_;
+  QLineEdit* contactEdit_;
   QCheckBox* birthdayCheck_;
   QSpinBox* daySpin_;
   QSpinBox* monthSpin_;

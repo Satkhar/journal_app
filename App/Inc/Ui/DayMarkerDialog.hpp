@@ -24,6 +24,7 @@ private:
   QCheckBox* specialTrainingCheckBox_;
   QCheckBox* firstVisitCheckBox_;
   QCheckBox* otherCheckBox_;
+  QCheckBox* trainerCheckBox_;
   QLineEdit* noteEdit_;
   bool clearRequested_;
 };

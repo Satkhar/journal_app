@@ -20,6 +20,9 @@ add_executable(journal_app
     ./App/Src/main.cpp
     ./App/Src/Domain/JournalApp.cpp
     ./App/Src/Domain/JournalModels.cpp
+    ./App/Src/Domain/EventApp.cpp
+    ./App/Src/Domain/EventModels.cpp
+    ./App/Src/Storage/EventSqliteStorage.cpp
     ./App/Src/Storage/JournalLocal.cpp
     ./App/Src/Storage/JournalRemote.cpp
     ./App/Src/Storage/SqliteConnect.cpp
@@ -27,6 +30,8 @@ add_executable(journal_app
     ./App/Src/Ui/mainwindow.cpp
     ./App/Src/Ui/AttendanceCellWidget.cpp
     ./App/Src/Ui/DayMarkerDialog.cpp
+    ./App/Src/Ui/EventDialog.cpp
+    ./App/Src/Ui/EventDirectoryDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/CopyUsersDialog.cpp
     ./App/Src/Ui/ParticipantDialog.cpp
@@ -36,15 +41,21 @@ add_executable(journal_app
 
     ./App/Inc/journal_app.h
     ./App/Inc/Domain/JournalModels.hpp
+    ./App/Inc/Domain/EventApp.hpp
+    ./App/Inc/Domain/EventModels.hpp
+    ./App/Inc/Domain/IEventStorage.hpp
     ./App/Inc/Domain/IJournalStorage.hpp
     ./App/Inc/Domain/JournalApp.hpp
     ./App/Inc/Storage/JournalLocal.hpp
     ./App/Inc/Storage/JournalRemote.hpp
     ./App/Inc/Storage/SqliteConnect.hpp
+    ./App/Inc/Storage/EventSqliteStorage.hpp
     ./App/Inc/Sync/SyncService.hpp
     ./App/Inc/Ui/mainwindow.hpp
     ./App/Inc/Ui/AttendanceCellWidget.hpp
     ./App/Inc/Ui/DayMarkerDialog.hpp
+    ./App/Inc/Ui/EventDialog.hpp
+    ./App/Inc/Ui/EventDirectoryDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/CopyUsersDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
@@ -95,6 +106,19 @@ target_include_directories(journal_storage_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
 add_test(NAME journal_storage_tests COMMAND journal_storage_tests)
 
+add_executable(journal_event_storage_tests
+    ./Test/EventStorageTests.cpp
+    ./App/Src/Domain/EventModels.cpp
+    ./App/Src/Storage/EventSqliteStorage.cpp
+    ./App/Inc/Domain/EventModels.hpp
+    ./App/Inc/Domain/IEventStorage.hpp
+    ./App/Inc/Storage/EventSqliteStorage.hpp)
+target_link_libraries(journal_event_storage_tests PRIVATE Qt6::Core Qt6::Sql)
+target_include_directories(journal_event_storage_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/App/Inc/Domain
+    ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
+add_test(NAME journal_event_storage_tests COMMAND journal_event_storage_tests)
+
 add_executable(journal_month_state_tests
     ./Test/month_state_tests.cpp
     ./App/Src/Domain/JournalApp.cpp
@@ -112,15 +136,19 @@ add_test(NAME journal_month_state_tests COMMAND journal_month_state_tests)
 
 add_executable(journal_ui_tests
     ./Test/ui_dialog_tests.cpp
+    ./App/Src/Domain/EventModels.cpp
     ./App/Src/Domain/JournalModels.cpp
     ./App/Src/Ui/AttendanceCellWidget.cpp
     ./App/Src/Ui/DayMarkerDialog.cpp
+    ./App/Src/Ui/EventDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/ParticipantDialog.cpp
     ./App/Src/Ui/ParticipantDirectoryDialog.cpp
     ./App/Inc/Domain/JournalModels.hpp
+    ./App/Inc/Domain/EventModels.hpp
     ./App/Inc/Ui/AttendanceCellWidget.hpp
     ./App/Inc/Ui/DayMarkerDialog.hpp
+    ./App/Inc/Ui/EventDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
     ./App/Inc/Ui/ParticipantDirectoryDialog.hpp)
