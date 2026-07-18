@@ -348,7 +348,10 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
   const auto sides = dialog.findChildren<QComboBox*>("eventBoutSideCombo");
   const auto scoreA = dialog.findChildren<QSpinBox*>("eventBoutScoreA");
   const auto scoreB = dialog.findChildren<QSpinBox*>("eventBoutScoreB");
-  if (!Check(sides.size() == 2 && scoreA.size() == 1 && scoreB.size() == 1,
+  const auto removeButtons =
+      dialog.findChildren<QPushButton*>("removeEventBoutButton");
+  if (!Check(sides.size() == 2 && scoreA.size() == 1 &&
+                 scoreB.size() == 1 && removeButtons.size() == 1,
              "event bout controls missing"))
   {
     return false;
@@ -359,7 +362,11 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
                  sides.at(0)->width() >= 160 &&
                  sides.at(1)->width() >= 160 &&
                  sides.at(0)->height() >= 30 &&
-                 sides.at(1)->height() >= 30,
+                 sides.at(1)->height() >= 30 &&
+                 scoreA.at(0)->width() >= scoreA.at(0)->sizeHint().width() &&
+                 scoreB.at(0)->width() >= scoreB.at(0)->sizeHint().width() &&
+                 removeButtons.at(0)->width() >=
+                     removeButtons.at(0)->sizeHint().width(),
              "new bout controls have broken initial geometry"))
   {
     return false;

@@ -30,6 +30,9 @@ constexpr int kScoreAColumn = 1;
 constexpr int kScoreBColumn = 2;
 constexpr int kSideBColumn = 3;
 constexpr int kRemoveColumn = 4;
+constexpr int kMinimumScoreColumnWidth = 96;
+constexpr int kMinimumRemoveColumnWidth = 96;
+constexpr int kCellWidgetHorizontalMargin = 8;
 constexpr char kInternalParticipantIdProperty[] =
     "eventInternalParticipantId";
 
@@ -162,11 +165,14 @@ EventDialog::EventDialog(const EventRecord& event,
   boutsTable_->horizontalHeader()->setSectionResizeMode(
       kSideBColumn, QHeaderView::Stretch);
   boutsTable_->horizontalHeader()->setSectionResizeMode(
-      kScoreAColumn, QHeaderView::ResizeToContents);
+      kScoreAColumn, QHeaderView::Fixed);
   boutsTable_->horizontalHeader()->setSectionResizeMode(
-      kScoreBColumn, QHeaderView::ResizeToContents);
+      kScoreBColumn, QHeaderView::Fixed);
   boutsTable_->horizontalHeader()->setSectionResizeMode(
-      kRemoveColumn, QHeaderView::ResizeToContents);
+      kRemoveColumn, QHeaderView::Fixed);
+  boutsTable_->setColumnWidth(kScoreAColumn, kMinimumScoreColumnWidth);
+  boutsTable_->setColumnWidth(kScoreBColumn, kMinimumScoreColumnWidth);
+  boutsTable_->setColumnWidth(kRemoveColumn, kMinimumRemoveColumnWidth);
   boutsTable_->verticalHeader()->setVisible(false);
   boutsTable_->verticalHeader()->setMinimumSectionSize(44);
   boutsTable_->verticalHeader()->setDefaultSectionSize(44);
@@ -325,6 +331,7 @@ void EventDialog::addBoutRow(const std::optional<EventBout>& bout)
   scoreA->setObjectName("eventBoutScoreA");
   scoreB->setObjectName("eventBoutScoreB");
   auto* removeButton = new QPushButton("Удалить", this);
+  removeButton->setObjectName("removeEventBoutButton");
   connect(removeButton, &QPushButton::clicked, this,
           [this, removeButton]() { removeBoutButtonClicked(removeButton); });
   boutsTable_->setCellWidget(row, kSideAColumn, sideA);
@@ -332,6 +339,17 @@ void EventDialog::addBoutRow(const std::optional<EventBout>& bout)
   boutsTable_->setCellWidget(row, kScoreBColumn, scoreB);
   boutsTable_->setCellWidget(row, kSideBColumn, sideB);
   boutsTable_->setCellWidget(row, kRemoveColumn, removeButton);
+  const int scoreColumnWidth =
+      std::max({kMinimumScoreColumnWidth, scoreA->sizeHint().width(),
+                scoreB->sizeHint().width()}) +
+      kCellWidgetHorizontalMargin;
+  const int removeColumnWidth =
+      std::max(kMinimumRemoveColumnWidth,
+               removeButton->sizeHint().width() +
+                   kCellWidgetHorizontalMargin);
+  boutsTable_->setColumnWidth(kScoreAColumn, scoreColumnWidth);
+  boutsTable_->setColumnWidth(kScoreBColumn, scoreColumnWidth);
+  boutsTable_->setColumnWidth(kRemoveColumn, removeColumnWidth);
   boutsTable_->setRowHeight(row, 44);
   scheduleBoutTableLayout();
   updateParticipantRequirements();
