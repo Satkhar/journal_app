@@ -1,8 +1,5 @@
 #include <QApplication>
-#include <QMainWindow>
-#include <QPushButton>
 #include <QDebug>
-#include <QtSql>
 #include <clocale>
 #include <iostream>
 
@@ -32,10 +29,9 @@ int main(int argc, char *argv[])
   QApplication app(argc, argv);
   QCoreApplication::setOrganizationName("Satkhar");
   QCoreApplication::setApplicationName("journal_app");
-  // Главная панель компактнее диалогов: основное рабочее место занимает
-  // таблица, а подтверждающие кнопки в диалогах остаются крупными.
-  app.setStyleSheet("QMainWindow QPushButton { min-height: 30px; }"
-                    "QDialog QPushButton { min-height: 36px; }");
+  // В главном окне действия находятся в меню. Кнопки подтверждения в
+  // диалогах остаются достаточно крупными для надёжного выбора.
+  app.setStyleSheet("QDialog QPushButton { min-height: 36px; }");
 
   // Главное окно само внутри инициализирует UI и подключение к storage.
   MainWindow mainWindow;

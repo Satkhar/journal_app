@@ -2,18 +2,15 @@
 #define MAINWINDOW_H
 
 #include <QCalendarWidget>
-#include <QLabel>
-#include <QLineEdit>
 #include <QMainWindow>
-#include <QPushButton>
 #include <QStringList>
 #include <QTableWidget>
 #include <QVector>
 #include <QtGlobal>
 
-class QGroupBox;
+class QAction;
+class QLabel;
 class SqliteConnect;
-class QVBoxLayout;
 class AttendanceCellWidget;
 
 #include <memory>
@@ -21,7 +18,11 @@ class AttendanceCellWidget;
 #include <vector>
 
 #include "JournalApp.hpp"
-#include "journal_app.h"
+
+namespace Ui
+{
+class MainWindow;
+}
 
 const QStringList kDaysOfWeek = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вск"};
 
@@ -43,20 +44,25 @@ private:
   Ui::MainWindow* ui;
   std::unique_ptr<JournalApp> journalApp_;
 
-  // Элементы панели действий (создаются программно в setupActionPanels()).
-  QGroupBox* connectionGroup_;
-  QGroupBox* monthGroup_;
-  QGroupBox* dataGroup_;
-  QLabel* modeBadgeLabel_;
-  QLineEdit* serverUrlEdit_;
-  QPushButton* connectLocalBtn_;
-  QPushButton* connectRemoteBtn_;
-  QPushButton* configureMonthBtn_;
-  QPushButton* copyUsersBtn_;
-  QPushButton* participantsBtn_;
-  QPushButton* eventsBtn_;
+  // Главное окно содержит только календарь и таблицу. Все операции доступны
+  // через меню; режим storage виден постоянно в status bar.
+  QLabel* modeIndicator_;
+  QAction* localStorageAction_;
+  QAction* remoteStorageAction_;
+  QAction* serverUrlAction_;
+  QAction* addParticipantAction_;
+  QAction* removeParticipantAction_;
+  QAction* configureMonthAction_;
+  QAction* copyParticipantsAction_;
+  QAction* participantsAction_;
+  QAction* readLocalAction_;
+  QAction* saveMonthAction_;
+  QAction* pushMonthAction_;
+  QAction* pullMonthAction_;
+  QAction* tournamentsAction_;
 
   // Текущее активное подключение (используется для защиты от лишних reconnect).
+  QString configuredServerUrl_;
   QString activeStorageMode_;
   QString activeServerUrl_;
   bool isConnectingStorage_;
@@ -84,21 +90,21 @@ private:
   // Считывает состояние UI-таблицы в доменную модель.
   std::vector<AttendanceRecord> collectMonthFromTable() const;
 
-  // Создает вспомогательную таблицу шаблона чекбоксов.
-  void createCheckTable();
   // Создает пустую таблицу под выбранный месяц.
   void createEmptyTable();
-  // Создает панели действий: подключение, текущий месяц, данные.
-  void setupActionPanels();
-  void setupConnectionPanel(QVBoxLayout* parentLayout);
-  void setupMonthPanel(QVBoxLayout* parentLayout);
-  void setupDataPanel(QVBoxLayout* parentLayout);
+  // Создает верхнее меню и связывает QAction с use-case обработчиками.
+  void setupMenus();
+  void addParticipantToMonth();
+  void removeSelectedParticipantFromMonth();
+  void saveCurrentMonth();
+  void configureServerUrl();
+  void setConfiguredServerUrl(const QString& serverUrl);
+  std::optional<QString> requestServerUrl(const QString& title);
   // Переключает активный storage на local/server.
   bool setupStorage(const QString& mode, const QString& serverUrl);
   bool openLocalDatabase(SqliteConnect& sqlite);
-  // Обработчики кнопок Local/Remote.
-  void connectLocalFromUi();
-  void connectRemoteFromUi();
+  void connectLocalStorage();
+  void connectRemoteStorage();
   // Открывает диалог выбора дней учета для текущего месяца.
   void configureMonthDays();
   // Переносит пользователей из другого месяца в текущий.
@@ -106,9 +112,9 @@ private:
   void openParticipantProfile(const ParticipantId& id);
   void openParticipantDirectory();
   void openEventDirectory();
-  // Обновляет визуальный индикатор режима.
-  void updateModeBadge();
-  // Включает/выключает кнопки редактирования в зависимости от режима.
+  // Обновляет постоянный индикатор режима и checked-state меню.
+  void updateModeIndicator();
+  // Включает/выключает действия редактирования в зависимости от режима.
   void updateEditControlsByMode();
   // Read Base: всегда читает локальную БД в таблицу.
   void readLocalMonthToTable();

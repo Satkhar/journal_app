@@ -29,12 +29,11 @@ journal_app/
   CMakeLists.txt              # цель journal_app, список исходников, Qt6, C++17
   README.md                   # пользовательское описание, сборка, базовое usage
   LICENSE
-  journal_app.ui              # Qt Designer UI: кнопки, календарь, layout'ы
+  journal_app.ui              # Qt Designer UI: календарь и основной layout
 
   App/
     Inc/                      # публичные заголовки проекта
       config.h                # имена БД, режим/URL сервера, timeout
-      journal_app.h           # сгенерированный/зафиксированный UI header
       Domain/
         IJournalStorage.hpp   # общий контракт local/remote storage и модели
         JournalApp.hpp        # use-case слой приложения
@@ -60,7 +59,7 @@ journal_app/
       Sync/
         SyncService.cpp       # push local->server и pull server->local
       Ui/
-        mainwindow.cpp        # UI wiring, таблица, режимы local/remote, sync buttons
+        mainwindow.cpp        # UI wiring, меню, таблица, local/remote и sync
         MonthDaysDialog.cpp   # календарный диалог выбора дней учета
         CopyUsersDialog.cpp   # диалог переноса пользователей из другого месяца
 
@@ -77,12 +76,13 @@ journal_app/
 
 1. `App/Src/main.cpp` создает `QApplication`, `MainWindow` и запускает event loop.
 2. `MainWindow` в `App/Src/Ui/mainwindow.cpp`:
-   - загружает UI из `journal_app.ui` через `Ui::MainWindow`;
-   - создает таблицы `bigTable` и скрытую `checkTable`;
-   - создает панели действий `Подключение`, `Текущий месяц`, `Данные`;
-   - создает controls для выбора `Local` / `Remote`;
+   - загружает UI из `journal_app.ui` через сгенерированный AUTOUIC
+     `ui_journal_app.h`;
+   - создает основную таблицу `bigTable`;
+   - создает меню `Подключение`, `Месяц`, `Данные`, `Справочники`;
+   - создает `QAction` для выбора `Local` / `Remote` и остальных операций;
    - инициализирует `JournalApp` с нужной реализацией `IJournalStorage`;
-   - связывает кнопки с add/delete/read/save/push/pull/copy действиями.
+   - связывает действия меню с add/delete/read/save/push/pull/copy сценариями.
 3. `JournalApp` в `App/Src/Domain/JournalApp.cpp` хранит выбранный месяц, выполняет month/profile use cases и не делает bootstrap-записей.
 4. `IJournalStorage` задает общий контракт:
    - `getUsersForMonth`
@@ -107,19 +107,17 @@ journal_app/
 Здесь находятся:
 - создание и перерисовка таблицы месяца (`createEmptyTable`, `renderMonth`);
 - чтение чекбоксов из таблицы (`collectMonthFromTable`);
-- создание панелей действий (`setupActionPanels`, `setupConnectionPanel`,
-  `setupMonthPanel`, `setupDataPanel`);
+- создание и настройка верхнего меню (`setupMenus`);
 - вызов диалога настройки дней месяца (`configureMonthDays`);
 - вызов диалога переноса пользователей (`copyUsersFromMonth`);
 - при включённой опции переноса дней учёта номера дат источника преобразуются
   в дни недели, затем в целевом месяце выбираются все даты этих дней недели;
-- обработчики кнопок `Add`, `Delete`, `Read Base`, `Save Current Table`,
-  push/pull серверной синхронизации;
-- переключение режимов storage (`setupStorage`, `connectLocalFromUi`,
-  `connectRemoteFromUi`);
-- статусная строка и badge текущего режима.
+- обработчики действий добавления, удаления, чтения, сохранения и push/pull;
+- переключение storage (`setupStorage`, `connectLocalStorage`,
+  `connectRemoteStorage`);
+- status bar и постоянный индикатор текущего режима.
 
-При изменениях в UX, кнопках, календаре, таблице или статусах обычно начинать с:
+При изменениях в UX, меню, календаре, таблице или статусах обычно начинать с:
 - `journal_app.ui`
 - `App/Inc/Ui/mainwindow.hpp`
 - `App/Src/Ui/mainwindow.cpp`
@@ -258,7 +256,7 @@ remote SQL начинать с `JournalRemote.cpp`.
 ## Типовые точки входа для будущих задач
 
 ```text
-Новая кнопка или изменение UI:
+Новое действие меню или изменение UI:
   journal_app.ui
   App/Inc/Ui/mainwindow.hpp
   App/Src/Ui/mainwindow.cpp

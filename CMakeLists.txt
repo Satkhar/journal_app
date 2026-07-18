@@ -37,9 +37,6 @@ add_executable(journal_app
     ./App/Src/Ui/ParticipantDialog.cpp
     ./App/Src/Ui/ParticipantDirectoryDialog.cpp
 
-
-
-    ./App/Inc/journal_app.h
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Domain/EventApp.hpp
     ./App/Inc/Domain/EventModels.hpp
@@ -63,6 +60,9 @@ add_executable(journal_app
 
     ./journal_app.ui
     )
+
+set_target_properties(journal_app PROPERTIES
+    AUTOUIC_SEARCH_PATHS "${CMAKE_SOURCE_DIR}")
 
 target_link_libraries(journal_app PRIVATE 
     Qt6::Core 
