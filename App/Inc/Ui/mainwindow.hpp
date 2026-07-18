@@ -92,6 +92,9 @@ private:
 
   // Создает пустую таблицу под выбранный месяц.
   void createEmptyTable();
+  void setupCalendarControls();
+  void updateDisplayedMonthLabel(int shownYear, int shownMonth);
+  void applyCalendarExpanded(bool expanded);
   // Создает верхнее меню и связывает QAction с use-case обработчиками.
   void setupMenus();
   void addParticipantToMonth();

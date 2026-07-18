@@ -17,11 +17,13 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProcessEnvironment>
 #include <QPushButton>
+#include <QSettings>
 #include <QSizePolicy>
 #include <QStandardPaths>
 #include <QTimer>
@@ -56,6 +58,7 @@ constexpr int kNameColumn = 0;
 constexpr int kRankColumn = 1;
 constexpr int kAttendanceCountColumn = 2;
 constexpr int kFirstDayColumn = 3;
+constexpr char kCalendarExpandedSetting[] = "ui/calendarExpanded";
 
 QString applicationDataFilePath(const QString& fileName)
 {
@@ -152,6 +155,8 @@ MainWindow::MainWindow(QWidget* parent)
   setMinimumSize(QSize(1050, 720));
   resize(QSize(1200, 780));
 
+  setupCalendarControls();
+
   // Подготавливаем пустой UI-каркас таблиц до загрузки данных из БД.
   createEmptyTable();
 
@@ -189,11 +194,48 @@ MainWindow::MainWindow(QWidget* parent)
     updateEditControlsByMode();
     refreshMonth();
   }
+}
 
-  // При смене страницы календаря пересоздаем сетку дней и загружаем месяц.
+//---------------------------------------------------------------
+
+MainWindow::~MainWindow()
+{
+  delete ui;
+}
+
+//---------------------------------------------------------------
+
+void MainWindow::setupCalendarControls()
+{
+  // Встроенная панель навигации дублировала бы компактную панель приложения.
+  ui->calendarWidget->setNavigationBarVisible(false);
+  ui->previousMonthButton->setMinimumSize(32, 28);
+  ui->nextMonthButton->setMinimumSize(32, 28);
+  ui->toggleCalendarButton->setMinimumHeight(28);
+
+  connect(ui->previousMonthButton, &QToolButton::clicked,
+          ui->calendarWidget, &QCalendarWidget::showPreviousMonth);
+  connect(ui->nextMonthButton, &QToolButton::clicked, ui->calendarWidget,
+          &QCalendarWidget::showNextMonth);
+
+  const bool expanded =
+      QSettings().value(kCalendarExpandedSetting, true).toBool();
+  ui->toggleCalendarButton->setChecked(expanded);
+  applyCalendarExpanded(expanded);
+
+  connect(ui->toggleCalendarButton, &QToolButton::toggled, this,
+          [this](bool isExpanded)
+          {
+            applyCalendarExpanded(isExpanded);
+            QSettings().setValue(kCalendarExpandedSetting, isExpanded);
+          });
+
+  updateDisplayedMonthLabel(ui->calendarWidget->yearShown(),
+                            ui->calendarWidget->monthShown());
   connect(ui->calendarWidget, &QCalendarWidget::currentPageChanged, this,
           [this](int shownYear, int shownMonth)
           {
+            updateDisplayedMonthLabel(shownYear, shownMonth);
             if (shownYear != dismissedMonthSetupYear_ ||
                 shownMonth != dismissedMonthSetupMonth_)
             {
@@ -206,11 +248,31 @@ MainWindow::MainWindow(QWidget* parent)
           });
 }
 
-//---------------------------------------------------------------
-
-MainWindow::~MainWindow()
+void MainWindow::updateDisplayedMonthLabel(int shownYear, int shownMonth)
 {
-  delete ui;
+  const QDate firstDay(shownYear, shownMonth, 1);
+  if (!firstDay.isValid())
+  {
+    ui->displayedMonthLabel->clear();
+    return;
+  }
+
+  const QLocale russian(QLocale::Russian, QLocale::Russia);
+  QString label = russian.toString(firstDay, "LLLL yyyy");
+  if (!label.isEmpty())
+  {
+    label.replace(0, 1, label.left(1).toUpper());
+  }
+  ui->displayedMonthLabel->setText(label);
+}
+
+void MainWindow::applyCalendarExpanded(bool expanded)
+{
+  ui->calendarWidget->setVisible(expanded);
+  ui->toggleCalendarButton->setText(
+      expanded ? "Свернуть календарь" : "Развернуть календарь");
+  ui->toggleCalendarButton->setToolTip(
+      expanded ? "Освободить место для таблицы" : "Показать календарь");
 }
 
 //---------------------------------------------------------------
@@ -1230,6 +1292,8 @@ void MainWindow::updateEditControlsByMode()
   localStorageAction_->setEnabled(controlsIdle);
   remoteStorageAction_->setEnabled(controlsIdle);
   ui->calendarWidget->setEnabled(controlsIdle);
+  ui->previousMonthButton->setEnabled(controlsIdle);
+  ui->nextMonthButton->setEnabled(controlsIdle);
 
   QTableWidget* tableWidget = findChild<QTableWidget*>("bigTable");
   if (tableWidget)
