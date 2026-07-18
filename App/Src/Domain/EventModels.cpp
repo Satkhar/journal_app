@@ -35,7 +35,8 @@ bool BoutId::isValid() const
 bool EventParticipantSnapshot::isValid() const
 {
   return participantId.isValid() &&
-         IsSingleLine(displayNameSnapshot, kMaxEventParticipantNameLength) &&
+         IsSingleLine(displayNameSnapshot,
+                      kMaxEventParticipantSnapshotNameLength) &&
          fullNameSnapshot.size() <= kMaxParticipantFullNameLength &&
          !fullNameSnapshot.contains('\n') && !fullNameSnapshot.contains('\r');
 }

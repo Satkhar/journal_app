@@ -1,5 +1,5 @@
 > **Статус:** документ описывает schema v1 и сохранен как historical reference.
-> Актуальная доменная модель и schema v7: doc/arch.md. План карточек:
+> Актуальная доменная модель и schema v8: doc/arch.md. План карточек:
 > doc/participant_profiles_plan.md.
 
 # Project Navigation

@@ -9,7 +9,6 @@
 namespace
 {
 
-constexpr int kMaxDisplayNameLength = 200;
 constexpr int kMaxNotesLength = 4096;
 constexpr int kKnownDayMarkerKindsMask =
     static_cast<int>(DayMarkerKind::Payment) |
@@ -104,9 +103,16 @@ int ParticipantRankSortKey(ParticipantRank rank)
 
 bool ParticipantProfile::isValid() const
 {
-  const QString trimmedName = displayName.trimmed();
-  return id.isValid() && !trimmedName.isEmpty() &&
-         trimmedName.size() <= kMaxDisplayNameLength &&
+  const QString trimmedDisplayName = displayName.trimmed();
+  const QString trimmedHistoricalName = historicalName.trimmed();
+  const QString trimmedFullName = fullName.trimmed();
+  return id.isValid() &&
+         (!trimmedHistoricalName.isEmpty() || !trimmedFullName.isEmpty()) &&
+         !trimmedDisplayName.isEmpty() &&
+         trimmedDisplayName == ParticipantDisplayName(*this) &&
+         trimmedDisplayName.size() <= kMaxParticipantDisplayNameLength &&
+         trimmedHistoricalName.size() <= kMaxParticipantHistoricalNameLength &&
+         !historicalName.contains('\n') && !historicalName.contains('\r') &&
          fullName.size() <= kMaxParticipantFullNameLength &&
          !fullName.contains('\n') && !fullName.contains('\r') &&
          contact.size() <= kMaxParticipantContactLength &&
@@ -114,6 +120,26 @@ bool ParticipantProfile::isValid() const
          !ParticipantRankStorageValue(rank).isEmpty() &&
          notes.size() <= kMaxNotesLength &&
          (!birthday.has_value() || birthday->isValid());
+}
+
+QString ParticipantDisplayName(const ParticipantProfile& profile)
+{
+  const QString historicalName = profile.historicalName.trimmed();
+  if (!historicalName.isEmpty())
+  {
+    return historicalName;
+  }
+  return profile.fullName.trimmed();
+}
+
+bool IsValidParticipantSnapshot(const Participant& participant)
+{
+  ParticipantProfile profile;
+  profile.id = participant.id;
+  profile.displayName = participant.displayName;
+  profile.historicalName = participant.historicalName;
+  profile.fullName = participant.fullName;
+  return profile.isValid();
 }
 
 int CountCheckedActiveDays(const QVector<int>& activeDays,

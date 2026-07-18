@@ -9,15 +9,15 @@ flowchart LR
   ST --> LOCAL[JournalLocal]
   ST --> REMOTE[JournalRemote]
   LOCAL --> SQLITE[SqliteConnect]
-  SQLITE --> LDB[(SQLite schema v7)]
+  SQLITE --> LDB[(SQLite schema v8)]
   REMOTE --> API[libsql HTTP API]
-  API --> RDB[(Remote schema v7)]
+  API --> RDB[(Remote schema v8)]
   UI --> SYNC[SyncService]
   SYNC --> ST
   UI --> EAPP[EventApp]
   EAPP --> EST[IEventStorage]
   EST --> ESQL[EventSqliteStorage]
-  ESQL --> EDB[(events_data.db, schema v1)]
+  ESQL --> EDB[(events_data.db, schema v2)]
 ```
 
 `MainWindow` отвечает за widgets и запуск use cases. `JournalApp` работает
@@ -31,13 +31,14 @@ flowchart LR
 Глобальный человек:
 
 - `ParticipantId` — стабильный UUID;
-- `displayName` — редактируемое историчное имя для журнала.
+- `displayName` — вычисленное имя для журнала: историчное имя, если оно
+  заполнено, иначе ФИО.
 
 Имя не является ключом. Одинаковые имена допустимы.
 
 ### `ParticipantProfile`
 
-Отдельная глобальная карточка: историчное имя, optional ФИО, один opaque contact
+Отдельная глобальная карточка: optional историчное имя, ФИО, один opaque contact
 (VK, Telegram или телефон), nullable birthday, типизированное звание,
 plain-text notes и `archived_at`. Birthday хранится как day/month и optional
 year; фиктивный год не используется. Archive не удаляет membership или
@@ -75,19 +76,21 @@ UUID, название, дату, общую plain-text заметку, спис
 внешнего человека; счёт хранится двумя целыми числами.
 
 Физический FK между двумя SQLite-файлами невозможен. Поэтому БД турниров
-хранит UUID внутреннего участника и snapshots историчного имени и ФИО. UUID
+хранит UUID внутреннего участника и snapshots отображаемого имени и ФИО. UUID
 сохраняет логическую связь, snapshots не дают старому турниру потерять
 контекст после переименования или отсутствия основной БД. Aggregate читается в
 одной SQLite read transaction; `revision` и compare-and-swap блокируют тихую
 перезапись более новой версии другим процессом. Турниры пока не входят в
-remote sync.
+remote sync. Event schema v2 расширяет snapshot отображаемого имени с 200 до
+300 символов; v1 мигрирует транзакционно с проверкой внешних ключей.
 
 ### `MonthSnapshot`
 
 Содержит:
 
 - явное состояние `Missing`, `Ready` или `Error` и текст ошибки;
-- participants текущего месяца;
+- participants текущего месяца: UUID, вычисленное имя и исходные
+  `historicalName`/`fullName`;
 - active days;
 - attendance.
 - day markers.
@@ -95,10 +98,11 @@ remote sync.
 Snapshot применяется целиком только в sync-сценариях. Обычное сохранение UI
 делает upsert attendance и не меняет membership/profile.
 
-## SQLite schema v7
+## SQLite schema v8
 
-- `participants`: `birth_day`, `birth_month`, `birth_year`, `rank`, `full_name`,
-  `contact`, `notes`, `archived_at`;
+- `participants`: вычисленное `display_name`, optional `historical_name`,
+  `full_name`, `birth_day`, `birth_month`, `birth_year`, `rank`, `contact`,
+  `notes`, `archived_at`;
 - `month_participants`;
 - `attendance`;
 - `month_days`;
@@ -110,23 +114,24 @@ Snapshot применяется целиком только в sync-сценар
 - `CHECK` для year/month/day/boolean;
 - unique primary keys;
 - индексы чтения месяца и истории участника;
-- `PRAGMA user_version = 7`.
+- `PRAGMA user_version = 8`.
 
-Schema v2 мигрирует последовательно v2 -> v3 -> v4 -> v5 -> v7. Schema v3-v5
-также мигрируют последовательно и транзакционно. Для существующих участников
+Schema v2 мигрирует последовательно v2 -> v3 -> v4 -> v5 -> v7 -> v8.
+Schema v3-v5 также мигрируют последовательно и транзакционно. Для существующих
 миграция v4 -> v5 назначает `rank = 'guest'`; v5 -> v7 назначает пустые ФИО и
-контакт и расширяет допустимую marker mask с 15 до 31. Unversioned legacy schema
-сначала мигрирует в v3, затем до v7:
+контакт и расширяет допустимую marker mask с 15 до 31. Миграция v7 -> v8
+сохраняет прежний `display_name` как `historical_name`. Unversioned legacy
+schema сначала мигрирует в v3, затем до v8:
 `dd.MM.yyyy` сохраняет год, а `dd.MM` привязывается к единственному году
 настройки `month_days`.
 Неоднозначное соответствие месяца нескольким годам отклоняется. Profile
-triggers проверяют имя, ФИО, контакт, notes, звание и календарную корректность
-birthday.
+triggers проверяют согласованность вычисленного, историчного и полного имени,
+контакт, notes, звание и календарную корректность birthday.
 
 Промежуточная development-схема с profile-column `is_trainer` также называлась
 v6, но имеет другой контракт. При открытии ограничение маркеров обновляется
 без потери данных, значения старого флага архивируются, устаревшая колонка
-удаляется, версия становится v7.
+удаляется, затем схема мигрирует через v7 до v8.
 
 `saveActiveDays()` не удаляет attendance и day markers выключенных дней. При
 повторном включении сохраненные данные восстанавливаются.
@@ -145,12 +150,15 @@ Push/pull работают с `MonthSnapshot`, а не с `name + day`.
 
 - Push заменяет remote membership/active days/attendance/day markers месяца.
 - Pull заменяет local membership/active days/attendance/day markers месяца.
-- Global participant rows upsert-ятся, но не удаляются full replace.
+- Для неизвестного UUID создаётся global participant с исходными ФИО и
+  историчным именем из snapshot; существующая global-карточка не
+  перезаписывается.
 - Ошибка remote read не трактуется как пустой месяц.
 - Remote writes используют Hrana batch: DML идет по `ok`-conditions, rollback —
   по отрицанию успешного commit.
 - Pull читает participants/days/attendance/day markers одной read transaction.
-- Profile fields не входят в `MonthSnapshot` и не синхронизируются до этапа 4.
+- Contact, birthday, rank, notes и archive status не входят в `MonthSnapshot`
+  и не синхронизируются до этапа 4.
 
 Текущий HTTP-клиент синхронный и использует вложенный `QEventLoop`. Это PoC,
 не production transport. До синхронизации фото/персональных данных нужны async,

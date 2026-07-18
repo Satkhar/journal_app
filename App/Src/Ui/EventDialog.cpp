@@ -38,18 +38,23 @@ constexpr char kInternalParticipantIdProperty[] =
 
 QString ParticipantChoiceText(const ParticipantProfile& profile)
 {
-  return profile.fullName.trimmed().isEmpty()
-             ? profile.displayName
-             : QString("%1 — %2").arg(profile.displayName, profile.fullName);
+  const QString historicalName = profile.historicalName.trimmed();
+  const QString fullName = profile.fullName.trimmed();
+  if (!historicalName.isEmpty() && !fullName.isEmpty() &&
+      historicalName != fullName)
+  {
+    return QString("%1 — %2").arg(historicalName, fullName);
+  }
+  return ParticipantDisplayName(profile);
 }
 
 QString ParticipantChoiceText(const EventParticipantSnapshot& participant)
 {
-  return participant.fullNameSnapshot.trimmed().isEmpty()
-             ? participant.displayNameSnapshot
-             : QString("%1 — %2")
-                   .arg(participant.displayNameSnapshot,
-                        participant.fullNameSnapshot);
+  const QString displayName = participant.displayNameSnapshot.trimmed();
+  const QString fullName = participant.fullNameSnapshot.trimmed();
+  return fullName.isEmpty() || displayName == fullName
+             ? displayName
+             : QString("%1 — %2").arg(displayName, fullName);
 }
 
 } // namespace
@@ -95,7 +100,7 @@ EventDialog::EventDialog(const EventRecord& event,
     {
       choicesById.insert(
           profile.id.value,
-          {profile.id, profile.displayName, profile.fullName});
+          {profile.id, ParticipantDisplayName(profile), profile.fullName});
     }
     QString label = ParticipantChoiceText(profile);
     if (profile.archived)
@@ -126,8 +131,8 @@ EventDialog::EventDialog(const EventRecord& event,
       [](const EventParticipantSnapshot& lhs,
          const EventParticipantSnapshot& rhs)
       {
-        return QString::localeAwareCompare(lhs.displayNameSnapshot,
-                                           rhs.displayNameSnapshot) < 0;
+        return QString::localeAwareCompare(ParticipantChoiceText(lhs),
+                                           ParticipantChoiceText(rhs)) < 0;
       });
 
   const QSet<QString> selectedIds = [&event]()

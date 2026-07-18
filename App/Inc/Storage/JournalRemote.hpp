@@ -30,7 +30,7 @@ public:
   bool removeDayMarker(int year, int month,
                        const ParticipantId& participantId, int day) override;
   bool addParticipantToMonth(int year, int month,
-                             const Participant& participant) override;
+                             const ParticipantProfile& profile) override;
   bool removeParticipantFromMonth(int year, int month,
                                   const ParticipantId& id) override;
   bool replaceMonth(int year, int month,

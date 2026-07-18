@@ -17,7 +17,7 @@
 ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
                                      bool editable, QWidget* parent)
     : QDialog(parent), original_(profile), action_(Action::Cancel),
-      nameEdit_(new QLineEdit(profile.displayName, this)),
+      nameEdit_(new QLineEdit(profile.historicalName, this)),
       fullNameEdit_(new QLineEdit(profile.fullName, this)),
       contactEdit_(new QLineEdit(profile.contact, this)),
       birthdayCheck_(new QCheckBox("Дата рождения известна", this)),
@@ -30,7 +30,7 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   setMinimumWidth(460);
 
   nameEdit_->setObjectName("participantHistoricalNameEdit");
-  nameEdit_->setMaxLength(200);
+  nameEdit_->setMaxLength(kMaxParticipantHistoricalNameLength);
   fullNameEdit_->setObjectName("participantFullNameEdit");
   fullNameEdit_->setMaxLength(kMaxParticipantFullNameLength);
   fullNameEdit_->setPlaceholderText("Фамилия Имя Отчество");
@@ -157,8 +157,9 @@ ParticipantDialog::Action ParticipantDialog::action() const
 ParticipantProfile ParticipantDialog::profile() const
 {
   ParticipantProfile result = original_;
-  result.displayName = nameEdit_->text().trimmed();
+  result.historicalName = nameEdit_->text().trimmed();
   result.fullName = fullNameEdit_->text().trimmed();
+  result.displayName = ParticipantDisplayName(result);
   result.contact = contactEdit_->text().trimmed();
   result.rank = static_cast<ParticipantRank>(rankCombo_->currentData().toInt());
   result.notes = notesEdit_->toPlainText();
@@ -192,11 +193,13 @@ void ParticipantDialog::updateBirthdayControls()
 void ParticipantDialog::save()
 {
   const ParticipantProfile edited = profile();
-  if (!edited.isValid())
+  if ((edited.historicalName.isEmpty() && edited.fullName.isEmpty()) ||
+      !edited.isValid())
   {
     QMessageBox::warning(this, "Некорректный профиль",
-                         "Проверьте историчное имя, ФИО, контакт, дату "
-                         "рождения и длину заметки (не более 4096 символов).");
+                         "Укажите ФИО или историчное имя. Проверьте контакт, "
+                         "дату рождения и длину заметки (не более 4096 "
+                         "символов).");
     return;
   }
   action_ = Action::Save;

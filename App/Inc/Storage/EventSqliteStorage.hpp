@@ -25,7 +25,8 @@ private:
   bool enableForeignKeys();
   bool ensureSchema();
   bool createSchema();
-  bool verifySchema();
+  bool migrateSchemaV1ToV2();
+  bool verifySchema(int participantSnapshotNameMaxLength);
   std::optional<EventRecord> loadEvent(const EventId& id);
   bool tableExists(const QString& name) const;
   void setError(const QString& error);

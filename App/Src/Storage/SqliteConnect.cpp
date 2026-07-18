@@ -18,7 +18,8 @@ constexpr int kProfileSchemaVersion = 3;
 constexpr int kDayMarkerSchemaVersion = 4;
 constexpr int kRankSchemaVersion = 5;
 constexpr int kDevelopmentSchemaVersion = 6;
-constexpr int kSchemaVersion = 7;
+constexpr int kParticipantDetailsSchemaVersion = 7;
+constexpr int kSchemaVersion = 8;
 
 bool tableHasColumns(QSqlDatabase& db, const QString& table,
                      const QSet<QString>& required)
@@ -163,29 +164,35 @@ bool SqliteConnect::ensureSchema()
   }
   if (version == kSchemaVersion)
   {
-    return verifySchemaV7();
+    return verifySchemaV8();
+  }
+  if (version == kParticipantDetailsSchemaVersion)
+  {
+    return migrateSchemaV7ToV8() && verifySchemaV8();
   }
   if (version == kDevelopmentSchemaVersion)
   {
-    return migrateSchemaV6ToV7() && verifySchemaV7();
+    return migrateSchemaV6ToV7() && migrateSchemaV7ToV8() && verifySchemaV8();
   }
   if (version == kRankSchemaVersion)
   {
-    return migrateSchemaV5ToV7() && verifySchemaV7();
+    return migrateSchemaV5ToV7() && migrateSchemaV7ToV8() && verifySchemaV8();
   }
   if (version == kDayMarkerSchemaVersion)
   {
-    return migrateSchemaV4ToV5() && migrateSchemaV5ToV7() && verifySchemaV7();
+    return migrateSchemaV4ToV5() && migrateSchemaV5ToV7() &&
+           migrateSchemaV7ToV8() && verifySchemaV8();
   }
   if (version == kProfileSchemaVersion)
   {
     return migrateSchemaV3ToV4() && migrateSchemaV4ToV5() &&
-           migrateSchemaV5ToV7() && verifySchemaV7();
+           migrateSchemaV5ToV7() && migrateSchemaV7ToV8() && verifySchemaV8();
   }
   if (version == 2)
   {
     return migrateSchemaV2ToV3() && migrateSchemaV3ToV4() &&
-           migrateSchemaV4ToV5() && migrateSchemaV5ToV7() && verifySchemaV7();
+           migrateSchemaV4ToV5() && migrateSchemaV5ToV7() &&
+           migrateSchemaV7ToV8() && verifySchemaV8();
   }
   if (version != 0)
   {
@@ -196,7 +203,8 @@ bool SqliteConnect::ensureSchema()
   if (tableExists("users"))
   {
     return migrateLegacyUsersToV3() && migrateSchemaV3ToV4() &&
-           migrateSchemaV4ToV5() && migrateSchemaV5ToV7() && verifySchemaV7();
+           migrateSchemaV4ToV5() && migrateSchemaV5ToV7() &&
+           migrateSchemaV7ToV8() && verifySchemaV8();
   }
 
   const QStringList incompatible = {"participants", "month_participants",
@@ -215,14 +223,14 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  if (!createSchemaV7() ||
+  if (!createSchemaV8() ||
       !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
     db_.rollback();
     if (lastError_.isEmpty())
     {
-      setError("Schema v7 creation verification failed");
+      setError("Schema v8 creation verification failed");
     }
     return false;
   }
@@ -231,7 +239,7 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  return verifySchemaV7();
+  return verifySchemaV8();
 }
 
 bool SqliteConnect::createSchemaV3()
@@ -407,6 +415,43 @@ bool SqliteConnect::upgradeDayMarkerKindsSchema()
 bool SqliteConnect::createSchemaV7()
 {
   return createSchemaV5() && createParticipantDetailsSchema();
+}
+
+bool SqliteConnect::createParticipantNameSchema()
+{
+  // SQLite проверяет CHECK существующих строк при ADD COLUMN. Пробел нужен
+  // только как валидный migration default; profile trigger запрещает его как
+  // доменное значение.
+  const QStringList statements = {
+      "DROP TRIGGER participants_profile_insert",
+      "DROP TRIGGER participants_profile_update",
+      "ALTER TABLE participants RENAME COLUMN display_name TO "
+      "legacy_display_name",
+      "ALTER TABLE participants ADD COLUMN display_name TEXT NOT NULL "
+      "DEFAULT ' ' CHECK(length(display_name) BETWEEN 1 AND 300)",
+      "ALTER TABLE participants ADD COLUMN historical_name TEXT NOT NULL "
+      "DEFAULT '' CHECK(length(historical_name) <= 200 AND "
+      "instr(historical_name, char(10)) = 0 AND "
+      "instr(historical_name, char(13)) = 0)",
+      "UPDATE participants SET display_name = trim(legacy_display_name), "
+      "historical_name = trim(legacy_display_name)",
+      "ALTER TABLE participants DROP COLUMN legacy_display_name"};
+  for (const QString& statement : statements)
+  {
+    QSqlQuery query(db_);
+    if (!query.exec(statement))
+    {
+      setError(QString("Participant-name migration failed: %1; SQL: %2")
+                   .arg(query.lastError().text(), statement));
+      return false;
+    }
+  }
+  return createProfileValidationTriggers();
+}
+
+bool SqliteConnect::createSchemaV8()
+{
+  return createSchemaV7() && createParticipantNameSchema();
 }
 
 bool SqliteConnect::migrateLegacyUsersToV3()
@@ -649,7 +694,7 @@ bool SqliteConnect::createProfileValidationTriggers()
 {
   QString validation =
       "length(trim(NEW.display_name)) = 0 OR "
-      "length(NEW.display_name) > 200 OR length(NEW.notes) > 4096 OR NOT ("
+      "length(NEW.display_name) > 300 OR length(NEW.notes) > 4096 OR NOT ("
       "(NEW.birth_day IS NULL AND NEW.birth_month IS NULL AND "
       "NEW.birth_year IS NULL) OR (NEW.birth_day IS NOT NULL AND "
       "NEW.birth_month IS NOT NULL AND NEW.birth_day <= CASE "
@@ -675,6 +720,19 @@ bool SqliteConnect::createProfileValidationTriggers()
                   "instr(NEW.contact, char(10)) != 0 OR "
                   "instr(NEW.contact, char(13)) != 0";
   }
+  const bool hasHistoricalName =
+      tableHasColumns(db_, "participants", {"historical_name"});
+  if (hasHistoricalName)
+  {
+    validation += " OR length(NEW.historical_name) > 200 OR "
+                  "instr(NEW.historical_name, char(10)) != 0 OR "
+                  "instr(NEW.historical_name, char(13)) != 0 OR "
+                  "(length(trim(NEW.historical_name)) = 0 AND "
+                  "length(trim(NEW.full_name)) = 0) OR "
+                  "trim(NEW.display_name) != CASE WHEN "
+                  "length(trim(NEW.historical_name)) > 0 THEN "
+                  "trim(NEW.historical_name) ELSE trim(NEW.full_name) END";
+  }
   QSqlQuery query(db_);
   QStringList updateColumns = {"display_name", "birth_day", "birth_month",
                                "birth_year", "notes"};
@@ -685,6 +743,10 @@ bool SqliteConnect::createProfileValidationTriggers()
   if (hasParticipantDetails)
   {
     updateColumns.append({"full_name", "contact"});
+  }
+  if (hasHistoricalName)
+  {
+    updateColumns.push_back("historical_name");
   }
   const QStringList statements = {
       QString("CREATE TRIGGER participants_profile_insert BEFORE INSERT ON "
@@ -876,7 +938,8 @@ bool SqliteConnect::migrateSchemaV5ToV7()
   }
   QSqlQuery query(db_);
   if (!createParticipantDetailsSchema() ||
-      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec(QString("PRAGMA user_version = %1")
+                      .arg(kParticipantDetailsSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
     db_.rollback();
@@ -935,9 +998,9 @@ bool SqliteConnect::migrateSchemaV6ToV7()
   }
   const bool hasTrainerColumn = participantColumns.remove("is_trainer");
   const QSet<QString> expectedParticipantColumns = {
-      "id",          "display_name", "birth_day",  "birth_month",
-      "birth_year",  "notes",        "rank",       "full_name",
-      "contact",     "created_at",   "updated_at", "archived_at"};
+      "id",         "display_name", "birth_day",  "birth_month",
+      "birth_year", "notes",        "rank",       "full_name",
+      "contact",    "created_at",   "updated_at", "archived_at"};
   if (participantColumns != expectedParticipantColumns)
   {
     setError("Schema v6 participant columns are unknown");
@@ -958,17 +1021,13 @@ bool SqliteConnect::migrateSchemaV6ToV7()
     return false;
   }
   const bool oldMarkerMask =
-      markerSql.contains("kind_mask BETWEEN 1 AND 15",
-                         Qt::CaseInsensitive);
+      markerSql.contains("kind_mask BETWEEN 1 AND 15", Qt::CaseInsensitive);
   const bool currentMarkerMask =
-      markerSql.contains("kind_mask BETWEEN 1 AND 31",
-                         Qt::CaseInsensitive);
+      markerSql.contains("kind_mask BETWEEN 1 AND 31", Qt::CaseInsensitive);
   if (hasTrainerColumn &&
-      (!participantSql.contains(
-           "is_trainer INTEGER NOT NULL DEFAULT 0",
-           Qt::CaseInsensitive) ||
-       !participantSql.contains("is_trainer IN (0, 1)",
-                                Qt::CaseInsensitive)))
+      (!participantSql.contains("is_trainer INTEGER NOT NULL DEFAULT 0",
+                                Qt::CaseInsensitive) ||
+       !participantSql.contains("is_trainer IN (0, 1)", Qt::CaseInsensitive)))
   {
     setError("Schema v6 trainer constraints are unknown");
     return false;
@@ -996,10 +1055,9 @@ bool SqliteConnect::migrateSchemaV6ToV7()
            "CREATE TABLE IF NOT EXISTS legacy_v6_participant_trainer_flags("
            "participant_id TEXT PRIMARY KEY NOT NULL, is_trainer INTEGER "
            "NOT NULL CHECK(is_trainer IN (0, 1)))") ||
-       !query.exec(
-           "INSERT OR REPLACE INTO legacy_v6_participant_trainer_flags("
-           "participant_id, is_trainer) SELECT id, is_trainer FROM "
-           "participants")))
+       !query.exec("INSERT OR REPLACE INTO legacy_v6_participant_trainer_flags("
+                   "participant_id, is_trainer) SELECT id, is_trainer FROM "
+                   "participants")))
   {
     return fail(query.lastError().text());
   }
@@ -1028,9 +1086,43 @@ bool SqliteConnect::migrateSchemaV6ToV7()
     return fail("Development schema v6 repair failed foreign-key check");
   }
   query.finish();
-  if (!query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)))
+  if (!query.exec(QString("PRAGMA user_version = %1")
+                      .arg(kParticipantDetailsSchemaVersion)))
   {
     return fail(query.lastError().text());
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::migrateSchemaV7ToV8()
+{
+  if (!verifySchemaV7())
+  {
+    return false;
+  }
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (!createParticipantNameSchema() ||
+      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec("PRAGMA foreign_key_check") || query.next())
+  {
+    db_.rollback();
+    if (lastError_.isEmpty())
+    {
+      setError("Cannot finish schema v7 to v8 migration");
+    }
+    return false;
   }
   if (!db_.commit())
   {
@@ -1168,10 +1260,11 @@ bool SqliteConnect::verifySchemaV7()
   {
     participantColumns.insert(query.value(1).toString());
   }
+  participantColumns.remove("historical_name");
   const QSet<QString> expectedParticipantColumns = {
-      "id",          "display_name", "birth_day",  "birth_month",
-      "birth_year",  "notes",        "rank",       "full_name",
-      "contact",     "created_at",   "updated_at", "archived_at"};
+      "id",         "display_name", "birth_day",  "birth_month",
+      "birth_year", "notes",        "rank",       "full_name",
+      "contact",    "created_at",   "updated_at", "archived_at"};
   if (participantColumns != expectedParticipantColumns)
   {
     setError("Schema v7 participant columns are incomplete");
@@ -1217,8 +1310,7 @@ bool SqliteConnect::verifySchemaV7()
     return false;
   }
   const QString markerSql = query.value(0).toString().simplified();
-  if (!markerSql.contains("kind_mask BETWEEN 1 AND 31",
-                          Qt::CaseInsensitive) ||
+  if (!markerSql.contains("kind_mask BETWEEN 1 AND 31", Qt::CaseInsensitive) ||
       !markerSql.contains("REFERENCES month_participants",
                           Qt::CaseInsensitive) ||
       !markerSql.contains("ON DELETE CASCADE", Qt::CaseInsensitive))
@@ -1231,6 +1323,61 @@ bool SqliteConnect::verifySchemaV7()
       !query.next())
   {
     setError("Schema v7 day-marker history index is missing");
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::verifySchemaV8()
+{
+  if (!verifySchemaV7() ||
+      !tableHasColumns(db_, "participants", {"historical_name"}))
+  {
+    if (lastError_.isEmpty())
+    {
+      setError("Schema v8 historical-name column is missing");
+    }
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (!query.exec("SELECT sql FROM sqlite_master WHERE type = 'table' AND "
+                  "name = 'participants'") ||
+      !query.next())
+  {
+    setError("Schema v8 participant definition is missing");
+    return false;
+  }
+  const QString participantSql = query.value(0).toString().simplified();
+  if (!participantSql.contains("historical_name TEXT NOT NULL DEFAULT '' "
+                               "CHECK(length(historical_name) <= 200 AND "
+                               "instr(historical_name, char(10)) = 0 AND "
+                               "instr(historical_name, char(13)) = 0)",
+                               Qt::CaseInsensitive))
+  {
+    setError("Schema v8 historical-name constraints are incomplete");
+    return false;
+  }
+  if (!participantSql.contains(
+          "display_name TEXT NOT NULL DEFAULT ' ' "
+          "CHECK(length(display_name) BETWEEN 1 AND 300)",
+          Qt::CaseInsensitive))
+  {
+    setError("Schema v8 display-name constraints are incomplete");
+    return false;
+  }
+  if (!query.exec(
+          "SELECT 1 FROM participants WHERE length(display_name) > 300 OR "
+          "length(trim(display_name)) = 0 OR "
+          "length(historical_name) > 200 OR "
+          "instr(historical_name, char(10)) != 0 OR "
+          "instr(historical_name, char(13)) != 0 OR "
+          "(length(trim(historical_name)) = 0 AND "
+          "length(trim(full_name)) = 0) OR trim(display_name) != CASE WHEN "
+          "length(trim(historical_name)) > 0 THEN trim(historical_name) "
+          "ELSE trim(full_name) END LIMIT 1") ||
+      query.next())
+  {
+    setError("Schema v8 contains inconsistent participant names");
     return false;
   }
   return true;
@@ -1279,7 +1426,8 @@ std::vector<Participant> SqliteConnect::getParticipantsForMonth(int year,
 {
   std::vector<Participant> result;
   QSqlQuery query(db_);
-  query.prepare("SELECT p.id, p.display_name FROM "
+  query.prepare("SELECT p.id, p.display_name, p.historical_name, "
+                "p.full_name FROM "
                 "month_participants mp "
                 "JOIN participants p ON p.id = mp.participant_id "
                 "WHERE mp.year = :year AND mp.month = :month "
@@ -1293,7 +1441,8 @@ std::vector<Participant> SqliteConnect::getParticipantsForMonth(int year,
   }
   while (query.next())
   {
-    result.push_back({{query.value(0).toString()}, query.value(1).toString()});
+    result.push_back({{query.value(0).toString()}, query.value(1).toString(),
+                      query.value(2).toString(), query.value(3).toString()});
   }
   return result;
 }
@@ -1372,7 +1521,11 @@ bool SqliteConnect::saveActiveDays(int year, int month,
       return fail(query.lastError().text());
     }
   }
-  return db_.commit();
+  if (!db_.commit())
+  {
+    return fail(db_.lastError().text());
+  }
+  return true;
 }
 
 std::vector<AttendanceRecord> SqliteConnect::getMonth(int year, int month)
@@ -1546,10 +1699,32 @@ bool SqliteConnect::removeDayMarker(int year, int month,
 }
 
 bool SqliteConnect::addParticipantToMonth(int year, int month,
-                                          const Participant& participant)
+                                          const ParticipantProfile& profile)
 {
-  if (!validateYearMonth(year, month) || !participant.id.isValid() ||
-      participant.displayName.isEmpty())
+  ParticipantProfile normalized = profile;
+  normalized.historicalName = normalized.historicalName.trimmed();
+  normalized.fullName = normalized.fullName.trimmed();
+  normalized.contact = normalized.contact.trimmed();
+  normalized.displayName = ParticipantDisplayName(normalized);
+  if (normalized.historicalName.isNull())
+  {
+    normalized.historicalName = QStringLiteral("");
+  }
+  if (normalized.fullName.isNull())
+  {
+    normalized.fullName = QStringLiteral("");
+  }
+  if (normalized.contact.isNull())
+  {
+    normalized.contact = QStringLiteral("");
+  }
+  if (normalized.notes.isNull())
+  {
+    normalized.notes = QStringLiteral("");
+  }
+  if (!validateYearMonth(year, month) ||
+      (normalized.historicalName.isEmpty() && normalized.fullName.isEmpty()) ||
+      !normalized.isValid() || normalized.archived)
   {
     setError("Invalid participant or month");
     return false;
@@ -1566,10 +1741,32 @@ bool SqliteConnect::addParticipantToMonth(int year, int month,
     return false;
   };
   QSqlQuery query(db_);
-  query.prepare("INSERT INTO participants(id, display_name) VALUES(:id, :name) "
-                "ON CONFLICT(id) DO NOTHING");
-  query.bindValue(":id", participant.id.value);
-  query.bindValue(":name", participant.displayName);
+  query.prepare(
+      "INSERT INTO participants(id, display_name, historical_name, "
+      "full_name, contact, birth_day, birth_month, birth_year, rank, notes) "
+      "VALUES(:id, :name, :historical_name, :full_name, :contact, :day, "
+      ":month, :year, :rank, :notes) ON CONFLICT(id) DO NOTHING");
+  query.bindValue(":id", normalized.id.value);
+  query.bindValue(":name", normalized.displayName);
+  query.bindValue(":historical_name", normalized.historicalName);
+  query.bindValue(":full_name", normalized.fullName);
+  query.bindValue(":contact", normalized.contact);
+  query.bindValue(":rank", ParticipantRankStorageValue(normalized.rank));
+  query.bindValue(":notes", normalized.notes);
+  if (normalized.birthday.has_value())
+  {
+    query.bindValue(":day", normalized.birthday->day);
+    query.bindValue(":month", normalized.birthday->month);
+    query.bindValue(":year", normalized.birthday->year.has_value()
+                                 ? QVariant(*normalized.birthday->year)
+                                 : QVariant());
+  }
+  else
+  {
+    query.bindValue(":day", QVariant());
+    query.bindValue(":month", QVariant());
+    query.bindValue(":year", QVariant());
+  }
   if (!query.exec())
   {
     return fail(query.lastError().text());
@@ -1581,7 +1778,7 @@ bool SqliteConnect::addParticipantToMonth(int year, int month,
       "year = :year AND month = :month), 0))");
   query.bindValue(":year", year);
   query.bindValue(":month", month);
-  query.bindValue(":id", participant.id.value);
+  query.bindValue(":id", normalized.id.value);
   if (!query.exec())
   {
     return fail(query.lastError().text());
@@ -1617,13 +1814,17 @@ bool SqliteConnect::addParticipantToMonth(int year, int month,
     query.bindValue(":year", year);
     query.bindValue(":month", month);
     query.bindValue(":day", day);
-    query.bindValue(":id", participant.id.value);
+    query.bindValue(":id", normalized.id.value);
     if (!query.exec())
     {
       return fail(query.lastError().text());
     }
   }
-  return db_.commit();
+  if (!db_.commit())
+  {
+    return fail(db_.lastError().text());
+  }
+  return true;
 }
 
 bool SqliteConnect::removeParticipantFromMonth(int year, int month,
@@ -1659,7 +1860,7 @@ bool SqliteConnect::validateSnapshot(int year, int month,
   QSet<QString> ids;
   for (const Participant& participant : snapshot.participants)
   {
-    if (!participant.id.isValid() || participant.displayName.isEmpty() ||
+    if (!IsValidParticipantSnapshot(participant) ||
         ids.contains(participant.id.value))
     {
       setError("Invalid or duplicate participant in snapshot");
@@ -1757,7 +1958,8 @@ bool SqliteConnect::replaceMonth(int year, int month,
 
   QSqlQuery participantQuery(db_);
   participantQuery.prepare(
-      "INSERT INTO participants(id, display_name) VALUES(:id, :name) "
+      "INSERT INTO participants(id, display_name, historical_name, "
+      "full_name) VALUES(:id, :name, :historical_name, :full_name) "
       "ON CONFLICT(id) DO NOTHING");
   QSqlQuery membershipQuery(db_);
   membershipQuery.prepare(
@@ -1768,6 +1970,14 @@ bool SqliteConnect::replaceMonth(int year, int month,
   {
     participantQuery.bindValue(":id", participant.id.value);
     participantQuery.bindValue(":name", participant.displayName);
+    participantQuery.bindValue(":historical_name",
+                               participant.historicalName.isNull()
+                                   ? QStringLiteral("")
+                                   : participant.historicalName);
+    participantQuery.bindValue(":full_name",
+                               participant.fullName.isNull()
+                                   ? QStringLiteral("")
+                                   : participant.fullName);
     if (!participantQuery.exec())
     {
       return fail(participantQuery.lastError().text());
@@ -1828,7 +2038,11 @@ bool SqliteConnect::replaceMonth(int year, int month,
       return fail(markerQuery.lastError().text());
     }
   }
-  return db_.commit();
+  if (!db_.commit())
+  {
+    return fail(db_.lastError().text());
+  }
+  return true;
 }
 std::optional<ParticipantProfile>
 SqliteConnect::getParticipantProfile(const ParticipantId& id)
@@ -1841,7 +2055,7 @@ SqliteConnect::getParticipantProfile(const ParticipantId& id)
   QSqlQuery query(db_);
   query.prepare(
       "SELECT id, display_name, birth_day, birth_month, birth_year, rank, "
-      "notes, archived_at IS NOT NULL, full_name, contact "
+      "notes, archived_at IS NOT NULL, full_name, contact, historical_name "
       "FROM participants WHERE id = :id");
   query.bindValue(":id", id.value);
   if (!query.exec())
@@ -1886,6 +2100,7 @@ SqliteConnect::getParticipantProfile(const ParticipantId& id)
   profile.archived = query.value(7).toInt() != 0;
   profile.fullName = query.value(8).toString();
   profile.contact = query.value(9).toString();
+  profile.historicalName = query.value(10).toString();
   if (!profile.isValid())
   {
     setError("Stored participant profile is invalid");
@@ -1930,10 +2145,28 @@ SqliteConnect::listParticipantProfiles(bool includeArchived)
 bool SqliteConnect::updateParticipantProfile(const ParticipantProfile& profile)
 {
   ParticipantProfile normalized = profile;
-  normalized.displayName = normalized.displayName.trimmed();
+  normalized.historicalName = normalized.historicalName.trimmed();
   normalized.fullName = normalized.fullName.trimmed();
   normalized.contact = normalized.contact.trimmed();
-  if (!normalized.isValid())
+  normalized.displayName = ParticipantDisplayName(normalized);
+  if (normalized.historicalName.isNull())
+  {
+    normalized.historicalName = QStringLiteral("");
+  }
+  if (normalized.fullName.isNull())
+  {
+    normalized.fullName = QStringLiteral("");
+  }
+  if (normalized.contact.isNull())
+  {
+    normalized.contact = QStringLiteral("");
+  }
+  if (normalized.notes.isNull())
+  {
+    normalized.notes = QStringLiteral("");
+  }
+  if ((normalized.historicalName.isEmpty() && normalized.fullName.isEmpty()) ||
+      !normalized.isValid())
   {
     setError("Invalid participant profile");
     return false;
@@ -1943,12 +2176,14 @@ bool SqliteConnect::updateParticipantProfile(const ParticipantProfile& profile)
   query.prepare(
       "UPDATE participants SET display_name = :name, birth_day = :day, "
       "birth_month = :month, birth_year = :year, rank = :rank, "
-      "notes = :notes, full_name = :full_name, contact = :contact, "
-      "updated_at = CURRENT_TIMESTAMP WHERE id = :id");
+      "notes = :notes, historical_name = :historical_name, "
+      "full_name = :full_name, contact = :contact, updated_at = "
+      "CURRENT_TIMESTAMP WHERE id = :id");
   query.bindValue(":id", normalized.id.value);
   query.bindValue(":name", normalized.displayName);
   query.bindValue(":rank", ParticipantRankStorageValue(normalized.rank));
   query.bindValue(":notes", normalized.notes);
+  query.bindValue(":historical_name", normalized.historicalName);
   query.bindValue(":full_name", normalized.fullName);
   query.bindValue(":contact", normalized.contact);
   if (normalized.birthday.has_value())

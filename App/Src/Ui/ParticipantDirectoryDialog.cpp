@@ -30,14 +30,15 @@ ParticipantDirectoryDialog::ParticipantDirectoryDialog(
         const int rhsRank = ParticipantRankSortKey(rhs.rank);
         return lhsRank != rhsRank ? lhsRank < rhsRank
                                   : QString::localeAwareCompare(
-                                        lhs.displayName, rhs.displayName) < 0;
+                                        ParticipantDisplayName(lhs),
+                                        ParticipantDisplayName(rhs)) < 0;
       });
   table_->setRowCount(static_cast<int>(sortedProfiles.size()));
 
   for (int row = 0; row < static_cast<int>(sortedProfiles.size()); ++row)
   {
     const ParticipantProfile& profile = sortedProfiles.at(row);
-    auto* nameItem = new QTableWidgetItem(profile.displayName);
+    auto* nameItem = new QTableWidgetItem(profile.historicalName);
     nameItem->setData(Qt::UserRole, profile.id.value);
     auto* rankItem =
         new QTableWidgetItem(ParticipantRankDisplayName(profile.rank));

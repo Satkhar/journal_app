@@ -14,7 +14,9 @@
 namespace
 {
 
-constexpr int kEventSchemaVersion = 1;
+constexpr int kEventSchemaVersionV1 = 1;
+constexpr int kEventSchemaV1ParticipantSnapshotNameMaxLength = 200;
+constexpr int kEventSchemaVersion = 2;
 
 bool TableHasColumns(QSqlDatabase& db, const QString& table,
                      const QSet<QString>& required)
@@ -55,6 +57,29 @@ EventRecord NormalizeEvent(const EventRecord& source)
     bout.sideB.freeName = bout.sideB.freeName.trimmed();
   }
   return result;
+}
+
+QString CreateEventParticipantsTableSql(
+    const QString& tableName, int participantSnapshotNameMaxLength)
+{
+  return QString(
+             "CREATE TABLE %1("
+             "event_id TEXT NOT NULL, participant_id TEXT NOT NULL, "
+             "participant_name_snapshot TEXT NOT NULL "
+             "CHECK(length(trim(participant_name_snapshot)) BETWEEN 1 AND "
+             "%2 AND instr(participant_name_snapshot, char(10)) = 0 AND "
+             "instr(participant_name_snapshot, char(13)) = 0), "
+             "participant_full_name_snapshot TEXT NOT NULL DEFAULT '' "
+             "CHECK(length(participant_full_name_snapshot) <= %3 AND "
+             "instr(participant_full_name_snapshot, char(10)) = 0 AND "
+             "instr(participant_full_name_snapshot, char(13)) = 0), "
+             "sort_order INTEGER NOT NULL CHECK(sort_order >= 0), "
+             "PRIMARY KEY(event_id, participant_id), "
+             "UNIQUE(event_id, sort_order), "
+             "FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE "
+             "CASCADE)")
+      .arg(tableName, QString::number(participantSnapshotNameMaxLength),
+           QString::number(kMaxParticipantFullNameLength));
 }
 
 } // namespace
@@ -146,7 +171,16 @@ bool EventSqliteStorage::ensureSchema()
   query.finish();
   if (version == kEventSchemaVersion)
   {
-    return verifySchema();
+    return verifySchema(kMaxEventParticipantSnapshotNameLength);
+  }
+  if (version == kEventSchemaVersionV1)
+  {
+    if (!verifySchema(kEventSchemaV1ParticipantSnapshotNameMaxLength) ||
+        !migrateSchemaV1ToV2())
+    {
+      return false;
+    }
+    return verifySchema(kMaxEventParticipantSnapshotNameLength);
   }
   if (version != 0)
   {
@@ -184,7 +218,7 @@ bool EventSqliteStorage::ensureSchema()
     setError(error);
     return false;
   }
-  return verifySchema();
+  return verifySchema(kMaxEventParticipantSnapshotNameLength);
 }
 
 bool EventSqliteStorage::createSchema()
@@ -202,20 +236,8 @@ bool EventSqliteStorage::createSchema()
       "notes TEXT NOT NULL DEFAULT '' CHECK(length(notes) <= 32768), "
       "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
       "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
-      "CREATE TABLE event_participants("
-      "event_id TEXT NOT NULL, participant_id TEXT NOT NULL, "
-      "participant_name_snapshot TEXT NOT NULL "
-      "CHECK(length(trim(participant_name_snapshot)) BETWEEN 1 AND 200 AND "
-      "instr(participant_name_snapshot, char(10)) = 0 AND "
-      "instr(participant_name_snapshot, char(13)) = 0), "
-      "participant_full_name_snapshot TEXT NOT NULL DEFAULT '' "
-      "CHECK(length(participant_full_name_snapshot) <= 300 AND "
-      "instr(participant_full_name_snapshot, char(10)) = 0 AND "
-      "instr(participant_full_name_snapshot, char(13)) = 0), "
-      "sort_order INTEGER NOT NULL CHECK(sort_order >= 0), "
-      "PRIMARY KEY(event_id, participant_id), "
-      "UNIQUE(event_id, sort_order), "
-      "FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE)",
+      CreateEventParticipantsTableSql(
+          "event_participants", kMaxEventParticipantSnapshotNameLength),
       "CREATE TABLE event_bouts("
       "id TEXT PRIMARY KEY NOT NULL, event_id TEXT NOT NULL, "
       "sort_order INTEGER NOT NULL CHECK(sort_order >= 0), "
@@ -260,7 +282,102 @@ bool EventSqliteStorage::createSchema()
   return true;
 }
 
-bool EventSqliteStorage::verifySchema()
+bool EventSqliteStorage::migrateSchemaV1ToV2()
+{
+  QSqlQuery query(db_);
+  if (!query.exec("PRAGMA foreign_keys") || !query.next() ||
+      query.value(0).toInt() != 1)
+  {
+    setError("Event DB foreign keys are disabled before migration");
+    return false;
+  }
+  query.finish();
+  const auto restoreForeignKeys = [this](const QString& migrationError)
+  {
+    QSqlQuery restoreQuery(db_);
+    if (!restoreQuery.exec("PRAGMA foreign_keys = ON") ||
+        !restoreQuery.exec("PRAGMA foreign_keys") ||
+        !restoreQuery.next() || restoreQuery.value(0).toInt() != 1)
+    {
+      setError(migrationError +
+               "; cannot restore event DB foreign key enforcement");
+      return;
+    }
+    setError(migrationError);
+  };
+  if (!query.exec("PRAGMA foreign_keys = OFF"))
+  {
+    setError("Cannot disable event DB foreign keys for migration");
+    return false;
+  }
+  if (!query.exec("PRAGMA foreign_keys") || !query.next() ||
+      query.value(0).toInt() != 0)
+  {
+    query.finish();
+    restoreForeignKeys(
+        "Cannot confirm disabled event DB foreign keys for migration");
+    return false;
+  }
+  query.finish();
+
+  if (!db_.transaction())
+  {
+    restoreForeignKeys(db_.lastError().text());
+    return false;
+  }
+
+  const QStringList statements = {
+      CreateEventParticipantsTableSql(
+          "event_participants_v2",
+          kMaxEventParticipantSnapshotNameLength),
+      "INSERT INTO event_participants_v2("
+      "event_id, participant_id, participant_name_snapshot, "
+      "participant_full_name_snapshot, sort_order) "
+      "SELECT event_id, participant_id, participant_name_snapshot, "
+      "participant_full_name_snapshot, sort_order FROM event_participants",
+      "DROP TABLE event_participants",
+      "ALTER TABLE event_participants_v2 RENAME TO event_participants",
+      QString("PRAGMA user_version = %1").arg(kEventSchemaVersion)};
+  for (const QString& statement : statements)
+  {
+    if (!query.exec(statement))
+    {
+      const QString error = query.lastError().text();
+      db_.rollback();
+      restoreForeignKeys(error);
+      return false;
+    }
+  }
+  if (!query.exec("PRAGMA foreign_key_check"))
+  {
+    const QString error = query.lastError().text();
+    db_.rollback();
+    restoreForeignKeys(error);
+    return false;
+  }
+  if (query.next())
+  {
+    db_.rollback();
+    restoreForeignKeys("Event DB foreign key violation after migration");
+    return false;
+  }
+  query.finish();
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    restoreForeignKeys(error);
+    return false;
+  }
+  if (!enableForeignKeys())
+  {
+    return false;
+  }
+  return true;
+}
+
+bool EventSqliteStorage::verifySchema(
+    int participantSnapshotNameMaxLength)
 {
   const QList<QPair<QString, QSet<QString>>> schema = {
       {"events", {"id", "title", "event_date", "revision", "notes",
@@ -298,6 +415,9 @@ bool EventSqliteStorage::verifySchema()
   const QString eventsSql = definitions.value("events");
   const QString participantsSql = definitions.value("event_participants");
   const QString boutsSql = definitions.value("event_bouts");
+  const QString participantNameConstraint =
+      QString("length(trim(participant_name_snapshot)) BETWEEN 1 AND %1 AND")
+          .arg(participantSnapshotNameMaxLength);
   if (definitions.size() != 3 ||
       !eventsSql.contains("length(trim(title)) BETWEEN 1 AND 200",
                           Qt::CaseInsensitive) ||
@@ -305,6 +425,8 @@ bool EventSqliteStorage::verifySchema()
       !participantsSql.contains("PRIMARY KEY(event_id, participant_id)",
                                 Qt::CaseInsensitive) ||
       !participantsSql.contains("UNIQUE(event_id, sort_order)",
+                                Qt::CaseInsensitive) ||
+      !participantsSql.contains(participantNameConstraint,
                                 Qt::CaseInsensitive) ||
       !participantsSql.contains("ON DELETE CASCADE", Qt::CaseInsensitive) ||
       !boutsSql.contains("UNIQUE(event_id, sort_order)",

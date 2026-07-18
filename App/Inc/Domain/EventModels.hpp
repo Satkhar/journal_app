@@ -12,6 +12,8 @@
 constexpr int kMaxEventTitleLength = 200;
 constexpr int kMaxEventNotesLength = 32768;
 constexpr int kMaxEventParticipantNameLength = 200;
+constexpr int kMaxEventParticipantSnapshotNameLength =
+    kMaxParticipantDisplayNameLength;
 
 struct EventId
 {

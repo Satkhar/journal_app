@@ -6,8 +6,8 @@
 - `month_participants` — участие человека в конкретном месяце.
 - `attendance` ссылается на membership через составной FK.
 - Удаление из месяца не удаляет глобального участника.
-- Local schema version — `PRAGMA user_version = 7`.
-- Versioned local/remote schema v2-v5 мигрируют последовательно до v7.
+- Local schema version — `PRAGMA user_version = 8`.
+- Versioned local/remote schema v2-v7 мигрируют последовательно до v8.
 - Промежуточная development-v6 с `is_trainer` чинится при открытии; колонка
   удаляется, прежние значения сохраняются в compatibility-таблице.
 - Unversioned remote legacy schema автоматически не мигрируется.
@@ -22,7 +22,9 @@
 - в БД: nullable `birth_day`, `birth_month`, `birth_year`;
 - полная календарная валидность проверяется domain/use-case слоем до SQL.
 
-ФИО и один контакт необязательны. Контакт — opaque строка для VK, Telegram или
+Историчное имя необязательно; при его отсутствии таблица показывает ФИО.
+Редактируемый профиль требует хотя бы одно из этих двух полей. Один контакт
+необязателен. Контакт — opaque строка для VK, Telegram или
 телефона, без автоматического открытия. Заметка — plain text, максимум 4096
 символов. Кто вёл тренировку — свойство участника в конкретную дату; оно
 хранится как `LedTraining` в `participant_day_markers`, а не в профиле.

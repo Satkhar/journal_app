@@ -79,12 +79,11 @@ void EventDirectoryDialog::reload()
     QStringList names;
     for (const EventParticipantSnapshot& participant : event.participants)
     {
-      names.push_back(
-          participant.fullNameSnapshot.isEmpty()
-              ? participant.displayNameSnapshot
-              : QString("%1 — %2")
-                    .arg(participant.displayNameSnapshot,
-                         participant.fullNameSnapshot));
+      const QString displayName = participant.displayNameSnapshot.trimmed();
+      const QString fullName = participant.fullNameSnapshot.trimmed();
+      names.push_back(fullName.isEmpty() || displayName == fullName
+                          ? displayName
+                          : QString("%1 — %2").arg(displayName, fullName));
     }
     auto* participantsItem = new QTableWidgetItem(names.join(", "));
     participantsItem->setToolTip(names.join("\n"));

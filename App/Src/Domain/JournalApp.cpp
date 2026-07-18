@@ -11,9 +11,13 @@
 namespace
 {
 
-Participant makeParticipant(const QString& displayName)
+ParticipantProfile makeParticipantProfile(const QString& fullName)
 {
-  return {{QUuid::createUuid().toString(QUuid::WithoutBraces)}, displayName};
+  ParticipantProfile profile;
+  profile.id = {QUuid::createUuid().toString(QUuid::WithoutBraces)};
+  profile.displayName = fullName;
+  profile.fullName = fullName;
+  return profile;
 }
 
 std::optional<QVector<int>> fullMonthDays(int year, int month)
@@ -284,16 +288,17 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   return {true, copied, skipped, QString()};
 }
 
-bool JournalApp::addUser(const QString& name)
+bool JournalApp::addUser(const QString& fullName)
 {
-  const QString trimmed = name.trimmed();
+  const QString trimmed = fullName.trimmed();
   if (currentYear_ == 0 || currentMonth_ == 0 || trimmed.isEmpty() ||
-      trimmed.size() > 200)
+      trimmed.size() > kMaxParticipantFullNameLength ||
+      trimmed.contains('\n') || trimmed.contains('\r'))
   {
     return false;
   }
   return storage_->addParticipantToMonth(currentYear_, currentMonth_,
-                                         makeParticipant(trimmed));
+                                         makeParticipantProfile(trimmed));
 }
 
 bool JournalApp::removeParticipant(const ParticipantId& id)
@@ -347,11 +352,17 @@ JournalApp::participantProfiles(bool includeArchived)
 
 bool JournalApp::updateParticipantProfile(const ParticipantProfile& profile)
 {
-  if (!profile.isValid())
+  ParticipantProfile normalized = profile;
+  normalized.historicalName = normalized.historicalName.trimmed();
+  normalized.fullName = normalized.fullName.trimmed();
+  normalized.contact = normalized.contact.trimmed();
+  normalized.displayName = ParticipantDisplayName(normalized);
+  if ((normalized.historicalName.isEmpty() && normalized.fullName.isEmpty()) ||
+      !normalized.isValid())
   {
     return false;
   }
-  return storage_->updateParticipantProfile(profile);
+  return storage_->updateParticipantProfile(normalized);
 }
 
 bool JournalApp::archiveParticipant(const ParticipantId& id)

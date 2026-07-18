@@ -26,7 +26,7 @@ public:
   bool removeDayMarker(int year, int month, const ParticipantId& participantId,
                        int day);
   bool addParticipantToMonth(int year, int month,
-                             const Participant& participant);
+                             const ParticipantProfile& profile);
   bool removeParticipantFromMonth(int year, int month, const ParticipantId& id);
   bool replaceMonth(int year, int month, const MonthSnapshot& snapshot);
   std::optional<ParticipantProfile>
@@ -46,9 +46,11 @@ private:
   bool createSchemaV4();
   bool createSchemaV5();
   bool createSchemaV7();
+  bool createSchemaV8();
   bool createDayMarkerSchema();
   bool createRankSchema();
   bool createParticipantDetailsSchema();
+  bool createParticipantNameSchema();
   bool upgradeDayMarkerKindsSchema();
   bool migrateLegacyUsersToV3();
   bool cleanupLegacyTables();
@@ -57,11 +59,13 @@ private:
   bool migrateSchemaV4ToV5();
   bool migrateSchemaV5ToV7();
   bool migrateSchemaV6ToV7();
+  bool migrateSchemaV7ToV8();
   bool createProfileValidationTriggers();
   bool verifySchemaV3();
   bool verifySchemaV4();
   bool verifySchemaV5();
   bool verifySchemaV7();
+  bool verifySchemaV8();
   bool tableExists(const QString& tableName) const;
   bool enableForeignKeys();
   bool validateYearMonth(int year, int month) const;

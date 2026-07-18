@@ -30,7 +30,7 @@ public:
   CopyUsersResult copyUsersFromMonth(int fromYear, int fromMonth, int toYear,
                                      int toMonth,
                                      CopyScheduleMode scheduleMode);
-  bool addUser(const QString& name);
+  bool addUser(const QString& fullName);
   bool removeParticipant(const ParticipantId& id);
   bool saveAttendance(int year, int month,
                       const std::vector<AttendanceRecord>& data);

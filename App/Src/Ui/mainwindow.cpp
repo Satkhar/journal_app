@@ -367,7 +367,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   tableWidget->setItem(kDateRow, kNameColumn, new QTableWidgetItem("Дата"));
   tableWidget->setItem(kWeekdayRow, kNameColumn, new QTableWidgetItem("День"));
   tableWidget->setHorizontalHeaderItem(kNameColumn,
-                                       new QTableWidgetItem("Историчное имя"));
+                                       new QTableWidgetItem("Участник"));
   tableWidget->setHorizontalHeaderItem(kRankColumn,
                                        new QTableWidgetItem("Звание"));
   tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
@@ -551,7 +551,7 @@ void MainWindow::createEmptyTable()
   tableWidget->setObjectName("bigTable");
 
   tableWidget->setHorizontalHeaderItem(kNameColumn,
-                                       new QTableWidgetItem("Историчное имя"));
+                                       new QTableWidgetItem("Участник"));
   tableWidget->setHorizontalHeaderItem(kRankColumn,
                                        new QTableWidgetItem("Звание"));
   tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
@@ -711,7 +711,7 @@ void MainWindow::addParticipantToMonth()
 
   bool accepted = false;
   const QString name =
-      QInputDialog::getText(this, "Добавление участника", "Историчное имя:",
+      QInputDialog::getText(this, "Добавление участника", "Имя / ФИО:",
                             QLineEdit::Normal, QString(), &accepted)
           .trimmed();
   if (!accepted)
@@ -720,7 +720,7 @@ void MainWindow::addParticipantToMonth()
   }
   if (name.isEmpty())
   {
-    ui->statusbar->showMessage("Введите историчное имя");
+    ui->statusbar->showMessage("Введите имя участника");
     return;
   }
   if (!journalApp_ || !journalApp_->addUser(name))

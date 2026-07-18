@@ -24,7 +24,17 @@ bool check(bool condition, const char* message)
 
 Participant participant(const QString& name)
 {
-  return {{QUuid::createUuid().toString(QUuid::WithoutBraces)}, name};
+  return {{QUuid::createUuid().toString(QUuid::WithoutBraces)}, name, name,
+          QString()};
+}
+
+ParticipantProfile participantProfile(const QString& fullName)
+{
+  ParticipantProfile profile;
+  profile.id = {QUuid::createUuid().toString(QUuid::WithoutBraces)};
+  profile.displayName = fullName;
+  profile.fullName = fullName;
+  return profile;
 }
 
 bool invalidMarkerMaskIsRejected(const QString& path,
@@ -49,25 +59,50 @@ bool invalidMarkerMaskIsRejected(const QString& path,
   return rejected;
 }
 
-bool isNormalizedSchemaV7(const QString& path, bool expectsTrainerBackup)
+bool cachedNameWithoutSourceIsRejected(const QString& path)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  bool rejected = false;
+  if (db.open())
+  {
+    QSqlQuery query(db);
+    query.prepare("INSERT INTO participants(id, display_name) "
+                  "VALUES(:id, 'Cached only')");
+    query.bindValue(":id",
+                    QUuid::createUuid().toString(QUuid::WithoutBraces));
+    rejected = !query.exec();
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return rejected;
+}
+
+bool isNormalizedSchemaV8(const QString& path, bool expectsTrainerBackup)
 {
   const QString connection = QUuid::createUuid().toString();
   QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
   db.setDatabaseName(path);
   bool versionOk = false;
   bool hasTrainerColumn = false;
+  bool hasHistoricalNameColumn = false;
   bool backupOk = !expectsTrainerBackup;
   if (db.open())
   {
     QSqlQuery query(db);
     versionOk = query.exec("PRAGMA user_version") && query.next() &&
-                query.value(0).toInt() == 7;
+                query.value(0).toInt() == 8;
     if (query.exec("PRAGMA table_info(participants)"))
     {
       while (query.next())
       {
         hasTrainerColumn =
             hasTrainerColumn || query.value(1).toString() == "is_trainer";
+        hasHistoricalNameColumn =
+            hasHistoricalNameColumn ||
+            query.value(1).toString() == "historical_name";
       }
     }
     else
@@ -86,7 +121,7 @@ bool isNormalizedSchemaV7(const QString& path, bool expectsTrainerBackup)
   db.close();
   db = QSqlDatabase();
   QSqlDatabase::removeDatabase(connection);
-  return versionOk && !hasTrainerColumn && backupOk;
+  return versionOk && !hasTrainerColumn && hasHistoricalNameColumn && backupOk;
 }
 
 bool createSchemaV5Database(const QString& path, const Participant& person)
@@ -213,6 +248,72 @@ bool createObsoleteSchemaV6Database(const QString& path,
   return ok;
 }
 
+bool createSchemaV7Database(const QString& path, const Participant& person,
+                            const QString& fullName)
+{
+  if (!createObsoleteSchemaV6Database(path, person, false))
+  {
+    return false;
+  }
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  if (!db.open() || !db.transaction())
+  {
+    db.close();
+    db = QSqlDatabase();
+    QSqlDatabase::removeDatabase(connection);
+    return false;
+  }
+  bool ok = true;
+  {
+    QSqlQuery query(db);
+    const QStringList statements = {
+        "DROP INDEX idx_day_markers_history",
+        "ALTER TABLE participant_day_markers RENAME TO "
+        "participant_day_markers_v6",
+        "CREATE TABLE participant_day_markers(year INTEGER NOT NULL, "
+        "month INTEGER NOT NULL, day INTEGER NOT NULL, participant_id TEXT "
+        "NOT NULL, kind_mask INTEGER NOT NULL "
+        "CHECK(typeof(kind_mask) = 'integer' AND kind_mask BETWEEN 1 AND 31), "
+        "note TEXT NOT NULL DEFAULT '' CHECK(length(note) <= 500), "
+        "PRIMARY KEY(year, month, day, participant_id), "
+        "FOREIGN KEY(year, month, participant_id) REFERENCES "
+        "month_participants(year, month, participant_id) ON DELETE CASCADE)",
+        "INSERT INTO participant_day_markers SELECT * FROM "
+        "participant_day_markers_v6",
+        "DROP TABLE participant_day_markers_v6",
+        "CREATE INDEX idx_day_markers_history ON participant_day_markers("
+        "participant_id, year, month, day)"};
+    for (const QString& statement : statements)
+    {
+      if (!query.exec(statement))
+      {
+        ok = false;
+        break;
+      }
+    }
+    if (ok)
+    {
+      query.prepare("UPDATE participants SET full_name = :full_name, "
+                    "contact = '@v7' WHERE id = :id");
+      query.bindValue(":full_name", fullName);
+      query.bindValue(":id", person.id.value);
+      ok = query.exec() && query.numRowsAffected() == 1 &&
+           query.exec("PRAGMA user_version = 7");
+    }
+  }
+  ok = ok && db.commit();
+  if (!ok)
+  {
+    db.rollback();
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return ok;
+}
+
 bool birthdayValidationTest()
 {
   return check(Birthday{29, 2, std::nullopt}.isValid(),
@@ -232,7 +333,7 @@ bool freshDatabaseTest(const QString& path)
   {
     return false;
   }
-  const Participant alice = participant("Alice");
+  const ParticipantProfile alice = participantProfile("Alice");
   if (!check(storage.addParticipantToMonth(2025, 7, alice),
              "participant insert failed"))
   {
@@ -302,7 +403,14 @@ bool freshDatabaseTest(const QString& path)
   {
     return false;
   }
-  profile->displayName = "Alice Updated";
+  if (!check(profile->displayName == "Alice" &&
+                 profile->historicalName.isEmpty() &&
+                 profile->fullName == "Alice",
+             "new participant was not stored as full-name-only"))
+  {
+    return false;
+  }
+  profile->historicalName = "Alice Updated";
   profile->fullName = "Alice Example Smith";
   profile->contact = "@alice_example";
   profile->birthday = Birthday{29, 2, std::nullopt};
@@ -317,6 +425,8 @@ bool freshDatabaseTest(const QString& path)
   const auto updatedProfile = storage.getParticipantProfile(alice.id);
   if (!check(renamed.size() == 1 && updatedProfile.has_value() &&
                  renamed.front().displayName == "Alice Updated" &&
+                 renamed.front().historicalName == "Alice Updated" &&
+                 renamed.front().fullName == "Alice Example Smith" &&
                  renamed.front().id == alice.id &&
                  updatedProfile->fullName == "Alice Example Smith" &&
                  updatedProfile->contact == "@alice_example" &&
@@ -351,6 +461,14 @@ bool freshDatabaseTest(const QString& path)
   invalid.fullName = QString(kMaxParticipantFullNameLength + 1, 'x');
   if (!check(!storage.updateParticipantProfile(invalid),
              "oversized full name was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.historicalName.clear();
+  invalid.fullName.clear();
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "profile without historical or full name was accepted"))
   {
     return false;
   }
@@ -391,7 +509,8 @@ bool freshDatabaseTest(const QString& path)
   }
 
   MonthSnapshot staleSnapshot;
-  staleSnapshot.participants = {{{alice.id.value}, "Stale Alice"}};
+  staleSnapshot.participants = {
+      {{alice.id.value}, "Stale Alice", QString(), "Stale Alice"}};
   staleSnapshot.activeDays = {1, 2};
   staleSnapshot.attendance = {{alice.id, 1, false}, {alice.id, 2, true}};
   staleSnapshot.dayMarkers = {marker};
@@ -406,10 +525,51 @@ bool freshDatabaseTest(const QString& path)
   return check(storage.removeParticipantFromMonth(2025, 7, alice.id),
                "membership removal failed") &&
          check(storage.getParticipantProfile(alice.id).has_value(),
-               "membership removal deleted global profile");
+               "membership removal deleted global profile") &&
+         check(cachedNameWithoutSourceIsRejected(path),
+               "database accepted cached name without a source name");
 }
 
-bool migrationV5ToV7Test(const QString& path)
+bool snapshotNameSourcesRoundTrip(const QString& sourcePath,
+                                  const QString& targetPath)
+{
+  SqliteConnect source;
+  SqliteConnect target;
+  if (!check(source.open(sourcePath), "snapshot source open failed") ||
+      !check(target.open(targetPath), "snapshot target open failed"))
+  {
+    return false;
+  }
+
+  const QString fullName(kMaxParticipantFullNameLength, QLatin1Char('x'));
+  const ParticipantProfile profile = participantProfile(fullName);
+  if (!check(source.addParticipantToMonth(2025, 8, profile),
+             "long full name was rejected"))
+  {
+    return false;
+  }
+
+  MonthSnapshot snapshot;
+  snapshot.state = MonthState::Ready;
+  snapshot.participants = source.getParticipantsForMonth(2025, 8);
+  snapshot.activeDays = source.getActiveDays(2025, 8);
+  snapshot.attendance = source.getMonth(2025, 8);
+  snapshot.dayMarkers = source.getDayMarkers(2025, 8);
+  if (!check(source.lastError().isEmpty(), "snapshot source read failed") ||
+      !check(target.replaceMonth(2025, 8, snapshot),
+             "snapshot import into empty database failed"))
+  {
+    return false;
+  }
+
+  const auto imported = target.getParticipantProfile(profile.id);
+  return check(imported.has_value() && imported->displayName == fullName &&
+                   imported->historicalName.isEmpty() &&
+                   imported->fullName == fullName,
+               "snapshot import lost ordinary or historical name source");
+}
+
+bool migrationV5ToV8Test(const QString& path)
 {
   const Participant alice = participant("V5 Alice");
   if (!createSchemaV5Database(path, alice))
@@ -417,7 +577,7 @@ bool migrationV5ToV7Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v5 to v7 migration failed"))
+  if (!check(storage.open(path), "schema v5 to v8 migration failed"))
   {
     return false;
   }
@@ -428,16 +588,48 @@ bool migrationV5ToV7Test(const QString& path)
                                            "Вёл тренировку"};
   return check(profile.has_value() &&
                    profile->rank == ParticipantRank::Knight &&
+                   profile->historicalName == "V5 Alice" &&
                    profile->fullName.isEmpty() && profile->contact.isEmpty(),
                "v5 migration lost rank or assigned invalid detail defaults") &&
          check(migratedMarkers.size() == 1 &&
                    migratedMarkers.front().kinds == DayMarkerKind::Payment,
                "v5 migration lost old day marker") &&
          check(storage.saveDayMarker(2025, 7, trainerMarker),
-               "v7 schema rejected trainer day marker") &&
-         check(storage.open(path), "migrated v7 reopen is not idempotent") &&
-         check(isNormalizedSchemaV7(path, false),
-               "v5 migration did not produce clean schema v7");
+               "v8 schema rejected trainer day marker") &&
+         check(storage.open(path), "migrated v8 reopen is not idempotent") &&
+         check(isNormalizedSchemaV8(path, false),
+               "v5 migration did not produce clean schema v8");
+}
+
+bool migrationV7ToV8Test(const QString& path)
+{
+  const Participant alice = participant("V7 Alice");
+  const QString fullName(kMaxParticipantFullNameLength, QLatin1Char('f'));
+  if (!createSchemaV7Database(path, alice, fullName))
+  {
+    return false;
+  }
+  SqliteConnect storage;
+  if (!check(storage.open(path), "schema v7 to v8 migration failed"))
+  {
+    return false;
+  }
+  auto profile = storage.getParticipantProfile(alice.id);
+  if (!check(profile.has_value() && profile->displayName == "V7 Alice" &&
+                 profile->historicalName == "V7 Alice" &&
+                 profile->fullName == fullName,
+             "v7 migration confused historical and ordinary names"))
+  {
+    return false;
+  }
+  profile->historicalName.clear();
+  return check(storage.updateParticipantProfile(*profile),
+               "migrated schema rejected 300-character ordinary name") &&
+         check(storage.getParticipantProfile(alice.id)->displayName ==
+                   fullName,
+               "ordinary-name fallback failed after v7 migration") &&
+         check(isNormalizedSchemaV8(path, false),
+               "v7 migration did not produce clean schema v8");
 }
 
 bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
@@ -459,8 +651,8 @@ bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
                "repaired schema v6 rejected trainer marker") &&
          check(storage.open(path),
                "repaired development schema v6 reopen failed") &&
-         check(isNormalizedSchemaV7(path, withTrainerColumn),
-               "development schema v6 was not normalized to v7");
+         check(isNormalizedSchemaV8(path, withTrainerColumn),
+               "development schema v6 was not normalized to v8");
 }
 
 } // namespace
@@ -475,7 +667,11 @@ int main(int argc, char* argv[])
   }
   const bool ok = birthdayValidationTest() &&
                   freshDatabaseTest(directory.filePath("fresh.db")) &&
-                  migrationV5ToV7Test(directory.filePath("v5.db")) &&
+                  snapshotNameSourcesRoundTrip(
+                      directory.filePath("snapshot-source.db"),
+                      directory.filePath("snapshot-target.db")) &&
+                  migrationV5ToV8Test(directory.filePath("v5.db")) &&
+                  migrationV7ToV8Test(directory.filePath("v7.db")) &&
                   developmentV6IsRepaired(
                       directory.filePath("old-v6-trainer.db"), true) &&
                   developmentV6IsRepaired(

@@ -39,7 +39,10 @@ inline size_t qHash(const ParticipantId& id, size_t seed = 0) noexcept
 struct Participant
 {
   ParticipantId id;
+  // displayName вычисляется: historicalName, если задано, иначе fullName.
   QString displayName;
+  QString historicalName;
+  QString fullName;
 };
 
 struct Birthday
@@ -71,7 +74,10 @@ int ParticipantRankSortKey(ParticipantRank rank);
 struct ParticipantProfile
 {
   ParticipantId id;
+  // Готовое имя для таблиц и month snapshots. Storage поддерживает его как
+  // historicalName, если оно задано, иначе fullName.
   QString displayName;
+  QString historicalName;
   QString fullName;
   QString contact;
   std::optional<Birthday> birthday;
@@ -82,8 +88,13 @@ struct ParticipantProfile
   bool isValid() const;
 };
 
+constexpr int kMaxParticipantDisplayNameLength = 300;
+constexpr int kMaxParticipantHistoricalNameLength = 200;
 constexpr int kMaxParticipantFullNameLength = 300;
 constexpr int kMaxParticipantContactLength = 500;
+
+QString ParticipantDisplayName(const ParticipantProfile& profile);
+bool IsValidParticipantSnapshot(const Participant& participant);
 
 struct AttendanceRecord
 {

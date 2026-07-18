@@ -66,7 +66,17 @@ private:
 
 Participant MakeParticipant(const QString& name)
 {
-  return {{QUuid::createUuid().toString(QUuid::WithoutBraces)}, name};
+  return {{QUuid::createUuid().toString(QUuid::WithoutBraces)}, name, name,
+          QString()};
+}
+
+ParticipantProfile MakeProfile(const Participant& participant)
+{
+  ParticipantProfile profile;
+  profile.id = participant.id;
+  profile.displayName = participant.displayName;
+  profile.historicalName = participant.displayName;
+  return profile;
 }
 
 bool ExecuteSql(const QString& path, const QString& sql)
@@ -111,7 +121,8 @@ bool RemovingLastParticipantKeepsMonthReady()
   TemporaryDatabase db;
   TEST_CHECK(db.isOpen());
   const Participant participant = MakeParticipant("Alice");
-  TEST_CHECK(db.storage().addParticipantToMonth(2026, 7, participant));
+  TEST_CHECK(
+      db.storage().addParticipantToMonth(2026, 7, MakeProfile(participant)));
   TEST_CHECK(db.storage().removeParticipantFromMonth(2026, 7, participant.id));
   TEST_CHECK(db.storage().getParticipantsForMonth(2026, 7).empty());
   TEST_CHECK(db.storage().getMonthState(2026, 7).state == MonthState::Ready);
@@ -124,7 +135,8 @@ bool DisabledDayAttendanceIsPreserved()
   TEST_CHECK(db.isOpen());
   const Participant participant = MakeParticipant("Alice");
   TEST_CHECK(db.storage().saveActiveDays(2026, 7, {1, 2}));
-  TEST_CHECK(db.storage().addParticipantToMonth(2026, 7, participant));
+  TEST_CHECK(
+      db.storage().addParticipantToMonth(2026, 7, MakeProfile(participant)));
   TEST_CHECK(db.storage().saveAttendance(2026, 7, {{participant.id, 2, true}}));
   TEST_CHECK(db.storage().saveActiveDays(2026, 7, {1}));
 
@@ -160,7 +172,8 @@ bool DayMarkerSurvivesHiddenDayAndCascadesWithParticipant()
   TEST_CHECK(db.isOpen());
   const Participant participant = MakeParticipant("Alice");
   TEST_CHECK(db.storage().saveActiveDays(2026, 7, {1, 2}));
-  TEST_CHECK(db.storage().addParticipantToMonth(2026, 7, participant));
+  TEST_CHECK(
+      db.storage().addParticipantToMonth(2026, 7, MakeProfile(participant)));
   const ParticipantDayMarker marker{
       participant.id, 2,
       DayMarkerKind::Payment | DayMarkerKind::SpecialTraining,
@@ -182,7 +195,8 @@ bool FailedReplaceDoesNotModifyMonth()
   TEST_CHECK(db.isOpen());
   const Participant participant = MakeParticipant("Alice");
   TEST_CHECK(db.storage().saveActiveDays(2026, 7, {1}));
-  TEST_CHECK(db.storage().addParticipantToMonth(2026, 7, participant));
+  TEST_CHECK(
+      db.storage().addParticipantToMonth(2026, 7, MakeProfile(participant)));
 
   MonthSnapshot invalid;
   invalid.activeDays = {1};
@@ -232,7 +246,7 @@ bool CopyWeekdayPatternMapsToTargetDates()
 
   const Participant participant = MakeParticipant("Alice");
   TEST_CHECK(sqlite->saveActiveDays(2026, 6, {1, 2}));
-  TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, participant));
+  TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, MakeProfile(participant)));
   TEST_CHECK(sqlite->saveDayMarker(
       2026, 6,
       {participant.id, 1, DayMarkerKind::FirstVisit, "Источник"}));
@@ -272,9 +286,10 @@ bool CopyWithoutScheduleKeepsTargetDates()
   const Participant participant = MakeParticipant("Alice");
   const Participant targetParticipant = MakeParticipant("Bob");
   TEST_CHECK(sqlite->saveActiveDays(2026, 6, {1, 2}));
-  TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, participant));
+  TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, MakeProfile(participant)));
   TEST_CHECK(sqlite->saveActiveDays(2026, 7, {3, 10}));
-  TEST_CHECK(sqlite->addParticipantToMonth(2026, 7, targetParticipant));
+  TEST_CHECK(
+      sqlite->addParticipantToMonth(2026, 7, MakeProfile(targetParticipant)));
   TEST_CHECK(sqlite->saveDayMarker(
       2026, 7,
       {targetParticipant.id, 10, DayMarkerKind::Payment, "Целевая отметка"}));
@@ -297,6 +312,45 @@ bool CopyWithoutScheduleKeepsTargetDates()
   {
     TEST_CHECK(record.day == 3 || record.day == 10);
   }
+  return true;
+}
+
+bool NewParticipantUsesFullNameUntilHistoricalNameExists()
+{
+  QTemporaryDir directory;
+  TEST_CHECK(directory.isValid());
+  auto sqlite = std::make_unique<SqliteConnect>();
+  TEST_CHECK(sqlite->open(directory.filePath("journal.db")));
+  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
+  JournalApp app(std::move(local));
+
+  TEST_CHECK(app.loadMonth(2026, 7).state == MonthState::Missing);
+  TEST_CHECK(app.addUser("  Пётр Петров  "));
+  auto profiles = app.participantProfiles(false);
+  TEST_CHECK(profiles.has_value());
+  TEST_CHECK(profiles->size() == 1);
+  ParticipantProfile profile = profiles->front();
+  TEST_CHECK(profile.fullName == "Пётр Петров");
+  TEST_CHECK(profile.historicalName.isEmpty());
+  TEST_CHECK(profile.displayName == "Пётр Петров");
+  TEST_CHECK(app.loadMonth(2026, 7).participants.front().displayName ==
+             "Пётр Петров");
+
+  profile.historicalName = "Ратмир";
+  TEST_CHECK(app.updateParticipantProfile(profile));
+  TEST_CHECK(app.loadMonth(2026, 7).participants.front().displayName ==
+             "Ратмир");
+
+  const auto updatedProfile = app.participantProfile(profile.id);
+  TEST_CHECK(updatedProfile.has_value());
+  profile = *updatedProfile;
+  profile.historicalName.clear();
+  TEST_CHECK(app.updateParticipantProfile(profile));
+  TEST_CHECK(app.loadMonth(2026, 7).participants.front().displayName ==
+             "Пётр Петров");
+  TEST_CHECK(!app.addUser("   "));
+  TEST_CHECK(!app.addUser(
+      QString(kMaxParticipantFullNameLength + 1, QLatin1Char('x'))));
   return true;
 }
 
@@ -369,6 +423,8 @@ int main(int argc, char* argv[])
        CopyWeekdayPatternMapsToTargetDates},
       {"copy without schedule keeps target dates",
        CopyWithoutScheduleKeepsTargetDates},
+      {"new participant uses full name before historical name",
+       NewParticipantUsesFullNameUntilHistoricalNameExists},
       {"legacy dates migrate to profile schema",
        LegacyDatesMigrateToProfileSchema}};
 

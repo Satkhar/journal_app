@@ -32,7 +32,7 @@ public:
                                const ParticipantId& participantId,
                                int day) = 0;
   virtual bool addParticipantToMonth(int year, int month,
-                                     const Participant& participant) = 0;
+                                     const ParticipantProfile& profile) = 0;
   virtual bool removeParticipantFromMonth(int year, int month,
                                           const ParticipantId& id) = 0;
   // Атомарно заменяет состав, activeDays, attendance и dayMarkers месяца.

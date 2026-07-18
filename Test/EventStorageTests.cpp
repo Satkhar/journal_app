@@ -48,6 +48,18 @@ EventRecord SampleEvent()
 bool DomainValidationTest()
 {
   EventRecord event = SampleEvent();
+  event.participants.front().displayNameSnapshot =
+      QString(kMaxEventParticipantSnapshotNameLength, QChar(0x0418));
+  if (!Check(event.isValid(), "300-character participant snapshot rejected"))
+  {
+    return false;
+  }
+  event.participants.front().displayNameSnapshot.append(QChar(0x0418));
+  if (!Check(!event.isValid(), "301-character participant snapshot accepted"))
+  {
+    return false;
+  }
+  event = SampleEvent();
   EventRecord invalid = event;
   invalid.bouts.front().scoreA = -1;
   if (!Check(!invalid.isValid(), "negative event score was accepted"))
@@ -85,6 +97,10 @@ bool EventRoundTripTest(const QString& path)
     return false;
   }
   EventRecord event = SampleEvent();
+  const QString maxSnapshot(kMaxEventParticipantSnapshotNameLength,
+                            QChar(0x0418));
+  event.participants.front().displayNameSnapshot = maxSnapshot;
+  event.participants.front().fullNameSnapshot = maxSnapshot;
   if (!Check(storage.saveEvent(event), "event save failed"))
   {
     return false;
@@ -95,9 +111,9 @@ bool EventRoundTripTest(const QString& path)
                  loaded->revision == 1 && loaded->notes == event.notes,
              "event metadata round-trip failed") ||
       !Check(loaded->participants.size() == 1 &&
-                 loaded->participants.front().displayNameSnapshot == "Пётр" &&
-                 loaded->participants.front().fullNameSnapshot ==
-                     "Пётр Петров",
+                 loaded->participants.front().displayNameSnapshot ==
+                     maxSnapshot &&
+                 loaded->participants.front().fullNameSnapshot == maxSnapshot,
              "event participant snapshot round-trip failed") ||
       !Check(loaded->bouts.size() == 1 &&
                  loaded->bouts.front().sideA.participantId.has_value() &&
@@ -253,7 +269,7 @@ bool SchemaAndCascadeTest(const QString& path)
   {
     QSqlQuery query(db);
     versionOk = query.exec("PRAGMA user_version") && query.next() &&
-                query.value(0).toInt() == 1;
+                query.value(0).toInt() == 2;
     participantsEmpty =
         query.exec("SELECT count(*) FROM event_participants") && query.next() &&
         query.value(0).toInt() == 0;
@@ -265,6 +281,204 @@ bool SchemaAndCascadeTest(const QString& path)
   QSqlDatabase::removeDatabase(connection);
   return Check(versionOk && participantsEmpty && boutsEmpty,
                "event schema version or cascade contract failed");
+}
+
+bool CreateV1MigrationFixture(const QString& path)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  if (!db.open())
+  {
+    return false;
+  }
+
+  bool created = false;
+  {
+    QSqlQuery query(db);
+    const QStringList statements = {
+        "CREATE TABLE events("
+        "id TEXT PRIMARY KEY NOT NULL, "
+        "title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200 AND "
+        "instr(title, char(10)) = 0 AND instr(title, char(13)) = 0), "
+        "event_date TEXT NOT NULL CHECK(length(event_date) = 10 AND "
+        "date(event_date) IS NOT NULL AND date(event_date) = event_date AND "
+        "CAST(substr(event_date, 1, 4) AS INTEGER) BETWEEN 1 AND 9999), "
+        "revision INTEGER NOT NULL DEFAULT 1 "
+        "CHECK(typeof(revision) = 'integer' AND revision >= 1), "
+        "notes TEXT NOT NULL DEFAULT '' CHECK(length(notes) <= 32768), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE TABLE event_participants("
+        "event_id TEXT NOT NULL, participant_id TEXT NOT NULL, "
+        "participant_name_snapshot TEXT NOT NULL "
+        "CHECK(length(trim(participant_name_snapshot)) BETWEEN 1 AND 200 AND "
+        "instr(participant_name_snapshot, char(10)) = 0 AND "
+        "instr(participant_name_snapshot, char(13)) = 0), "
+        "participant_full_name_snapshot TEXT NOT NULL DEFAULT '' "
+        "CHECK(length(participant_full_name_snapshot) <= 300 AND "
+        "instr(participant_full_name_snapshot, char(10)) = 0 AND "
+        "instr(participant_full_name_snapshot, char(13)) = 0), "
+        "sort_order INTEGER NOT NULL CHECK(sort_order >= 0), "
+        "PRIMARY KEY(event_id, participant_id), "
+        "UNIQUE(event_id, sort_order), "
+        "FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE)",
+        "CREATE TABLE event_bouts("
+        "id TEXT PRIMARY KEY NOT NULL, event_id TEXT NOT NULL, "
+        "sort_order INTEGER NOT NULL CHECK(sort_order >= 0), "
+        "side_a_participant_id TEXT, side_a_free_name TEXT, "
+        "side_b_participant_id TEXT, side_b_free_name TEXT, "
+        "score_a INTEGER NOT NULL CHECK(typeof(score_a) = 'integer' AND "
+        "score_a BETWEEN 0 AND 2147483647), "
+        "score_b INTEGER NOT NULL CHECK(typeof(score_b) = 'integer' AND "
+        "score_b BETWEEN 0 AND 2147483647), "
+        "UNIQUE(event_id, sort_order), "
+        "FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE, "
+        "FOREIGN KEY(event_id, side_a_participant_id) REFERENCES "
+        "event_participants(event_id, participant_id), "
+        "FOREIGN KEY(event_id, side_b_participant_id) REFERENCES "
+        "event_participants(event_id, participant_id), "
+        "CHECK((side_a_participant_id IS NOT NULL AND "
+        "side_a_free_name IS NULL) OR (side_a_participant_id IS NULL AND "
+        "side_a_free_name IS NOT NULL AND "
+        "length(trim(side_a_free_name)) BETWEEN 1 AND 200 AND "
+        "instr(side_a_free_name, char(10)) = 0 AND "
+        "instr(side_a_free_name, char(13)) = 0)), "
+        "CHECK((side_b_participant_id IS NOT NULL AND "
+        "side_b_free_name IS NULL) OR (side_b_participant_id IS NULL AND "
+        "side_b_free_name IS NOT NULL AND "
+        "length(trim(side_b_free_name)) BETWEEN 1 AND 200 AND "
+        "instr(side_b_free_name, char(10)) = 0 AND "
+        "instr(side_b_free_name, char(13)) = 0)), "
+        "CHECK(side_a_participant_id IS NULL OR "
+        "side_b_participant_id IS NULL OR "
+        "side_a_participant_id <> side_b_participant_id))",
+        "CREATE INDEX idx_events_date ON "
+        "events(event_date DESC, title, id)",
+        "CREATE INDEX idx_event_bouts_side_a ON "
+        "event_bouts(event_id, side_a_participant_id)",
+        "CREATE INDEX idx_event_bouts_side_b ON "
+        "event_bouts(event_id, side_b_participant_id)",
+        "INSERT INTO events(id, title, event_date, revision, notes) VALUES("
+        "'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Legacy tournament', "
+        "'2025-12-31', 7, 'Legacy notes')",
+        "INSERT INTO event_participants("
+        "event_id, participant_id, participant_name_snapshot, "
+        "participant_full_name_snapshot, sort_order) VALUES("
+        "'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', "
+        "'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', "
+        "'Legacy name', 'Legacy full name', 0)",
+        "INSERT INTO event_bouts("
+        "id, event_id, sort_order, side_a_participant_id, "
+        "side_a_free_name, side_b_participant_id, side_b_free_name, "
+        "score_a, score_b) VALUES("
+        "'cccccccc-cccc-4ccc-8ccc-cccccccccccc', "
+        "'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 0, "
+        "'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', NULL, NULL, "
+        "'Legacy guest', 5, 20)",
+        "PRAGMA user_version = 1"};
+
+    created = query.exec("PRAGMA foreign_keys = ON") && db.transaction();
+    for (const QString& statement : statements)
+    {
+      if (!created || !query.exec(statement))
+      {
+        created = false;
+        break;
+      }
+    }
+    if (created)
+    {
+      created = query.exec("PRAGMA foreign_key_check") && !query.next();
+      query.finish();
+    }
+    if (!created || !db.commit())
+    {
+      db.rollback();
+      created = false;
+    }
+  }
+
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return created;
+}
+
+bool SchemaMigrationV1ToV2Test(const QString& path)
+{
+  if (!Check(CreateV1MigrationFixture(path),
+             "event schema v1 fixture creation failed"))
+  {
+    return false;
+  }
+
+  {
+    EventSqliteStorage storage;
+    const EventId eventId = {
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"};
+    if (!Check(storage.open(path), "event schema v1 migration failed"))
+    {
+      return false;
+    }
+    const auto event = storage.getEvent(eventId);
+    if (!Check(event.has_value() && event->title == "Legacy tournament" &&
+                   event->date == QDate(2025, 12, 31) &&
+                   event->revision == 7 && event->notes == "Legacy notes",
+               "event metadata was lost during v1 migration") ||
+        !Check(event.has_value() && event->participants.size() == 1 &&
+                   event->participants.front().participantId.value ==
+                       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" &&
+                   event->participants.front().displayNameSnapshot ==
+                       "Legacy name" &&
+                   event->participants.front().fullNameSnapshot ==
+                       "Legacy full name",
+               "event participant was lost during v1 migration") ||
+        !Check(event.has_value() && event->bouts.size() == 1 &&
+                   event->bouts.front().id.value ==
+                       "cccccccc-cccc-4ccc-8ccc-cccccccccccc" &&
+                   event->bouts.front().sideA.participantId.has_value() &&
+                   event->bouts.front().sideA.participantId->value ==
+                       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" &&
+                   event->bouts.front().sideB.freeName == "Legacy guest" &&
+                   event->bouts.front().scoreA == 5 &&
+                   event->bouts.front().scoreB == 20,
+               "event bout was lost during v1 migration"))
+    {
+      return false;
+    }
+  }
+
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  if (!db.open())
+  {
+    return false;
+  }
+  bool versionOk = false;
+  bool foreignKeysOk = false;
+  bool snapshotLimitOk = false;
+  {
+    QSqlQuery query(db);
+    versionOk = query.exec("PRAGMA user_version") && query.next() &&
+                query.value(0).toInt() == 2;
+    query.finish();
+    foreignKeysOk = query.exec("PRAGMA foreign_key_check") && !query.next();
+    query.finish();
+    snapshotLimitOk =
+        query.exec("SELECT sql FROM sqlite_master WHERE type = 'table' "
+                   "AND name = 'event_participants'") &&
+        query.next() &&
+        query.value(0).toString().contains(
+            "length(trim(participant_name_snapshot)) BETWEEN 1 AND 300",
+            Qt::CaseInsensitive);
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return Check(versionOk && foreignKeysOk && snapshotLimitOk,
+               "event schema v1 migration postconditions failed");
 }
 
 bool MalformedSchemaIsRejected(const QString& path)
@@ -419,6 +633,8 @@ int main(int argc, char* argv[])
       EventRoundTripTest(directory.filePath("events.db")) &&
       TransactionRollbackTest(directory.filePath("rollback-events.db")) &&
       SchemaAndCascadeTest(directory.filePath("cascade-events.db")) &&
+      SchemaMigrationV1ToV2Test(
+          directory.filePath("migration-v1-events.db")) &&
       MalformedSchemaIsRejected(directory.filePath("malformed-events.db")) &&
       NearMissConstraintIsRejected(
           directory.filePath("constraint-near-miss.db")) &&

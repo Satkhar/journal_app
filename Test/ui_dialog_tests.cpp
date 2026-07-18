@@ -237,7 +237,7 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
 {
   ParticipantProfile profile;
   profile.id = {"12345678-1234-1234-1234-123456789abc"};
-  profile.displayName = "Alice";
+  profile.displayName = "Alice Example";
   profile.fullName = "Alice Example";
   profile.contact = "@alice";
   profile.rank = ParticipantRank::Guest;
@@ -245,9 +245,11 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
   auto* year = dialog.findChild<QSpinBox*>("participantBirthYearSpinBox");
   auto* rank = dialog.findChild<QComboBox*>("participantRankComboBox");
   auto* id = dialog.findChild<QLabel*>("participantIdLabel");
+  auto* historicalName =
+      dialog.findChild<QLineEdit*>("participantHistoricalNameEdit");
   auto* fullName = dialog.findChild<QLineEdit*>("participantFullNameEdit");
   auto* contact = dialog.findChild<QLineEdit*>("participantContactEdit");
-  if (!Check(year && rank && id && fullName && contact,
+  if (!Check(year && rank && id && historicalName && fullName && contact,
              "participant profile controls missing"))
   {
     return false;
@@ -258,7 +260,8 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
              "participant birth year range is unreasonable") ||
       !Check(id->text() == profile.id.value,
              "participant details do not expose full ID") ||
-      !Check(fullName->text() == profile.fullName &&
+      !Check(historicalName->text().isEmpty() &&
+                 fullName->text() == profile.fullName &&
                  fullName->maxLength() == kMaxParticipantFullNameLength &&
                  contact->text() == profile.contact &&
                  contact->maxLength() == kMaxParticipantContactLength,
@@ -274,9 +277,12 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
   }
   rank->setCurrentIndex(knightIndex);
   fullName->setText("Alice Updated");
+  historicalName->setText("Alicia");
   contact->setText("+7 900 000-00-00");
   const ParticipantProfile edited = dialog.profile();
   return Check(edited.rank == ParticipantRank::Knight &&
+                   edited.historicalName == "Alicia" &&
+                   edited.displayName == "Alicia" &&
                    edited.fullName == "Alice Updated" &&
                    edited.contact == "+7 900 000-00-00",
                "participant editor lost profile details");
@@ -287,11 +293,13 @@ bool ParticipantDirectoryHidesIdAndSortsByRank()
   ParticipantProfile knight;
   knight.id = {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"};
   knight.displayName = "Knight";
+  knight.historicalName = "Knight";
   knight.fullName = "Knight Full Name";
   knight.rank = ParticipantRank::Knight;
   ParticipantProfile page;
   page.id = {"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"};
   page.displayName = "Page";
+  page.historicalName = "Page";
   page.rank = ParticipantRank::Page;
   ParticipantDirectoryDialog dialog({knight, page});
   auto* table = dialog.findChild<QTableWidget*>();
@@ -319,15 +327,33 @@ bool ParticipantDirectoryHidesIdAndSortsByRank()
                "participant directory lost hidden row identity");
 }
 
+bool EventEditorDoesNotDuplicateFullNameOnlyParticipant()
+{
+  ParticipantProfile profile;
+  profile.id = {"33333333-3333-3333-3333-333333333333"};
+  profile.displayName = "Анна Иванова";
+  profile.fullName = "Анна Иванова";
+  EventRecord event;
+  event.id = CreateEventId();
+  event.date = QDate(2026, 7, 18);
+  EventDialog dialog(event, {profile});
+  const auto* roster = dialog.findChild<QListWidget*>("eventParticipantsList");
+  return Check(roster && roster->count() == 1 &&
+                   roster->item(0)->text() == QString::fromUtf8("Анна Иванова"),
+               "full-name-only participant label is duplicated");
+}
+
 bool EventEditorSupportsInternalAndFreeBoutSides()
 {
   ParticipantProfile petya;
   petya.id = {"11111111-1111-1111-1111-111111111111"};
   petya.displayName = "Петя";
+  petya.historicalName = "Петя";
   petya.fullName = "Пётр Петров";
   ParticipantProfile namesake;
   namesake.id = {"22222222-2222-2222-2222-222222222222"};
   namesake.displayName = "Петя";
+  namesake.historicalName = "Петя";
   namesake.fullName = "Пётр Петров";
   EventRecord event;
   event.id = CreateEventId();
@@ -429,7 +455,8 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
     return false;
   }
 
-  petya.displayName = "Петя после переименования";
+  petya.historicalName = "Петя после переименования";
+  petya.displayName = petya.historicalName;
   petya.fullName = "Пётр После-Переименования";
   EventDialog reopened(edited, {petya});
   const EventRecord preserved = reopened.eventRecord();
@@ -453,6 +480,7 @@ int main(int argc, char* argv[])
       !TrainerMarkerUsesDedicatedBadge() ||
       !ParticipantEditorUsesReasonableYearAndKeepsIdInDetails() ||
       !ParticipantDirectoryHidesIdAndSortsByRank() ||
+      !EventEditorDoesNotDuplicateFullNameOnlyParticipant() ||
       !EventEditorSupportsInternalAndFreeBoutSides())
   {
     return 1;

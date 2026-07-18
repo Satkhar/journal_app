@@ -62,9 +62,9 @@ bool JournalLocal::removeDayMarker(int year, int month,
 }
 
 bool JournalLocal::addParticipantToMonth(int year, int month,
-                                         const Participant& participant)
+                                         const ParticipantProfile& profile)
 {
-  return sqlite_->addParticipantToMonth(year, month, participant);
+  return sqlite_->addParticipantToMonth(year, month, profile);
 }
 
 bool JournalLocal::removeParticipantFromMonth(int year, int month,
