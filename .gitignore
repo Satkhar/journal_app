@@ -53,3 +53,8 @@
 
 #data base
 *.db
+
+# Local server credentials. Commit only reviewed examples without secrets.
+.env
+.env.*
+!.env.example

@@ -2,7 +2,6 @@
 
 #include <QDate>
 #include <QDebug>
-#include <QElapsedTimer>
 #include <QSet>
 #include <QUuid>
 
@@ -73,8 +72,9 @@ std::optional<QVector<int>> mapActiveDaysByWeekday(
 } // namespace
 
 JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage)
-    : storage_(std::move(storage)), currentYear_(0), currentMonth_(0)
+    : storage_(std::move(storage))
 {
+  Q_ASSERT(storage_);
 }
 
 MonthStateResult JournalApp::getMonthState(int year, int month)
@@ -84,61 +84,18 @@ MonthStateResult JournalApp::getMonthState(int year, int month)
 
 MonthSnapshot JournalApp::loadMonth(int year, int month)
 {
-  QElapsedTimer timer;
-  timer.start();
-  currentYear_ = year;
-  currentMonth_ = month;
-
-  MonthSnapshot snapshot;
-  const MonthStateResult state = storage_->getMonthState(year, month);
-  snapshot.state = state.state;
-  snapshot.errorMessage = state.errorMessage;
-  if (state.state == MonthState::Error)
-  {
-    return snapshot;
-  }
-  snapshot.participants = storage_->getParticipantsForMonth(year, month);
-  if (!storage_->lastError().isEmpty())
-  {
-    snapshot.state = MonthState::Error;
-    snapshot.errorMessage = storage_->lastError();
-    return snapshot;
-  }
-  snapshot.activeDays = storage_->getActiveDays(year, month);
-  if (!storage_->lastError().isEmpty())
-  {
-    snapshot.state = MonthState::Error;
-    snapshot.errorMessage = storage_->lastError();
-    return snapshot;
-  }
-  snapshot.attendance = storage_->getMonth(year, month);
-  if (!storage_->lastError().isEmpty())
-  {
-    snapshot.state = MonthState::Error;
-    snapshot.errorMessage = storage_->lastError();
-    return snapshot;
-  }
-  snapshot.dayMarkers = storage_->getDayMarkers(year, month);
-  if (!storage_->lastError().isEmpty())
-  {
-    snapshot.state = MonthState::Error;
-    snapshot.errorMessage = storage_->lastError();
-    return snapshot;
-  }
+  MonthSnapshot snapshot = storage_->loadMonthSnapshot(year, month);
 
   qInfo() << "Month loaded:" << year << month
           << "participants:" << snapshot.participants.size()
           << "active days:" << snapshot.activeDays.size()
           << "records:" << snapshot.attendance.size()
-          << "day markers:" << snapshot.dayMarkers.size()
-          << "ms:" << timer.elapsed();
+          << "day markers:" << snapshot.dayMarkers.size();
   return snapshot;
 }
 
 bool JournalApp::saveActiveDays(int year, int month, const QVector<int>& days)
 {
-  currentYear_ = year;
-  currentMonth_ = month;
   return storage_->saveActiveDays(year, month, days);
 }
 
@@ -283,54 +240,47 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
             error.isEmpty() ? "Не удалось атомарно создать месяц" : error};
   }
 
-  currentYear_ = toYear;
-  currentMonth_ = toMonth;
   return {true, copied, skipped, QString()};
 }
 
-bool JournalApp::addUser(const QString& fullName)
+bool JournalApp::addUser(int year, int month, const QString& fullName)
 {
   const QString trimmed = fullName.trimmed();
-  if (currentYear_ == 0 || currentMonth_ == 0 || trimmed.isEmpty() ||
+  if (!QDate(year, month, 1).isValid() || trimmed.isEmpty() ||
       trimmed.size() > kMaxParticipantFullNameLength ||
       trimmed.contains('\n') || trimmed.contains('\r'))
   {
     return false;
   }
-  return storage_->addParticipantToMonth(currentYear_, currentMonth_,
+  return storage_->addParticipantToMonth(year, month,
                                          makeParticipantProfile(trimmed));
 }
 
-bool JournalApp::removeParticipant(const ParticipantId& id)
+bool JournalApp::removeParticipant(int year, int month,
+                                   const ParticipantId& id)
 {
-  if (currentYear_ == 0 || currentMonth_ == 0 || !id.isValid())
+  if (!QDate(year, month, 1).isValid() || !id.isValid())
   {
     return false;
   }
-  return storage_->removeParticipantFromMonth(currentYear_, currentMonth_, id);
+  return storage_->removeParticipantFromMonth(year, month, id);
 }
 
 bool JournalApp::saveAttendance(int year, int month,
                                 const std::vector<AttendanceRecord>& data)
 {
-  currentYear_ = year;
-  currentMonth_ = month;
   return storage_->saveAttendance(year, month, data);
 }
 
 bool JournalApp::saveDayMarker(int year, int month,
                                const ParticipantDayMarker& marker)
 {
-  currentYear_ = year;
-  currentMonth_ = month;
   return storage_->saveDayMarker(year, month, marker);
 }
 
 bool JournalApp::removeDayMarker(int year, int month,
                                  const ParticipantId& participantId, int day)
 {
-  currentYear_ = year;
-  currentMonth_ = month;
   return storage_->removeDayMarker(year, month, participantId, day);
 }
 

@@ -22,6 +22,8 @@ enum class CopyScheduleMode
 class JournalApp
 {
 public:
+  // JournalApp единолично владеет storage. Все команды получают месяц явно,
+  // поэтому будущий async callback не сможет записать в "последний" месяц.
   explicit JournalApp(std::unique_ptr<IJournalStorage> storage);
 
   MonthStateResult getMonthState(int year, int month);
@@ -30,8 +32,8 @@ public:
   CopyUsersResult copyUsersFromMonth(int fromYear, int fromMonth, int toYear,
                                      int toMonth,
                                      CopyScheduleMode scheduleMode);
-  bool addUser(const QString& fullName);
-  bool removeParticipant(const ParticipantId& id);
+  bool addUser(int year, int month, const QString& fullName);
+  bool removeParticipant(int year, int month, const ParticipantId& id);
   bool saveAttendance(int year, int month,
                       const std::vector<AttendanceRecord>& data);
   bool saveDayMarker(int year, int month,
@@ -48,6 +50,4 @@ public:
 
 private:
   std::unique_ptr<IJournalStorage> storage_;
-  int currentYear_;
-  int currentMonth_;
 };

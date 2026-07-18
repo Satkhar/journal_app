@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QDate>
+#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
@@ -23,6 +24,7 @@
 #include <QMessageBox>
 #include <QProcessEnvironment>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QStandardPaths>
 #include <QTimer>
@@ -125,6 +127,13 @@ QString dayHeaderLabel(int year, int month, int day)
       .arg(kDaysOfWeek.at(date.dayOfWeek() - 1));
 }
 
+bool environmentFlag(const QProcessEnvironment& environment,
+                     const QString& name)
+{
+  const QString value = environment.value(name).trimmed().toLower();
+  return value == "1" || value == "true" || value == "yes";
+}
+
 } // namespace
 
 //---------------------------------------------------------------
@@ -137,7 +146,8 @@ MainWindow::MainWindow(QWidget* parent)
       copyParticipantsAction_(nullptr), participantsAction_(nullptr),
       readLocalAction_(nullptr), saveMonthAction_(nullptr),
       pushMonthAction_(nullptr), pullMonthAction_(nullptr),
-      tournamentsAction_(nullptr), configuredServerUrl_(),
+      tournamentsAction_(nullptr), configuredServerUrl_(), serverAuthToken_(),
+      allowInsecureServerHttp_(false), allowRemoteSchemaChanges_(false),
       activeStorageMode_(),
       activeServerUrl_(), isConnectingStorage_(false), syncInProgress_(false),
       refreshInProgress_(false), monthDataValid_(false),
@@ -160,6 +170,25 @@ MainWindow::MainWindow(QWidget* parent)
   const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
   configuredServerUrl_ =
       env.value("JOURNAL_SERVER_URL", JOURNAL_DEFAULT_SERVER_URL);
+  serverAuthToken_ = env.value("JOURNAL_SERVER_TOKEN").trimmed();
+  allowInsecureServerHttp_ =
+      environmentFlag(env, "JOURNAL_ALLOW_INSECURE_HTTP");
+  allowRemoteSchemaChanges_ =
+      environmentFlag(env, "JOURNAL_BOOTSTRAP_REMOTE_SCHEMA");
+  QString serverConfigurationError;
+  const auto normalizedServerUrl =
+      normalizeServerUrl(configuredServerUrl_, &serverConfigurationError);
+  if (normalizedServerUrl.has_value())
+  {
+    configuredServerUrl_ = *normalizedServerUrl;
+  }
+  else
+  {
+    qWarning().noquote()
+        << "Invalid JOURNAL_SERVER_URL, using loopback default:"
+        << serverConfigurationError;
+    configuredServerUrl_ = JOURNAL_DEFAULT_SERVER_URL;
+  }
   setupMenus();
   const QString storageMode =
       env.value("JOURNAL_STORAGE_MODE", JOURNAL_DEFAULT_STORAGE_MODE).toLower();
@@ -786,7 +815,9 @@ void MainWindow::addParticipantToMonth()
     ui->statusbar->showMessage("Введите имя участника");
     return;
   }
-  if (!journalApp_ || !journalApp_->addUser(name))
+  if (!journalApp_ ||
+      !journalApp_->addUser(static_cast<int>(year), static_cast<int>(month),
+                            name))
   {
     ui->statusbar->showMessage("Не удалось добавить участника");
     return;
@@ -823,7 +854,9 @@ void MainWindow::removeSelectedParticipantFromMonth()
     ui->statusbar->showMessage("Выберите строку участника");
     return;
   }
-  if (!journalApp_ || !journalApp_->removeParticipant(id))
+  if (!journalApp_ ||
+      !journalApp_->removeParticipant(static_cast<int>(year),
+                                      static_cast<int>(month), id))
   {
     ui->statusbar->showMessage("Не удалось убрать участника из месяца");
     return;
@@ -873,8 +906,32 @@ std::optional<QString> MainWindow::requestServerUrl(const QString& title)
     return std::nullopt;
   }
   serverUrl = serverUrl.trimmed();
-  return serverUrl.isEmpty() ? QString(JOURNAL_DEFAULT_SERVER_URL)
-                             : serverUrl;
+  QString error;
+  const auto normalized = normalizeServerUrl(
+      serverUrl.isEmpty() ? QString(JOURNAL_DEFAULT_SERVER_URL) : serverUrl,
+      &error);
+  if (!normalized.has_value())
+  {
+    QMessageBox::warning(this, "Некорректный адрес сервера", error);
+  }
+  return normalized;
+}
+
+std::optional<QString>
+MainWindow::normalizeServerUrl(const QString& serverUrl,
+                               QString* errorMessage) const
+{
+  RemoteConnectionOptions options;
+  options.baseUrl = serverUrl;
+  options.authToken = serverAuthToken_;
+  options.timeoutMs = JOURNAL_REMOTE_TIMEOUT_MS;
+  options.allowInsecureHttp = allowInsecureServerHttp_;
+  options.allowSchemaChanges = allowRemoteSchemaChanges_;
+  const auto normalized =
+      NormalizeRemoteConnectionOptions(std::move(options), errorMessage);
+  return normalized.has_value()
+             ? std::optional<QString>(normalized->baseUrl)
+             : std::nullopt;
 }
 
 void MainWindow::setConfiguredServerUrl(const QString& serverUrl)
@@ -944,6 +1001,8 @@ void MainWindow::openEventDirectory()
           "но выбирать наших участников для новых записей нельзя.");
     }
   }
+  // EventDirectoryDialog модальный: EventApp живёт до завершения exec(). При
+  // переходе к modeless окну EventApp должен стать owned dependency диалога.
   EventApp eventApp(std::move(storage));
   EventDirectoryDialog dialog(eventApp, std::move(profiles), this);
   dialog.exec();
@@ -956,11 +1015,11 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
     const QString targetUrl =
         serverUrl.isEmpty() ? QString(JOURNAL_DEFAULT_SERVER_URL) : serverUrl;
 
-    // Remote подключаем только как read-only источник для UI-режима просмотра.
-    auto remote =
-        std::make_unique<JournalRemote>(targetUrl, JOURNAL_REMOTE_TIMEOUT_MS);
     QString error;
-    if (!remote->connect(&error))
+    // Adapter полностью проверяется до замены journalApp_. Неудачный reconnect
+    // оставляет прежний storage и загруженный месяц живыми.
+    auto remote = createConnectedRemote(targetUrl, &error);
+    if (!remote)
     {
       QMessageBox::warning(this, "Ошибка подключения",
                            QString("Не удалось подключиться к серверу: %1")
@@ -990,6 +1049,25 @@ bool MainWindow::setupStorage(const QString& mode, const QString& serverUrl)
   ui->statusbar->showMessage("Режим: local", 3000);
   updateEditControlsByMode();
   return true;
+}
+
+std::unique_ptr<JournalRemote>
+MainWindow::createConnectedRemote(const QString& serverUrl,
+                                  QString* errorMessage) const
+{
+  RemoteConnectionOptions options;
+  options.baseUrl = serverUrl;
+  options.authToken = serverAuthToken_;
+  options.timeoutMs = JOURNAL_REMOTE_TIMEOUT_MS;
+  options.allowInsecureHttp = allowInsecureServerHttp_;
+  options.allowSchemaChanges = allowRemoteSchemaChanges_;
+
+  auto remote = std::make_unique<JournalRemote>(std::move(options));
+  if (!remote->connect(errorMessage))
+  {
+    return nullptr;
+  }
+  return remote;
 }
 
 bool MainWindow::openLocalDatabase(SqliteConnect& sqlite)
@@ -1315,41 +1393,19 @@ void MainWindow::readLocalMonthToTable()
     ui->statusbar->showMessage("Дождитесь завершения текущей операции");
     return;
   }
-  // Читаем local БД через отдельный локальный reader, не переключая active
-  // storage. Это делает поведение Read Base предсказуемым даже при active
-  // remote.
-  auto sqlite = std::make_unique<SqliteConnect>();
-  if (!openLocalDatabase(*sqlite))
+  // Источник таблицы и индикатор режима обязаны совпадать. Иначе следующая
+  // команда работает с remote adapter, хотя пользователь видит local данные.
+  if (activeStorageMode_ != "local")
   {
+    connectLocalStorage();
     return;
   }
 
-  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
-  // Отдельный JournalApp нужен только как временный use-case для чтения local
-  // snapshot.
-  JournalApp localReader(std::move(local));
-
-  updateCalendarVariables(ui->calendarWidget);
-  const MonthSnapshot snapshot =
-      localReader.loadMonth(static_cast<int>(year), static_cast<int>(month));
-  if (snapshot.state == MonthState::Error)
+  refreshMonth();
+  if (monthDataValid_)
   {
-    if (activeStorageMode_ == "local")
-    {
-      monthDataValid_ = false;
-      updateEditControlsByMode();
-    }
-    ui->statusbar->showMessage(
-        QString("Read Base error: %1").arg(snapshot.errorMessage), 6000);
-    return;
+    ui->statusbar->showMessage("Локальные данные перечитаны.", 4000);
   }
-  if (activeStorageMode_ == "local")
-  {
-    monthDataValid_ = true;
-  }
-  renderMonth(snapshot);
-  updateEditControlsByMode();
-  ui->statusbar->showMessage("Read Base: локальные данные загружены.", 4000);
 }
 
 void MainWindow::pushCurrentMonthToServer()
@@ -1372,29 +1428,56 @@ void MainWindow::pushCurrentMonthToServer()
     ui->statusbar->showMessage("Локальное хранилище не подключено.", 5000);
     return;
   }
+  if (QMessageBox::warning(
+          this, "Полная отправка месяца",
+          "Серверный месяц будет полностью заменён. Проверки конфликтов "
+          "между несколькими клиентами пока нет. Продолжить?",
+          QMessageBox::Yes | QMessageBox::Cancel,
+          QMessageBox::Cancel) != QMessageBox::Yes)
+  {
+    return;
+  }
 
-  // Push всегда берет текущее содержимое таблицы, а не перечитывает БД перед
-  // отправкой.
   const QString serverUrl = configuredServerUrl_.isEmpty()
                                 ? QString(JOURNAL_DEFAULT_SERVER_URL)
                                 : configuredServerUrl_;
 
   QString error;
   updateCalendarVariables(ui->calendarWidget);
-  MonthSnapshot snapshot =
+  const auto attendance = collectMonthFromTable();
+  // Local-first invariant: remote получает только snapshot, уже сохранённый
+  // локально. После успешного push обе стороны описывают один aggregate.
+  if (!journalApp_->saveAttendance(static_cast<int>(year),
+                                   static_cast<int>(month), attendance))
+  {
+    ui->statusbar->showMessage(
+        "Push отменён: не удалось сохранить локальные изменения", 6000);
+    return;
+  }
+  const MonthSnapshot snapshot =
       journalApp_->loadMonth(static_cast<int>(year), static_cast<int>(month));
   if (snapshot.state == MonthState::Error)
   {
     ui->statusbar->showMessage(snapshot.errorMessage, 6000);
     return;
   }
-  snapshot.activeDays = activeDays_;
-  snapshot.attendance = collectMonthFromTable();
-  SyncService sync(JOURNAL_REMOTE_TIMEOUT_MS);
   syncInProgress_ = true;
   updateEditControlsByMode();
+  auto remote = createConnectedRemote(serverUrl, &error);
+  if (!remote)
+  {
+    syncInProgress_ = false;
+    updateEditControlsByMode();
+    ui->statusbar->showMessage(
+        QString("Push error: %1")
+            .arg(error.isEmpty() ? "не удалось подключиться к серверу"
+                                 : error),
+        6000);
+    return;
+  }
+  SyncService sync;
   const bool pushed =
-      sync.pushMonthToServer(serverUrl, static_cast<int>(year),
+      sync.pushMonthToServer(*remote, static_cast<int>(year),
                              static_cast<int>(month), snapshot, &error);
   syncInProgress_ = false;
   updateEditControlsByMode();
@@ -1424,6 +1507,15 @@ void MainWindow::pullCurrentMonthFromServer()
         "Pull доступен только из local режима. Переключитесь на Local.", 5000);
     return;
   }
+  if (QMessageBox::warning(
+          this, "Полное получение месяца",
+          "Локальный месяц будет полностью заменён серверной копией. "
+          "Проверки конфликтов пока нет. Продолжить?",
+          QMessageBox::Yes | QMessageBox::Cancel,
+          QMessageBox::Cancel) != QMessageBox::Yes)
+  {
+    return;
+  }
 
   // Pull пишет в local DB, поэтому сам UI должен оставаться в local режиме.
   const QString serverUrl = configuredServerUrl_.isEmpty()
@@ -1440,11 +1532,23 @@ void MainWindow::pullCurrentMonthFromServer()
 
   QString error;
   updateCalendarVariables(ui->calendarWidget);
-  SyncService sync(JOURNAL_REMOTE_TIMEOUT_MS);
   syncInProgress_ = true;
   updateEditControlsByMode();
+  auto remote = createConnectedRemote(serverUrl, &error);
+  if (!remote)
+  {
+    syncInProgress_ = false;
+    updateEditControlsByMode();
+    ui->statusbar->showMessage(
+        QString("Pull error: %1")
+            .arg(error.isEmpty() ? "не удалось подключиться к серверу"
+                                 : error),
+        6000);
+    return;
+  }
+  SyncService sync;
   const bool pulled =
-      sync.pullMonthToLocal(serverUrl, static_cast<int>(year),
+      sync.pullMonthToLocal(*remote, static_cast<int>(year),
                             static_cast<int>(month), local, &error);
   syncInProgress_ = false;
   updateEditControlsByMode();
@@ -1476,9 +1580,38 @@ void MainWindow::addAttendanceCell(
   auto* cell = new AttendanceCellWidget(isChecked, participant.displayName,
                                         date, marker, tableWidget);
   tableWidget->setCellWidget(row, column, cell);
+  QCheckBox* checkBox = cell->attendanceCheckBox();
+  const int targetYear = static_cast<int>(year);
+  const int targetMonth = static_cast<int>(month);
   connect(cell->attendanceCheckBox(), &QCheckBox::toggled, tableWidget,
-          [this, tableWidget, row](bool)
-          { updateAttendanceCount(tableWidget, row); });
+          [this, tableWidget, row, checkBox, participantId = participant.id,
+           day, targetYear, targetMonth](bool checked)
+          {
+            updateAttendanceCount(tableWidget, row);
+            if (!journalApp_ || activeStorageMode_ != "local" ||
+                isConnectingStorage_ || syncInProgress_ ||
+                refreshInProgress_ || !monthDataValid_)
+            {
+              return;
+            }
+
+            // Сохраняем только изменённую запись, а не всю таблицу. Это
+            // устраняет потерю отметок при смене месяца/закрытии окна и
+            // сохраняет стоимость одного клика независимой от размера месяца.
+            const std::vector<AttendanceRecord> change = {
+                {participantId, day, checked}};
+            if (journalApp_->saveAttendance(targetYear, targetMonth, change))
+            {
+              return;
+            }
+
+            // UI не должен показывать значение, которое storage отклонил.
+            const QSignalBlocker blocker(checkBox);
+            checkBox->setChecked(!checked);
+            updateAttendanceCount(tableWidget, row);
+            ui->statusbar->showMessage(
+                "Не удалось сохранить отметку посещения", 5000);
+          });
   connect(cell->markerButton(), &QToolButton::clicked, cell,
           [this, cell, participant, day]()
           { editDayMarker(cell, participant, day); });

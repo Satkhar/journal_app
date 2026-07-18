@@ -130,7 +130,7 @@ bool EventRoundTripTest(const QString& path)
   const ParticipantId kolya =
       ParticipantUuid("22222222-2222-2222-2222-222222222222");
   event.notes = "Петины ошибки разобрать на тренировке";
-  event.participants.push_back({kolya, "Коля"});
+  event.participants.push_back({kolya, "Коля", QString()});
   EventBout replacement;
   replacement.id = CreateBoutId();
   replacement.sideA.participantId = event.participants.front().participantId;

@@ -10,9 +10,12 @@
 
 // Runtime options for storage backend:
 // JOURNAL_STORAGE_MODE=local|server
-// JOURNAL_SERVER_URL=http://127.0.0.1:7070
+// JOURNAL_SERVER_URL=http://127.0.0.1:8080
+// JOURNAL_SERVER_TOKEN=<bearer token>
+// JOURNAL_ALLOW_INSECURE_HTTP=1  // только для осознанного LAN PoC
+// JOURNAL_BOOTSTRAP_REMOTE_SCHEMA=1  // только на первом локальном запуске
 // Если переменные окружения не заданы, приложение стартует в local режиме.
 #define JOURNAL_DEFAULT_STORAGE_MODE "local"
-#define JOURNAL_DEFAULT_SERVER_URL "http://127.0.0.1:7070"
+#define JOURNAL_DEFAULT_SERVER_URL "http://127.0.0.1:8080"
 // Единый таймаут для всех HTTP-операций remote storage.
 #define JOURNAL_REMOTE_TIMEOUT_MS 5000

@@ -16,6 +16,15 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON) # Автоматическая обработка .ui файлов
 set(CMAKE_AUTORCC ON)
 
+# Проект намеренно собирается GCC (проверка выше). Warnings включены для всех
+# targets; -Werror оставляется CI, чтобы обновление Qt/GCC не ломало local build.
+add_compile_options(
+    -finput-charset=UTF-8
+    -fexec-charset=UTF-8
+    -Wall
+    -Wextra
+    -Wpedantic)
+
 add_executable(journal_app 
     ./App/Src/main.cpp
     ./App/Src/Domain/JournalApp.cpp
@@ -25,6 +34,7 @@ add_executable(journal_app
     ./App/Src/Storage/EventSqliteStorage.cpp
     ./App/Src/Storage/JournalLocal.cpp
     ./App/Src/Storage/JournalRemote.cpp
+    ./App/Src/Storage/RemoteConnectionOptions.cpp
     ./App/Src/Storage/SqliteConnect.cpp
     ./App/Src/Sync/SyncService.cpp
     ./App/Src/Ui/mainwindow.cpp
@@ -42,9 +52,11 @@ add_executable(journal_app
     ./App/Inc/Domain/EventModels.hpp
     ./App/Inc/Domain/IEventStorage.hpp
     ./App/Inc/Domain/IJournalStorage.hpp
+    ./App/Inc/Domain/IMonthSnapshotStore.hpp
     ./App/Inc/Domain/JournalApp.hpp
     ./App/Inc/Storage/JournalLocal.hpp
     ./App/Inc/Storage/JournalRemote.hpp
+    ./App/Inc/Storage/RemoteConnectionOptions.hpp
     ./App/Inc/Storage/SqliteConnect.hpp
     ./App/Inc/Storage/EventSqliteStorage.hpp
     ./App/Inc/Sync/SyncService.hpp
@@ -82,13 +94,6 @@ target_include_directories(journal_app PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Src/Storage
     ${CMAKE_SOURCE_DIR}/App/Src/Sync
     ${CMAKE_SOURCE_DIR}/App/Src/Ui)
-
-# Указываем флаги компилятора для поддержки UTF-8
-if(MSVC)
-    add_compile_options(/utf-8)
-else()
-    add_compile_options(-finput-charset=UTF-8 -fexec-charset=UTF-8)
-endif()
 
 include(CTest)
 enable_testing()
@@ -133,6 +138,21 @@ target_include_directories(journal_month_state_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Domain
     ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
 add_test(NAME journal_month_state_tests COMMAND journal_month_state_tests)
+
+add_executable(journal_sync_tests
+    ./Test/SyncServiceTests.cpp
+    ./App/Src/Storage/RemoteConnectionOptions.cpp
+    ./App/Src/Sync/SyncService.cpp
+    ./App/Inc/Domain/JournalModels.hpp
+    ./App/Inc/Domain/IMonthSnapshotStore.hpp
+    ./App/Inc/Storage/RemoteConnectionOptions.hpp
+    ./App/Inc/Sync/SyncService.hpp)
+target_link_libraries(journal_sync_tests PRIVATE Qt6::Core Qt6::Network)
+target_include_directories(journal_sync_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/App/Inc/Domain
+    ${CMAKE_SOURCE_DIR}/App/Inc/Storage
+    ${CMAKE_SOURCE_DIR}/App/Inc/Sync)
+add_test(NAME journal_sync_tests COMMAND journal_sync_tests)
 
 add_executable(journal_ui_tests
     ./Test/ui_dialog_tests.cpp

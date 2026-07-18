@@ -11,6 +11,7 @@
 class QAction;
 class QLabel;
 class SqliteConnect;
+class JournalRemote;
 class AttendanceCellWidget;
 
 #include <memory>
@@ -63,6 +64,9 @@ private:
 
   // Текущее активное подключение (используется для защиты от лишних reconnect).
   QString configuredServerUrl_;
+  QString serverAuthToken_;
+  bool allowInsecureServerHttp_;
+  bool allowRemoteSchemaChanges_;
   QString activeStorageMode_;
   QString activeServerUrl_;
   bool isConnectingStorage_;
@@ -103,8 +107,13 @@ private:
   void configureServerUrl();
   void setConfiguredServerUrl(const QString& serverUrl);
   std::optional<QString> requestServerUrl(const QString& title);
+  std::optional<QString>
+  normalizeServerUrl(const QString& serverUrl, QString* errorMessage) const;
   // Переключает активный storage на local/server.
   bool setupStorage(const QString& mode, const QString& serverUrl);
+  std::unique_ptr<JournalRemote>
+  createConnectedRemote(const QString& serverUrl,
+                        QString* errorMessage) const;
   bool openLocalDatabase(SqliteConnect& sqlite);
   void connectLocalStorage();
   void connectRemoteStorage();
@@ -119,7 +128,8 @@ private:
   void updateModeIndicator();
   // Включает/выключает действия редактирования в зависимости от режима.
   void updateEditControlsByMode();
-  // Read Base: всегда читает локальную БД в таблицу.
+  // Read Base: переключает active storage на local и перечитывает месяц.
+  // Таблица не должна показывать local snapshot под индикатором REMOTE.
   void readLocalMonthToTable();
   // Push: отправляет текущий месяц из локальной таблицы на сервер.
   void pushCurrentMonthToServer();

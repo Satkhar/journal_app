@@ -325,7 +325,7 @@ bool NewParticipantUsesFullNameUntilHistoricalNameExists()
   JournalApp app(std::move(local));
 
   TEST_CHECK(app.loadMonth(2026, 7).state == MonthState::Missing);
-  TEST_CHECK(app.addUser("  Пётр Петров  "));
+  TEST_CHECK(app.addUser(2026, 7, "  Пётр Петров  "));
   auto profiles = app.participantProfiles(false);
   TEST_CHECK(profiles.has_value());
   TEST_CHECK(profiles->size() == 1);
@@ -348,8 +348,9 @@ bool NewParticipantUsesFullNameUntilHistoricalNameExists()
   TEST_CHECK(app.updateParticipantProfile(profile));
   TEST_CHECK(app.loadMonth(2026, 7).participants.front().displayName ==
              "Пётр Петров");
-  TEST_CHECK(!app.addUser("   "));
+  TEST_CHECK(!app.addUser(2026, 7, "   "));
   TEST_CHECK(!app.addUser(
+      2026, 7,
       QString(kMaxParticipantFullNameLength + 1, QLatin1Char('x'))));
   return true;
 }

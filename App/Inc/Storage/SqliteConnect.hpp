@@ -5,14 +5,22 @@
 
 #include "IJournalStorage.hpp"
 
+// Владеет уникальным named QSqlDatabase connection. Qt connection привязан к
+// потоку создания; копирование/перемещение запрещено, чтобы два деструктора не
+// закрыли один global connection registry entry.
 class SqliteConnect
 {
 public:
   SqliteConnect();
   ~SqliteConnect();
+  SqliteConnect(const SqliteConnect&) = delete;
+  SqliteConnect& operator=(const SqliteConnect&) = delete;
+  SqliteConnect(SqliteConnect&&) = delete;
+  SqliteConnect& operator=(SqliteConnect&&) = delete;
 
   bool open(const QString& dbPath);
   QString lastError() const;
+  MonthSnapshot loadMonthSnapshot(int year, int month);
   MonthStateResult getMonthState(int year, int month);
 
   std::vector<Participant> getParticipantsForMonth(int year, int month);

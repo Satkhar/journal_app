@@ -1,19 +1,20 @@
 #include "SyncService.hpp"
 
-#include "JournalRemote.hpp"
-
-SyncService::SyncService(int timeoutMs) : timeoutMs_(timeoutMs)
-{
-}
-
-bool SyncService::pushMonthToServer(const QString& serverUrl, int year,
+bool SyncService::pushMonthToServer(IMonthSnapshotStore& remote, int year,
                                     int month,
                                     const MonthSnapshot& localSnapshot,
                                     QString* errorMessage) const
 {
-  JournalRemote remote(serverUrl, timeoutMs_);
-  if (!remote.connect(errorMessage))
+  if (errorMessage)
   {
+    errorMessage->clear();
+  }
+  if (localSnapshot.state != MonthState::Ready)
+  {
+    if (errorMessage)
+    {
+      *errorMessage = "Local month snapshot is not ready";
+    }
     return false;
   }
   if (!remote.replaceMonth(year, month, localSnapshot))
@@ -27,43 +28,37 @@ bool SyncService::pushMonthToServer(const QString& serverUrl, int year,
   return true;
 }
 
-bool SyncService::pullMonthToLocal(const QString& serverUrl, int year,
-                                   int month, IJournalStorage& localStorage,
+bool SyncService::pullMonthToLocal(IMonthSnapshotStore& remote, int year,
+                                   int month, IMonthSnapshotStore& local,
                                    QString* errorMessage) const
 {
-  JournalRemote remote(serverUrl, timeoutMs_);
-  if (!remote.connect(errorMessage))
+  if (errorMessage)
   {
-    return false;
+    errorMessage->clear();
   }
-
-  const MonthStateResult remoteState = remote.getMonthState(year, month);
-  if (remoteState.state != MonthState::Ready)
+  const MonthSnapshot snapshot = remote.loadMonthSnapshot(year, month);
+  if (snapshot.state != MonthState::Ready)
   {
     if (errorMessage)
     {
       *errorMessage =
-          remoteState.state == MonthState::Error
-              ? remoteState.errorMessage
+          snapshot.state == MonthState::Error
+              ? (snapshot.errorMessage.isEmpty() ? remote.lastError()
+                                                 : snapshot.errorMessage)
               : "Remote month is missing; local month was not modified";
     }
     return false;
   }
 
-  MonthSnapshot snapshot;
-  if (!remote.getMonthSnapshot(year, month, &snapshot))
+  // Remote read завершается до local write. Любая remote ошибка оставляет
+  // локальный aggregate неизменным.
+  if (!local.replaceMonth(year, month, snapshot))
   {
     if (errorMessage)
     {
-      *errorMessage = remote.lastError();
-    }
-    return false;
-  }
-  if (!localStorage.replaceMonth(year, month, snapshot))
-  {
-    if (errorMessage && errorMessage->isEmpty())
-    {
-      *errorMessage = "Failed to replace local month";
+      *errorMessage = local.lastError().isEmpty()
+                          ? "Failed to replace local month"
+                          : local.lastError();
     }
     return false;
   }

@@ -5,14 +5,16 @@
 #include <optional>
 #include <vector>
 
+#include "IMonthSnapshotStore.hpp"
 #include "JournalModels.hpp"
 
-class IJournalStorage
+class IJournalStorage : public IMonthSnapshotStore
 {
 public:
   virtual ~IJournalStorage() = default;
 
-  virtual QString lastError() const = 0;
+  // Точечные операции нужны редактору. Полный перенос месяца выполняется
+  // только через IMonthSnapshotStore, чтобы sync не зависел от CRUD API.
   virtual MonthStateResult getMonthState(int year, int month) = 0;
   virtual std::vector<Participant> getParticipantsForMonth(int year,
                                                            int month) = 0;
@@ -35,11 +37,8 @@ public:
                                      const ParticipantProfile& profile) = 0;
   virtual bool removeParticipantFromMonth(int year, int month,
                                           const ParticipantId& id) = 0;
-  // Атомарно заменяет состав, activeDays, attendance и dayMarkers месяца.
-  // Данные вне activeDays допустимы: скрытые отметки должны сохраняться.
-  virtual bool replaceMonth(int year, int month,
-                            const MonthSnapshot& snapshot) = 0;
-
+  // Профили глобальны и не входят в MonthSnapshot целиком. Contact, birthday,
+  // rank, notes и archive status пока остаются локальными данными.
   virtual std::optional<ParticipantProfile>
   getParticipantProfile(const ParticipantId& id) = 0;
   virtual std::optional<std::vector<ParticipantProfile>>

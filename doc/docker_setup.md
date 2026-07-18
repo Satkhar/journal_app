@@ -1,142 +1,143 @@
-# Docker Setup (libsql server)
+# Локальный сервер libSQL
 
-Документ описывает:
-- как установить Docker на Windows,
-- как поднять `libsql/sqld` для проекта,
-- как выполнять базовые операции и диагностику.
+Эта конфигурация поднимает воспроизводимый libSQL PoC только на текущем
+компьютере. Все команды ниже выполняются из корня репозитория.
 
-## 1. Установка Docker Desktop (Windows)
+## Требования
 
-### Вариант A: через winget (рекомендуется)
-```powershell
-winget install --id Docker.DockerDesktop -e --accept-source-agreements --accept-package-agreements
-```
+Нужен запущенный Docker Desktop с поддержкой Compose. Проверка:
 
-### Вариант B: через GUI
-1. Скачать Docker Desktop: https://www.docker.com/products/docker-desktop/
-2. Установить обычным инсталлятором.
-
-## 2. Первый запуск после установки
-
-1. Запустить `Docker Desktop`.
-2. Дождаться статуса `Engine running`.
-3. Проверить в новом терминале:
 ```powershell
 docker --version
 docker compose version
 docker info
 ```
 
-Если `docker` не найден:
-1. Полностью перезапустить VS Code/терминал.
-2. Временно обновить PATH в текущей сессии:
-```powershell
-$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
-```
+Если команда `docker` не появилась после установки Docker Desktop,
+перезапустите терминал или IDE.
 
-## 3. Подготовка директории сервера
+## Запуск
 
 ```powershell
-mkdir D:\Work\libsql-server
-cd D:\Work\libsql-server
+docker compose -f deploy/libsql/compose.yaml pull
+docker compose -f deploy/libsql/compose.yaml up -d
+docker compose -f deploy/libsql/compose.yaml ps
 ```
 
-Создать файл `docker-compose.yml`:
-
-```yaml
-services:
-  sqld:
-    image: ghcr.io/tursodatabase/libsql-server:latest
-    platform: linux/amd64
-    ports:
-      - "7070:7070"
-      - "5001:5001"
-    environment:
-      - SQLD_NODE=primary
-    volumes:
-      - ./data/libsql:/var/lib/sqld
-```
-
-## 4. Запуск и остановка сервера
-
-Рабочая директория:
-```powershell
-cd D:\Work\libsql-server
-```
-
-Запуск в фоне:
-```powershell
-docker compose up -d
-```
-
-Проверка статуса:
-```powershell
-docker compose ps
-```
+Сервер доступен только через `127.0.0.1:8080`. gRPC-порт наружу не
+публикуется.
 
 Логи:
+
 ```powershell
-docker compose logs -f
+docker compose -f deploy/libsql/compose.yaml logs -f libsql
 ```
 
-Остановка (без удаления):
+Остановка без удаления контейнера и данных:
+
 ```powershell
-docker compose stop
+docker compose -f deploy/libsql/compose.yaml stop
 ```
 
-Повторный запуск после stop:
+Повторный запуск:
+
 ```powershell
-docker compose start
+docker compose -f deploy/libsql/compose.yaml start
 ```
 
-Остановка и удаление контейнера/сети:
+Удаление контейнера и сети с сохранением данных:
+
 ```powershell
-docker compose down
+docker compose -f deploy/libsql/compose.yaml down
 ```
 
-Полный reset (включая удаление данных):
+## Проверка HTTP API
+
+Запрос к Hrana HTTP pipeline должен вернуть JSON с результатом `SELECT 1`:
+
 ```powershell
-docker compose down -v
+curl.exe -sS -X POST http://127.0.0.1:8080/v2/pipeline `
+  -H "Content-Type: application/json" `
+  --data-binary '{"baton":null,"requests":[{"type":"execute","stmt":{"sql":"SELECT 1 AS ok","args":[],"named_args":[],"want_rows":true}},{"type":"close"}]}'
 ```
 
-## 5. Куда подключать приложение
+Если сервер не отвечает, проверьте состояние и логи:
 
-Для `JournalRemote` используйте:
-```text
-http://127.0.0.1:7070
-```
-или
-```text
-http://localhost:7070
-```
-
-## 6. Где лежат данные сервера
-
-Данные сохраняются на хосте в:
-```text
-D:\Work\libsql-server\data\libsql
-```
-
-Это важно для backup/restore.
-
-## 7. Частые проблемы
-
-### 1) `docker: The term 'docker' is not recognized`
-- Docker установлен, но терминал не подхватил новый PATH.
-- Решение: перезапустить VS Code/терминал или обновить PATH в текущей сессии.
-
-### 2) `error getting credentials ... docker-credential-desktop`
-- Обычно PATH не содержит `C:\Program Files\Docker\Docker\resources\bin`.
-- Решение: перезапуск среды или ручное добавление пути в PATH.
-
-### 3) Контейнер поднялся, но сервер не отвечает
-1. Проверить статус:
 ```powershell
-docker compose ps
+docker compose -f deploy/libsql/compose.yaml ps
+docker compose -f deploy/libsql/compose.yaml logs libsql
 ```
-2. Посмотреть логи:
-```powershell
-docker compose logs -f
-```
-3. Убедиться, что порт `7070` не занят другим процессом.
 
+## Подключение приложения
+
+Перед запуском приложения задайте адрес в том же терминале:
+
+```powershell
+$env:JOURNAL_SERVER_URL = 'http://127.0.0.1:8080'
+```
+
+Значение применяется только к процессам, запущенным из этого терминала.
+
+Для пустого server volume разрешите одноразовое создание schema:
+
+```powershell
+$env:JOURNAL_BOOTSTRAP_REMOTE_SCHEMA = '1'
+# Запустите приложение и один раз подключитесь к серверу.
+Remove-Item Env:JOURNAL_BOOTSTRAP_REMOTE_SCHEMA
+```
+
+Без этого флага desktop только проверяет schema v8. Флаг даёт клиенту DDL-права
+и не должен оставаться в обычной эксплуатации.
+
+## Данные, backup и restore
+
+Данные хранятся в именованном Docker volume
+`journal_app_libsql_data`. Для согласованной копии сначала остановите сервер.
+
+Создание архива `libsql-backup.tar.gz` в корне репозитория:
+
+```powershell
+docker compose -f deploy/libsql/compose.yaml stop
+docker run --rm `
+  -v journal_app_libsql_data:/source:ro `
+  -v "${PWD}:/backup" `
+  alpine:3.22 tar -czf /backup/libsql-backup.tar.gz -C /source .
+docker compose -f deploy/libsql/compose.yaml start
+```
+
+Восстановление архива полностью заменяет текущие серверные данные:
+
+```powershell
+docker compose -f deploy/libsql/compose.yaml down
+docker volume rm journal_app_libsql_data
+docker volume create journal_app_libsql_data
+docker run --rm `
+  -v journal_app_libsql_data:/target `
+  -v "${PWD}:/backup:ro" `
+  alpine:3.22 sh -c "cd /target && tar -xzf /backup/libsql-backup.tar.gz"
+docker compose -f deploy/libsql/compose.yaml up -d
+```
+
+Полный reset без сохранения данных:
+
+```powershell
+docker compose -f deploy/libsql/compose.yaml down -v
+docker compose -f deploy/libsql/compose.yaml up -d
+```
+
+`down` без `-v` сохраняет базу. `down -v` необратимо удаляет именованный
+volume и все данные libSQL.
+
+## Ограничения PoC
+
+- Нет аутентификации и разграничения доступа.
+- Нет TLS: HTTP-трафик не шифруется.
+- Версия/форма schema проверяются, но migration job пока не отделён от клиента.
+- Это один primary-узел без репликации, failover и мониторинга.
+- Backup выполняется вручную с остановленным сервером.
+
+Конфигурацию нельзя публиковать в LAN или интернет. Привязка порта
+`127.0.0.1:8080:8080` обязательна для этого PoC; не заменяйте её на
+`8080:8080` или `0.0.0.0:8080:8080`. Для удалённого сервера сначала нужны
+аутентификация, TLS, управление секретами, миграции/ревизии схемы,
+резервное копирование и восстановление, наблюдаемость и ограничение сети.

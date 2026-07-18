@@ -10,6 +10,11 @@ QString JournalLocal::lastError() const
   return sqlite_->lastError();
 }
 
+MonthSnapshot JournalLocal::loadMonthSnapshot(int year, int month)
+{
+  return sqlite_->loadMonthSnapshot(year, month);
+}
+
 MonthStateResult JournalLocal::getMonthState(int year, int month)
 {
   return sqlite_->getMonthState(year, month);

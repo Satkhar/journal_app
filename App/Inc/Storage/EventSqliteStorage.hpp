@@ -4,11 +4,17 @@
 
 #include "IEventStorage.hpp"
 
+// Владеет отдельным named connection к БД турниров. Aggregate events имеет
+// собственную revision/CAS семантику и не входит в month sync.
 class EventSqliteStorage : public IEventStorage
 {
 public:
   EventSqliteStorage();
   ~EventSqliteStorage() override;
+  EventSqliteStorage(const EventSqliteStorage&) = delete;
+  EventSqliteStorage& operator=(const EventSqliteStorage&) = delete;
+  EventSqliteStorage(EventSqliteStorage&&) = delete;
+  EventSqliteStorage& operator=(EventSqliteStorage&&) = delete;
 
   bool open(const QString& path);
   QString lastError() const override;

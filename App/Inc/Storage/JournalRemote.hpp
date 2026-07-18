@@ -5,16 +5,23 @@
 #include <QString>
 
 #include "IJournalStorage.hpp"
+#include "RemoteConnectionOptions.hpp"
 
+// PoC adapter к Hrana SQL-over-HTTP. Объект thread-affine из-за
+// QNetworkAccessManager; все методы пока синхронны и не предназначены для
+// вызова из нескольких потоков или публичного доступа к серверу.
 class JournalRemote : public IJournalStorage
 {
 public:
   explicit JournalRemote(const QString& baseUrl, int timeoutMs = 5000);
+  explicit JournalRemote(RemoteConnectionOptions options);
 
+  // Проверяет endpoint и schema. DDL разрешён только явным
+  // RemoteConnectionOptions::allowSchemaChanges.
   bool connect(QString* errorMessage = nullptr);
   QString lastError() const override;
+  MonthSnapshot loadMonthSnapshot(int year, int month) override;
   MonthStateResult getMonthState(int year, int month) override;
-  bool getMonthSnapshot(int year, int month, MonthSnapshot* snapshot);
 
   std::vector<Participant> getParticipantsForMonth(int year,
                                                    int month) override;
@@ -43,11 +50,12 @@ public:
   bool setParticipantArchived(const ParticipantId& id, bool archived) override;
 
 private:
-  QString baseUrl_;
-  int timeoutMs_;
+  RemoteConnectionOptions options_;
   QString lastError_;
   QNetworkAccessManager network_;
 
+  // Историческое имя сохранено, но метод теперь либо проверяет current schema,
+  // либо выполняет явно разрешённый bootstrap/migration.
   bool ensureSchema(QString* errorMessage = nullptr);
   int daysInMonth(int year, int month) const;
   QVector<int> fullMonthDays(int year, int month) const;

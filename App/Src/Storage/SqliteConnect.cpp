@@ -20,6 +20,7 @@ constexpr int kRankSchemaVersion = 5;
 constexpr int kDevelopmentSchemaVersion = 6;
 constexpr int kParticipantDetailsSchemaVersion = 7;
 constexpr int kSchemaVersion = 8;
+constexpr int kSqliteBusyTimeoutMs = 5000;
 
 bool tableHasColumns(QSqlDatabase& db, const QString& table,
                      const QSet<QString>& required)
@@ -93,6 +94,62 @@ QString SqliteConnect::lastError() const
   return lastError_;
 }
 
+MonthSnapshot SqliteConnect::loadMonthSnapshot(int year, int month)
+{
+  MonthSnapshot snapshot;
+  lastError_.clear();
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    snapshot.errorMessage = lastError_;
+    return snapshot;
+  }
+
+  // Одна read transaction не даёт получить состав участников до изменения,
+  // а посещения после него, если позже появится параллельный writer.
+  auto fail = [this, &snapshot](const QString& error)
+  {
+    db_.rollback();
+    setError(error);
+    snapshot = {};
+    snapshot.state = MonthState::Error;
+    snapshot.errorMessage = lastError_;
+    return snapshot;
+  };
+
+  const MonthStateResult state = getMonthState(year, month);
+  if (state.state == MonthState::Error)
+  {
+    return fail(state.errorMessage);
+  }
+  snapshot.state = state.state;
+  snapshot.participants = getParticipantsForMonth(year, month);
+  if (!lastError_.isEmpty())
+  {
+    return fail(lastError_);
+  }
+  snapshot.activeDays = getActiveDays(year, month);
+  if (!lastError_.isEmpty())
+  {
+    return fail(lastError_);
+  }
+  snapshot.attendance = getMonth(year, month);
+  if (!lastError_.isEmpty())
+  {
+    return fail(lastError_);
+  }
+  snapshot.dayMarkers = getDayMarkers(year, month);
+  if (!lastError_.isEmpty())
+  {
+    return fail(lastError_);
+  }
+  if (!db_.commit())
+  {
+    return fail(db_.lastError().text());
+  }
+  return snapshot;
+}
+
 void SqliteConnect::setError(const QString& error)
 {
   lastError_ = error;
@@ -128,6 +185,12 @@ MonthStateResult SqliteConnect::getMonthState(int year, int month)
 bool SqliteConnect::enableForeignKeys()
 {
   QSqlQuery query(db_);
+  if (!query.exec(QString("PRAGMA busy_timeout = %1")
+                      .arg(kSqliteBusyTimeoutMs)))
+  {
+    setError(query.lastError().text());
+    return false;
+  }
   if (!query.exec("PRAGMA foreign_keys = ON") ||
       !query.exec("PRAGMA foreign_keys") || !query.next() ||
       query.value(0).toInt() != 1)
@@ -1424,6 +1487,7 @@ QVector<int> SqliteConnect::normalizeDays(int year, int month,
 std::vector<Participant> SqliteConnect::getParticipantsForMonth(int year,
                                                                 int month)
 {
+  lastError_.clear();
   std::vector<Participant> result;
   QSqlQuery query(db_);
   query.prepare("SELECT p.id, p.display_name, p.historical_name, "
@@ -1449,6 +1513,7 @@ std::vector<Participant> SqliteConnect::getParticipantsForMonth(int year,
 
 QVector<int> SqliteConnect::getActiveDays(int year, int month)
 {
+  lastError_.clear();
   QVector<int> days;
   QSqlQuery query(db_);
   query.prepare("SELECT day FROM month_days WHERE year = :year AND "
@@ -1530,6 +1595,7 @@ bool SqliteConnect::saveActiveDays(int year, int month,
 
 std::vector<AttendanceRecord> SqliteConnect::getMonth(int year, int month)
 {
+  lastError_.clear();
   std::vector<AttendanceRecord> result;
   QSqlQuery query(db_);
   query.prepare(
@@ -1554,6 +1620,7 @@ std::vector<AttendanceRecord> SqliteConnect::getMonth(int year, int month)
 bool SqliteConnect::saveAttendance(int year, int month,
                                    const std::vector<AttendanceRecord>& data)
 {
+  lastError_.clear();
   if (!validateYearMonth(year, month))
   {
     setError("Invalid year or month");
@@ -1593,7 +1660,11 @@ bool SqliteConnect::saveAttendance(int year, int month,
       return fail(query.lastError().text());
     }
   }
-  return db_.commit();
+  if (!db_.commit())
+  {
+    return fail(db_.lastError().text());
+  }
+  return true;
 }
 
 std::vector<ParticipantDayMarker> SqliteConnect::getDayMarkers(int year,

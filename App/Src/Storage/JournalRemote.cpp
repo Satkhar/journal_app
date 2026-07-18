@@ -36,13 +36,34 @@ bool hasExactlyOneAffectedRow(const QJsonArray& results)
 } // namespace
 
 JournalRemote::JournalRemote(const QString& baseUrl, int timeoutMs)
-    : baseUrl_(baseUrl), timeoutMs_(timeoutMs)
+    : JournalRemote(RemoteConnectionOptions{baseUrl, QString(), timeoutMs,
+                                            false})
+{
+}
+
+JournalRemote::JournalRemote(RemoteConnectionOptions options)
+    : options_(std::move(options))
 {
 }
 
 bool JournalRemote::connect(QString* errorMessage)
 {
   lastError_.clear();
+  if (errorMessage)
+  {
+    errorMessage->clear();
+  }
+  const auto normalized =
+      NormalizeRemoteConnectionOptions(options_, &lastError_);
+  if (!normalized.has_value())
+  {
+    if (errorMessage)
+    {
+      *errorMessage = lastError_;
+    }
+    return false;
+  }
+  options_ = *normalized;
   return ensureSchema(errorMessage);
 }
 
@@ -306,19 +327,32 @@ std::vector<ParticipantDayMarker> JournalRemote::getDayMarkers(int year,
   return result;
 }
 
-bool JournalRemote::getMonthSnapshot(int year, int month,
-                                     MonthSnapshot* snapshot)
+MonthSnapshot JournalRemote::loadMonthSnapshot(int year, int month)
 {
   lastError_.clear();
-  if (!snapshot)
+  MonthSnapshot loaded;
+  auto fail = [this](const QString& error)
   {
-    lastError_ = "Month snapshot output is null";
-    return false;
+    lastError_ = error;
+    MonthSnapshot failed;
+    failed.errorMessage = lastError_;
+    return failed;
+  };
+  if (!QDate(year, month, 1).isValid())
+  {
+    return fail("Invalid year or month");
   }
+
   QJsonArray results;
   QString error;
   const QList<QString> sql = {
       "BEGIN",
+      QString("SELECT EXISTS(SELECT 1 FROM month_days WHERE year = %1 AND "
+              "month = %2) OR EXISTS(SELECT 1 FROM month_participants WHERE "
+              "year = %1 AND month = %2) OR EXISTS(SELECT 1 FROM attendance "
+              "WHERE year = %1 AND month = %2)")
+          .arg(year)
+          .arg(month),
       QString("SELECT p.id, p.display_name, p.historical_name, p.full_name "
               "FROM "
               "month_participants mp JOIN "
@@ -340,52 +374,86 @@ bool JournalRemote::getMonthSnapshot(int year, int month,
           .arg(year)
           .arg(month),
       "COMMIT"};
-  if (!executePipeline(sql, &results, &error) || results.size() != 4)
+  if (!executePipeline(sql, &results, &error) || results.size() != 5)
   {
-    lastError_ = error.isEmpty() ? "Invalid remote month snapshot" : error;
-    return false;
+    return fail(error.isEmpty() ? "Invalid remote month snapshot" : error);
   }
 
-  MonthSnapshot loaded;
-  for (const QJsonValue& value :
-       results.at(0).toObject().value("rows").toArray())
+  const QJsonArray stateRows =
+      results.at(0).toObject().value("rows").toArray();
+  if (stateRows.size() != 1)
   {
-    const QJsonArray row = value.toArray();
-    if (row.size() >= 4)
-    {
-      loaded.participants.push_back(
-          {{cellString(row, 0)}, cellString(row, 1), cellString(row, 2),
-           cellString(row, 3)});
-    }
+    return fail("Invalid remote month-state result");
   }
+  const QString stateValue = cellString(stateRows.at(0).toArray(), 0);
+  if (stateValue != "0" && stateValue != "1")
+  {
+    return fail("Invalid remote month-state value");
+  }
+  loaded.state =
+      stateValue == "1" ? MonthState::Ready : MonthState::Missing;
+  QSet<QString> participantIds;
   for (const QJsonValue& value :
        results.at(1).toObject().value("rows").toArray())
   {
+    const QJsonArray row = value.toArray();
+    if (row.size() < 4)
+    {
+      return fail("Invalid remote participant snapshot");
+    }
+    Participant participant{{cellString(row, 0)}, cellString(row, 1),
+                            cellString(row, 2), cellString(row, 3)};
+    if (!IsValidParticipantSnapshot(participant) ||
+        participantIds.contains(participant.id.value))
+    {
+      return fail("Invalid remote participant snapshot");
+    }
+    participantIds.insert(participant.id.value);
+    loaded.participants.push_back(std::move(participant));
+  }
+  QSet<int> activeDaySet;
+  for (const QJsonValue& value :
+       results.at(2).toObject().value("rows").toArray())
+  {
     bool ok = false;
     const int day = cellString(value.toArray(), 0).toInt(&ok);
-    if (ok)
+    if (!ok || !QDate(year, month, day).isValid() ||
+        activeDaySet.contains(day))
     {
-      loaded.activeDays.push_back(day);
+      return fail("Invalid remote active day");
     }
+    activeDaySet.insert(day);
+    loaded.activeDays.push_back(day);
   }
   if (loaded.activeDays.isEmpty())
   {
     loaded.activeDays = fullMonthDays(year, month);
   }
+  QSet<QString> attendanceKeys;
   for (const QJsonValue& value :
-       results.at(2).toObject().value("rows").toArray())
+       results.at(3).toObject().value("rows").toArray())
   {
     const QJsonArray row = value.toArray();
     bool ok = false;
     const int day = cellString(row, 1).toInt(&ok);
-    if (row.size() >= 3 && ok)
+    const ParticipantId participantId{cellString(row, 0)};
+    const QString checked = cellString(row, 2);
+    const QString key =
+        participantId.value + ':' + QString::number(day);
+    if (row.size() < 3 || !ok || !participantId.isValid() ||
+        !participantIds.contains(participantId.value) ||
+        !QDate(year, month, day).isValid() ||
+        (checked != "0" && checked != "1") ||
+        attendanceKeys.contains(key))
     {
-      loaded.attendance.push_back(
-          {{cellString(row, 0)}, day, cellString(row, 2) == "1"});
+      return fail("Invalid remote attendance snapshot");
     }
+    attendanceKeys.insert(key);
+    loaded.attendance.push_back({participantId, day, checked == "1"});
   }
+  QSet<QString> markerKeys;
   for (const QJsonValue& value :
-       results.at(3).toObject().value("rows").toArray())
+       results.at(4).toObject().value("rows").toArray())
   {
     const QJsonArray row = value.toArray();
     bool dayOk = false;
@@ -397,20 +465,22 @@ bool JournalRemote::getMonthSnapshot(int year, int month,
                                 day,
                                 kinds.value_or(DayMarkerKinds()),
                                 cellString(row, 3)};
+    const QString key = marker.participantId.value + ':' +
+                        QString::number(marker.day);
     if (row.size() < 4 || !dayOk || !kindsOk || !kinds.has_value() ||
         !marker.participantId.isValid() ||
+        !participantIds.contains(marker.participantId.value) ||
         !QDate(year, month, marker.day).isValid() ||
         !IsValidDayMarkerKinds(marker.kinds) ||
-        marker.note.size() > kMaxDayMarkerNoteLength)
+        marker.note.size() > kMaxDayMarkerNoteLength ||
+        markerKeys.contains(key))
     {
-      lastError_ = "Invalid remote participant day marker";
-      return false;
+      return fail("Invalid remote participant day marker");
     }
+    markerKeys.insert(key);
     loaded.dayMarkers.push_back(std::move(marker));
   }
-  loaded.state = MonthState::Ready;
-  *snapshot = std::move(loaded);
-  return true;
+  return loaded;
 }
 bool JournalRemote::saveAttendance(int year, int month,
                                    const std::vector<AttendanceRecord>& data)
@@ -867,6 +937,10 @@ bool JournalRemote::ensureSchema(QString* errorMessage)
 
   if (!tables.contains("journal_schema"))
   {
+    if (!options_.allowSchemaChanges)
+    {
+      return fail("Remote schema is not initialized; run explicit bootstrap");
+    }
     if (tables.contains("participants"))
     {
       return fail("Partial unversioned remote schema detected");
@@ -957,6 +1031,12 @@ bool JournalRemote::ensureSchema(QString* errorMessage)
   if (!versionOk)
   {
     return fail("Invalid remote schema version");
+  }
+  if (version != kRemoteSchemaVersion && !options_.allowSchemaChanges)
+  {
+    return fail(QString("Remote schema version %1 requires an explicit "
+                        "migration")
+                    .arg(version));
   }
   if (version == 2)
   {
@@ -1670,6 +1750,8 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
                                     QJsonArray* outResults,
                                     QString* errorMessage)
 {
+  // BEGIN/COMMIT превращаются в один Hrana batch с condition chain. Без этой
+  // цепочки HTTP 200 мог бы скрыть частично выполненную запись месяца.
   const bool atomic = sqlStatements.contains("BEGIN");
   QJsonArray requests;
 
@@ -1757,16 +1839,27 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
 
   QJsonObject root;
   root.insert("requests", requests);
-  QNetworkRequest request(QUrl(baseUrl_ + "/v2/pipeline"));
+  QNetworkRequest request(QUrl(options_.baseUrl + "/v2/pipeline"));
   request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+  // Redirect запрещён: иначе bearer token может уйти другому origin.
+  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                       QNetworkRequest::ManualRedirectPolicy);
+  if (!options_.authToken.isEmpty())
+  {
+    request.setRawHeader("Authorization",
+                         "Bearer " + options_.authToken.toUtf8());
+  }
   QNetworkReply* reply = network_.post(
       request, QJsonDocument(root).toJson(QJsonDocument::Compact));
+  // Вложенный loop оставлен только для PoC совместимости. Он допускает Qt
+  // reentrancy и блокирует сценарий до timeout; production transport должен
+  // возвращать async result с cancellation.
   QEventLoop loop;
   QTimer timer;
   timer.setSingleShot(true);
   QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
   QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-  timer.start(timeoutMs_);
+  timer.start(options_.timeoutMs);
   loop.exec();
   if (!timer.isActive())
   {
@@ -1784,6 +1877,17 @@ bool JournalRemote::executePipeline(const QList<QString>& sqlStatements,
     if (errorMessage)
     {
       *errorMessage = reply->errorString();
+    }
+    reply->deleteLater();
+    return false;
+  }
+  const int httpStatus =
+      reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  if (httpStatus < 200 || httpStatus >= 300)
+  {
+    if (errorMessage)
+    {
+      *errorMessage = QString("Remote HTTP status %1").arg(httpStatus);
     }
     reply->deleteLater();
     return false;

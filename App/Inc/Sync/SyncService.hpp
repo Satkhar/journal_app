@@ -2,20 +2,17 @@
 
 #include <QString>
 
-#include "IJournalStorage.hpp"
+#include "IMonthSnapshotStore.hpp"
 
 class SyncService
 {
 public:
-  explicit SyncService(int timeoutMs = 5000);
-
-  bool pushMonthToServer(const QString& serverUrl, int year, int month,
+  // Stores передаются готовыми к работе. Это отделяет sync policy от HTTP,
+  // URL, auth и SQLite и позволяет проверять policy test doubles.
+  bool pushMonthToServer(IMonthSnapshotStore& remote, int year, int month,
                          const MonthSnapshot& localSnapshot,
                          QString* errorMessage = nullptr) const;
-  bool pullMonthToLocal(const QString& serverUrl, int year, int month,
-                        IJournalStorage& localStorage,
+  bool pullMonthToLocal(IMonthSnapshotStore& remote, int year, int month,
+                        IMonthSnapshotStore& local,
                         QString* errorMessage = nullptr) const;
-
-private:
-  int timeoutMs_;
 };

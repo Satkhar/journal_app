@@ -11,6 +11,7 @@ public:
   explicit JournalLocal(std::unique_ptr<SqliteConnect> sqlite);
 
   QString lastError() const override;
+  MonthSnapshot loadMonthSnapshot(int year, int month) override;
   MonthStateResult getMonthState(int year, int month) override;
   std::vector<Participant> getParticipantsForMonth(int year,
                                                    int month) override;

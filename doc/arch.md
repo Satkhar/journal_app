@@ -7,22 +7,27 @@ flowchart LR
   UI[MainWindow / Qt Widgets] --> APP[JournalApp]
   APP --> ST[IJournalStorage]
   ST --> LOCAL[JournalLocal]
-  ST --> REMOTE[JournalRemote]
   LOCAL --> SQLITE[SqliteConnect]
   SQLITE --> LDB[(SQLite schema v8)]
+  UI --> SYNC[SyncService]
+  SYNC --> SNAP[IMonthSnapshotStore]
+  LOCAL -. implements .-> SNAP
+  REMOTE[JournalRemote] -. implements .-> SNAP
   REMOTE --> API[libsql HTTP API]
   API --> RDB[(Remote schema v8)]
-  UI --> SYNC[SyncService]
-  SYNC --> ST
+  UI -. diagnostic read-only .-> REMOTE
   UI --> EAPP[EventApp]
   EAPP --> EST[IEventStorage]
   EST --> ESQL[EventSqliteStorage]
   ESQL --> EDB[(events_data.db, schema v2)]
 ```
 
-`MainWindow` отвечает за widgets и запуск use cases. `JournalApp` работает
-через `IJournalStorage`. SQL находится в `SqliteConnect`/`JournalRemote`.
-`SyncService` переносит полный snapshot одного месяца.
+`MainWindow` отвечает за widgets и запуск use cases. Рабочий режим local-first:
+`JournalApp` редактирует локальный `IJournalStorage`, а `SyncService` переносит
+полный snapshot через узкий `IMonthSnapshotStore`. `SyncService` не знает URL,
+HTTP или concrete adapters. SQL находится в `SqliteConnect`/`JournalRemote`.
+Прямой remote-view оставлен только для диагностики PoC и не является вторым
+source of truth.
 
 ## Доменная модель
 
@@ -157,9 +162,19 @@ Push/pull работают с `MonthSnapshot`, а не с `name + day`.
 - Remote writes используют Hrana batch: DML идет по `ok`-conditions, rollback —
   по отрицанию успешного commit.
 - Pull читает participants/days/attendance/day markers одной read transaction.
+- Обычная загрузка local/remote месяца также использует один
+  `loadMonthSnapshot()`; частично прочитанный aggregate не возвращается.
 - Contact, birthday, rank, notes и archive status не входят в `MonthSnapshot`
   и не синхронизируются до этапа 4.
 
+Push сначала сохраняет UI attendance в local SQLite и только затем читает
+snapshot для отправки. Ошибка remote read при pull не изменяет local aggregate.
+
+`JournalRemote::connect()` по умолчанию только проверяет current schema. DDL и
+миграции разрешаются явно через `JOURNAL_BOOTSTRAP_REMOTE_SCHEMA=1` для
+одноразового localhost bootstrap.
+
 Текущий HTTP-клиент синхронный и использует вложенный `QEventLoop`. Это PoC,
-не production transport. До синхронизации фото/персональных данных нужны async,
-auth, TLS, revisions и conflict handling.
+не production transport. До multi-client нужны async/cancellation, auth, TLS,
+month revision/CAS и conflict UI. Без revision текущий full replace имеет
+last-writer-wins и может потерять параллельные изменения.
