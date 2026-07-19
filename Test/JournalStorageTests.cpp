@@ -24,7 +24,9 @@ bool check(bool condition, const char* message)
 
 Participant participant(const QString& name)
 {
-  return {{QUuid::createUuid().toString(QUuid::WithoutBraces)}, name, name,
+  return {{QUuid::createUuid().toString(QUuid::WithoutBraces)},
+          name,
+          name,
           QString()};
 }
 
@@ -70,8 +72,7 @@ bool cachedNameWithoutSourceIsRejected(const QString& path)
     QSqlQuery query(db);
     query.prepare("INSERT INTO participants(id, display_name) "
                   "VALUES(:id, 'Cached only')");
-    query.bindValue(":id",
-                    QUuid::createUuid().toString(QUuid::WithoutBraces));
+    query.bindValue(":id", QUuid::createUuid().toString(QUuid::WithoutBraces));
     rejected = !query.exec();
   }
   db.close();
@@ -80,7 +81,7 @@ bool cachedNameWithoutSourceIsRejected(const QString& path)
   return rejected;
 }
 
-bool isNormalizedSchemaV8(const QString& path, bool expectsTrainerBackup)
+bool isNormalizedSchemaV9(const QString& path, bool expectsTrainerBackup)
 {
   const QString connection = QUuid::createUuid().toString();
   QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
@@ -88,12 +89,13 @@ bool isNormalizedSchemaV8(const QString& path, bool expectsTrainerBackup)
   bool versionOk = false;
   bool hasTrainerColumn = false;
   bool hasHistoricalNameColumn = false;
+  bool hasCombatHandColumn = false;
   bool backupOk = !expectsTrainerBackup;
   if (db.open())
   {
     QSqlQuery query(db);
     versionOk = query.exec("PRAGMA user_version") && query.next() &&
-                query.value(0).toInt() == 8;
+                query.value(0).toInt() == 9;
     if (query.exec("PRAGMA table_info(participants)"))
     {
       while (query.next())
@@ -103,6 +105,8 @@ bool isNormalizedSchemaV8(const QString& path, bool expectsTrainerBackup)
         hasHistoricalNameColumn =
             hasHistoricalNameColumn ||
             query.value(1).toString() == "historical_name";
+        hasCombatHandColumn =
+            hasCombatHandColumn || query.value(1).toString() == "combat_hand";
       }
     }
     else
@@ -111,17 +115,17 @@ bool isNormalizedSchemaV8(const QString& path, bool expectsTrainerBackup)
     }
     if (expectsTrainerBackup)
     {
-      backupOk =
-          query.exec("SELECT count(*) FROM "
-                     "legacy_v6_participant_trainer_flags WHERE "
-                     "is_trainer = 1") &&
-          query.next() && query.value(0).toInt() == 1;
+      backupOk = query.exec("SELECT count(*) FROM "
+                            "legacy_v6_participant_trainer_flags WHERE "
+                            "is_trainer = 1") &&
+                 query.next() && query.value(0).toInt() == 1;
     }
   }
   db.close();
   db = QSqlDatabase();
   QSqlDatabase::removeDatabase(connection);
-  return versionOk && !hasTrainerColumn && hasHistoricalNameColumn && backupOk;
+  return versionOk && !hasTrainerColumn && hasHistoricalNameColumn &&
+         hasCombatHandColumn && backupOk;
 }
 
 bool createSchemaV5Database(const QString& path, const Participant& person)
@@ -353,11 +357,11 @@ bool freshDatabaseTest(const QString& path)
   {
     return false;
   }
-  const ParticipantDayMarker marker{
-      alice.id, 2,
-      DayMarkerKind::Payment | DayMarkerKind::FirstVisit |
-          DayMarkerKind::LedTraining,
-      "First paid visit"};
+  const ParticipantDayMarker marker{alice.id, 2,
+                                    DayMarkerKind::Payment |
+                                        DayMarkerKind::FirstVisit |
+                                        DayMarkerKind::LedTraining,
+                                    "First paid visit"};
   if (!check(storage.saveDayMarker(2025, 7, marker), "day marker save failed"))
   {
     return false;
@@ -415,6 +419,7 @@ bool freshDatabaseTest(const QString& path)
   profile->contact = "@alice_example";
   profile->birthday = Birthday{29, 2, std::nullopt};
   profile->rank = ParticipantRank::Squire;
+  profile->combatHand = CombatHand::Left;
   profile->notes = "Plain text note";
   if (!check(storage.updateParticipantProfile(*profile),
              "valid profile update failed"))
@@ -430,8 +435,9 @@ bool freshDatabaseTest(const QString& path)
                  renamed.front().id == alice.id &&
                  updatedProfile->fullName == "Alice Example Smith" &&
                  updatedProfile->contact == "@alice_example" &&
-                 updatedProfile->rank == ParticipantRank::Squire,
-             "profile update lost identity, contact, or rank"))
+                 updatedProfile->rank == ParticipantRank::Squire &&
+                 updatedProfile->combatHand == CombatHand::Left,
+             "profile update lost identity, contact, rank, or combat hand"))
   {
     return false;
   }
@@ -454,6 +460,13 @@ bool freshDatabaseTest(const QString& path)
   invalid.rank = static_cast<ParticipantRank>(999);
   if (!check(!storage.updateParticipantProfile(invalid),
              "unknown participant rank was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.combatHand = static_cast<CombatHand>(999);
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "unknown combat hand was accepted"))
   {
     return false;
   }
@@ -569,7 +582,7 @@ bool snapshotNameSourcesRoundTrip(const QString& sourcePath,
                "snapshot import lost ordinary or historical name source");
 }
 
-bool migrationV5ToV8Test(const QString& path)
+bool migrationV5ToV9Test(const QString& path)
 {
   const Participant alice = participant("V5 Alice");
   if (!createSchemaV5Database(path, alice))
@@ -577,17 +590,17 @@ bool migrationV5ToV8Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v5 to v8 migration failed"))
+  if (!check(storage.open(path), "schema v5 to v9 migration failed"))
   {
     return false;
   }
   const auto profile = storage.getParticipantProfile(alice.id);
   const auto migratedMarkers = storage.getDayMarkers(2025, 7);
-  const ParticipantDayMarker trainerMarker{alice.id, 2,
-                                           DayMarkerKind::LedTraining,
-                                           "Вёл тренировку"};
+  const ParticipantDayMarker trainerMarker{
+      alice.id, 2, DayMarkerKind::LedTraining, "Вёл тренировку"};
   return check(profile.has_value() &&
                    profile->rank == ParticipantRank::Knight &&
+                   profile->combatHand == CombatHand::Unknown &&
                    profile->historicalName == "V5 Alice" &&
                    profile->fullName.isEmpty() && profile->contact.isEmpty(),
                "v5 migration lost rank or assigned invalid detail defaults") &&
@@ -595,13 +608,13 @@ bool migrationV5ToV8Test(const QString& path)
                    migratedMarkers.front().kinds == DayMarkerKind::Payment,
                "v5 migration lost old day marker") &&
          check(storage.saveDayMarker(2025, 7, trainerMarker),
-               "v8 schema rejected trainer day marker") &&
-         check(storage.open(path), "migrated v8 reopen is not idempotent") &&
-         check(isNormalizedSchemaV8(path, false),
-               "v5 migration did not produce clean schema v8");
+               "v9 schema rejected trainer day marker") &&
+         check(storage.open(path), "migrated v9 reopen is not idempotent") &&
+         check(isNormalizedSchemaV9(path, false),
+               "v5 migration did not produce clean schema v9");
 }
 
-bool migrationV7ToV8Test(const QString& path)
+bool migrationV7ToV9Test(const QString& path)
 {
   const Participant alice = participant("V7 Alice");
   const QString fullName(kMaxParticipantFullNameLength, QLatin1Char('f'));
@@ -610,7 +623,7 @@ bool migrationV7ToV8Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v7 to v8 migration failed"))
+  if (!check(storage.open(path), "schema v7 to v9 migration failed"))
   {
     return false;
   }
@@ -625,11 +638,10 @@ bool migrationV7ToV8Test(const QString& path)
   profile->historicalName.clear();
   return check(storage.updateParticipantProfile(*profile),
                "migrated schema rejected 300-character ordinary name") &&
-         check(storage.getParticipantProfile(alice.id)->displayName ==
-                   fullName,
+         check(storage.getParticipantProfile(alice.id)->displayName == fullName,
                "ordinary-name fallback failed after v7 migration") &&
-         check(isNormalizedSchemaV8(path, false),
-               "v7 migration did not produce clean schema v8");
+         check(isNormalizedSchemaV9(path, false),
+               "v7 migration did not produce clean schema v9");
 }
 
 bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
@@ -644,15 +656,14 @@ bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
   {
     return false;
   }
-  const ParticipantDayMarker trainerMarker{alice.id, 2,
-                                           DayMarkerKind::LedTraining,
-                                           "Вёл тренировку"};
+  const ParticipantDayMarker trainerMarker{
+      alice.id, 2, DayMarkerKind::LedTraining, "Вёл тренировку"};
   return check(storage.saveDayMarker(2025, 7, trainerMarker),
                "repaired schema v6 rejected trainer marker") &&
          check(storage.open(path),
                "repaired development schema v6 reopen failed") &&
-         check(isNormalizedSchemaV8(path, withTrainerColumn),
-               "development schema v6 was not normalized to v8");
+         check(isNormalizedSchemaV9(path, withTrainerColumn),
+               "development schema v6 was not normalized to v9");
 }
 
 } // namespace
@@ -665,16 +676,14 @@ int main(int argc, char* argv[])
   {
     return 1;
   }
-  const bool ok = birthdayValidationTest() &&
-                  freshDatabaseTest(directory.filePath("fresh.db")) &&
-                  snapshotNameSourcesRoundTrip(
-                      directory.filePath("snapshot-source.db"),
-                      directory.filePath("snapshot-target.db")) &&
-                  migrationV5ToV8Test(directory.filePath("v5.db")) &&
-                  migrationV7ToV8Test(directory.filePath("v7.db")) &&
-                  developmentV6IsRepaired(
-                      directory.filePath("old-v6-trainer.db"), true) &&
-                  developmentV6IsRepaired(
-                      directory.filePath("old-v6-marker.db"), false);
+  const bool ok =
+      birthdayValidationTest() &&
+      freshDatabaseTest(directory.filePath("fresh.db")) &&
+      snapshotNameSourcesRoundTrip(directory.filePath("snapshot-source.db"),
+                                   directory.filePath("snapshot-target.db")) &&
+      migrationV5ToV9Test(directory.filePath("v5.db")) &&
+      migrationV7ToV9Test(directory.filePath("v7.db")) &&
+      developmentV6IsRepaired(directory.filePath("old-v6-trainer.db"), true) &&
+      developmentV6IsRepaired(directory.filePath("old-v6-marker.db"), false);
   return ok ? 0 : 1;
 }

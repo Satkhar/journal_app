@@ -131,11 +131,9 @@ bool BulkControlsStaySynchronized()
 
 bool AddParticipantsDialogUsesConfiguredMonthDropdown()
 {
-  CopyUsersDialog dialog(
-      2026, 7, {{2025, 12}, {2026, 7}, {2026, 6}, {2026, 6}}, nullptr,
-      true);
-  auto* source =
-      dialog.findChild<QComboBox*>("copyUsersSourceMonthCombo");
+  CopyUsersDialog dialog(2026, 7, {{2025, 12}, {2026, 7}, {2026, 6}, {2026, 6}},
+                         nullptr, true);
+  auto* source = dialog.findChild<QComboBox*>("copyUsersSourceMonthCombo");
   auto* copyWeekdays =
       dialog.findChild<QCheckBox*>("copyWeekdayPatternCheckBox");
   if (!Check(source && copyWeekdays,
@@ -149,8 +147,7 @@ bool AddParticipantsDialogUsesConfiguredMonthDropdown()
              "target month remains selectable") ||
       !Check(dialog.sourceYear() == 2026 && dialog.sourceMonth() == 6,
              "previous formed month is not selected by default") ||
-      !Check(copyWeekdays->isChecked(),
-             "weekday-copy default was not applied"))
+      !Check(copyWeekdays->isChecked(), "weekday-copy default was not applied"))
   {
     return false;
   }
@@ -222,11 +219,11 @@ bool NoteOnlyMarkerBecomesOther()
 bool AttendanceCellUsesCompactSemanticBadge()
 {
   const ParticipantId id{"12345678-1234-1234-1234-123456789abc"};
-  const ParticipantDayMarker marker{
-      id, 16,
-      DayMarkerKind::Payment | DayMarkerKind::FirstVisit |
-          DayMarkerKind::LedTraining,
-      "<оплачено>"};
+  const ParticipantDayMarker marker{id, 16,
+                                    DayMarkerKind::Payment |
+                                        DayMarkerKind::FirstVisit |
+                                        DayMarkerKind::LedTraining,
+                                    "<оплачено>"};
   AttendanceCellWidget cell(false, "Alice", QDate(2026, 7, 16), marker);
   auto* checkBox = cell.attendanceCheckBox();
   auto* markerButton = cell.markerButton();
@@ -255,12 +252,11 @@ bool AttendanceCellUsesCompactSemanticBadge()
 bool TrainerMarkerUsesDedicatedBadge()
 {
   const ParticipantId id{"12345678-1234-1234-1234-123456789abc"};
-  const ParticipantDayMarker marker{
-      id, 16, DayMarkerKind::LedTraining, QString()};
+  const ParticipantDayMarker marker{id, 16, DayMarkerKind::LedTraining,
+                                    QString()};
   AttendanceCellWidget cell(false, "Alice", QDate(2026, 7, 16), marker);
   const auto* markerButton = cell.markerButton();
-  return Check(markerButton && markerButton->text() ==
-                                  QString::fromUtf8("Т") &&
+  return Check(markerButton && markerButton->text() == QString::fromUtf8("Т") &&
                    markerButton->toolTip().contains("Вёл тренировку"),
                "trainer marker has no readable dedicated badge");
 }
@@ -276,12 +272,15 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
   ParticipantDialog dialog(profile, true);
   auto* year = dialog.findChild<QSpinBox*>("participantBirthYearSpinBox");
   auto* rank = dialog.findChild<QComboBox*>("participantRankComboBox");
+  auto* combatHand =
+      dialog.findChild<QComboBox*>("participantCombatHandComboBox");
   auto* id = dialog.findChild<QLabel*>("participantIdLabel");
   auto* historicalName =
       dialog.findChild<QLineEdit*>("participantHistoricalNameEdit");
   auto* fullName = dialog.findChild<QLineEdit*>("participantFullNameEdit");
   auto* contact = dialog.findChild<QLineEdit*>("participantContactEdit");
-  if (!Check(year && rank && id && historicalName && fullName && contact,
+  if (!Check(year && rank && combatHand && id && historicalName && fullName &&
+                 contact,
              "participant profile controls missing"))
   {
     return false;
@@ -308,11 +307,14 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
     return false;
   }
   rank->setCurrentIndex(knightIndex);
+  combatHand->setCurrentIndex(
+      combatHand->findData(static_cast<int>(CombatHand::Left)));
   fullName->setText("Alice Updated");
   historicalName->setText("Alicia");
   contact->setText("+7 900 000-00-00");
   const ParticipantProfile edited = dialog.profile();
   return Check(edited.rank == ParticipantRank::Knight &&
+                   edited.combatHand == CombatHand::Left &&
                    edited.historicalName == "Alicia" &&
                    edited.displayName == "Alicia" &&
                    edited.fullName == "Alice Updated" &&
@@ -335,7 +337,7 @@ bool ParticipantDirectoryHidesIdAndSortsByRank()
   page.rank = ParticipantRank::Page;
   ParticipantDirectoryDialog dialog({knight, page});
   auto* table = dialog.findChild<QTableWidget*>();
-  if (!Check(table && table->columnCount() == 4,
+  if (!Check(table && table->columnCount() == 5,
              "participant directory column count is invalid"))
   {
     return false;
@@ -347,6 +349,8 @@ bool ParticipantDirectoryHidesIdAndSortsByRank()
                    table->horizontalHeaderItem(2)->text() ==
                        QString::fromUtf8("Звание") &&
                    table->horizontalHeaderItem(3)->text() ==
+                       QString::fromUtf8("Боевая рука") &&
+                   table->horizontalHeaderItem(4)->text() ==
                        QString::fromUtf8("Статус"),
                "participant directory exposes ID or misses rank") &&
          Check(table->item(0, 0)->text() == "Page" &&
@@ -408,19 +412,16 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
   const auto scoreB = dialog.findChildren<QSpinBox*>("eventBoutScoreB");
   const auto removeButtons =
       dialog.findChildren<QPushButton*>("removeEventBoutButton");
-  if (!Check(sides.size() == 2 && scoreA.size() == 1 &&
-                 scoreB.size() == 1 && removeButtons.size() == 1,
+  if (!Check(sides.size() == 2 && scoreA.size() == 1 && scoreB.size() == 1 &&
+                 removeButtons.size() == 1,
              "event bout controls missing"))
   {
     return false;
   }
-  const auto* boutsTable =
-      dialog.findChild<QTableWidget*>("eventBoutsTable");
+  const auto* boutsTable = dialog.findChild<QTableWidget*>("eventBoutsTable");
   if (!Check(boutsTable && boutsTable->rowHeight(0) >= 44 &&
-                 sides.at(0)->width() >= 160 &&
-                 sides.at(1)->width() >= 160 &&
-                 sides.at(0)->height() >= 30 &&
-                 sides.at(1)->height() >= 30 &&
+                 sides.at(0)->width() >= 160 && sides.at(1)->width() >= 160 &&
+                 sides.at(0)->height() >= 30 && sides.at(1)->height() >= 30 &&
                  scoreA.at(0)->width() >= scoreA.at(0)->sizeHint().width() &&
                  scoreB.at(0)->width() >= scoreB.at(0)->sizeHint().width() &&
                  removeButtons.at(0)->width() >=
@@ -465,8 +466,7 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
   sides.at(1)->setEditText(internalLabel);
   const EventRecord externalNamesake = dialog.eventRecord();
   if (!Check(!externalNamesake.bouts.front().sideB.participantId.has_value() &&
-                 externalNamesake.bouts.front().sideB.freeName ==
-                     internalLabel,
+                 externalNamesake.bouts.front().sideB.freeName == internalLabel,
              "free-text namesake was silently converted to internal UUID"))
   {
     return false;
@@ -492,12 +492,11 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
   petya.fullName = "Пётр После-Переименования";
   EventDialog reopened(edited, {petya});
   const EventRecord preserved = reopened.eventRecord();
-  return Check(preserved.participants.size() == 1 &&
-                   preserved.participants.front().displayNameSnapshot ==
-                       "Петя" &&
-                   preserved.participants.front().fullNameSnapshot ==
-                       "Пётр Петров",
-               "editing event silently rewrote historical name snapshot");
+  return Check(
+      preserved.participants.size() == 1 &&
+          preserved.participants.front().displayNameSnapshot == "Петя" &&
+          preserved.participants.front().fullNameSnapshot == "Пётр Петров",
+      "editing event silently rewrote historical name snapshot");
 }
 
 } // namespace

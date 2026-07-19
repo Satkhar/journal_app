@@ -41,6 +41,7 @@ private:
   QSpinBox* monthSpin_;
   QSpinBox* yearSpin_;
   QComboBox* rankCombo_;
+  QComboBox* combatHandCombo_;
   QTextEdit* notesEdit_;
   QPushButton* saveButton_;
   QPushButton* archiveButton_;

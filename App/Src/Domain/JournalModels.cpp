@@ -101,6 +101,47 @@ int ParticipantRankSortKey(ParticipantRank rank)
              : static_cast<int>(std::distance(ranks.cbegin(), found));
 }
 
+QString CombatHandStorageValue(CombatHand hand)
+{
+  switch (hand)
+  {
+  case CombatHand::Unknown:
+    return "unknown";
+  case CombatHand::Right:
+    return "right";
+  case CombatHand::Left:
+    return "left";
+  }
+  return {};
+}
+
+QString CombatHandDisplayName(CombatHand hand)
+{
+  switch (hand)
+  {
+  case CombatHand::Unknown:
+    return "Не указана";
+  case CombatHand::Right:
+    return "Правая";
+  case CombatHand::Left:
+    return "Левая";
+  }
+  return {};
+}
+
+std::optional<CombatHand> CombatHandFromStorageValue(const QString& value)
+{
+  for (CombatHand hand :
+       {CombatHand::Unknown, CombatHand::Right, CombatHand::Left})
+  {
+    if (CombatHandStorageValue(hand) == value)
+    {
+      return hand;
+    }
+  }
+  return std::nullopt;
+}
+
 bool ParticipantProfile::isValid() const
 {
   const QString trimmedDisplayName = displayName.trimmed();
@@ -118,6 +159,7 @@ bool ParticipantProfile::isValid() const
          contact.size() <= kMaxParticipantContactLength &&
          !contact.contains('\n') && !contact.contains('\r') &&
          !ParticipantRankStorageValue(rank).isEmpty() &&
+         !CombatHandStorageValue(combatHand).isEmpty() &&
          notes.size() <= kMaxNotesLength &&
          (!birthday.has_value() || birthday->isValid());
 }

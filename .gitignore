@@ -54,6 +54,10 @@
 #data base
 *.db
 
+# Исходные журналы и результаты импорта содержат персональные данные.
+/old_xlsx/
+__pycache__/
+
 # Local server credentials. Commit only reviewed examples without secrets.
 .env
 .env.*

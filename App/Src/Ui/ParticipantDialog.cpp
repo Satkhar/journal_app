@@ -23,8 +23,8 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
       birthdayCheck_(new QCheckBox("Дата рождения известна", this)),
       daySpin_(new QSpinBox(this)), monthSpin_(new QSpinBox(this)),
       yearSpin_(new QSpinBox(this)), rankCombo_(new QComboBox(this)),
-      notesEdit_(new QTextEdit(this)), saveButton_(nullptr),
-      archiveButton_(nullptr), dirty_(false)
+      combatHandCombo_(new QComboBox(this)), notesEdit_(new QTextEdit(this)),
+      saveButton_(nullptr), archiveButton_(nullptr), dirty_(false)
 {
   setWindowTitle("Карточка участника");
   setMinimumWidth(460);
@@ -54,6 +54,15 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   }
   rankCombo_->setCurrentIndex(
       rankCombo_->findData(static_cast<int>(profile.rank)));
+  combatHandCombo_->setObjectName("participantCombatHandComboBox");
+  for (CombatHand hand :
+       {CombatHand::Unknown, CombatHand::Right, CombatHand::Left})
+  {
+    combatHandCombo_->addItem(CombatHandDisplayName(hand),
+                              static_cast<int>(hand));
+  }
+  combatHandCombo_->setCurrentIndex(
+      combatHandCombo_->findData(static_cast<int>(profile.combatHand)));
   notesEdit_->setPlainText(profile.notes);
   notesEdit_->setAcceptRichText(false);
 
@@ -82,6 +91,7 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   form->addRow("ФИО", fullNameEdit_);
   form->addRow("Контакт", contactEdit_);
   form->addRow("Звание", rankCombo_);
+  form->addRow("Боевая рука", combatHandCombo_);
   form->addRow(QString(), birthdayCheck_);
   form->addRow("Дата рождения", birthdayLayout);
   form->addRow("Заметка", notesEdit_);
@@ -117,6 +127,7 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
     fullNameEdit_->setReadOnly(true);
     contactEdit_->setReadOnly(true);
     rankCombo_->setEnabled(false);
+    combatHandCombo_->setEnabled(false);
     birthdayCheck_->setEnabled(false);
     notesEdit_->setReadOnly(true);
   }
@@ -140,6 +151,8 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
           [this]() { dirty_ = true; });
   connect(rankCombo_, &QComboBox::currentIndexChanged, this,
           [this]() { dirty_ = true; });
+  connect(combatHandCombo_, &QComboBox::currentIndexChanged, this,
+          [this]() { dirty_ = true; });
   connect(notesEdit_, &QTextEdit::textChanged, this,
           [this]() { dirty_ = true; });
 
@@ -162,6 +175,8 @@ ParticipantProfile ParticipantDialog::profile() const
   result.displayName = ParticipantDisplayName(result);
   result.contact = contactEdit_->text().trimmed();
   result.rank = static_cast<ParticipantRank>(rankCombo_->currentData().toInt());
+  result.combatHand =
+      static_cast<CombatHand>(combatHandCombo_->currentData().toInt());
   result.notes = notesEdit_->toPlainText();
   result.birthday = std::nullopt;
   if (birthdayCheck_->isChecked())

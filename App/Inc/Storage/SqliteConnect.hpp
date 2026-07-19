@@ -56,10 +56,12 @@ private:
   bool createSchemaV5();
   bool createSchemaV7();
   bool createSchemaV8();
+  bool createSchemaV9();
   bool createDayMarkerSchema();
   bool createRankSchema();
   bool createParticipantDetailsSchema();
   bool createParticipantNameSchema();
+  bool createCombatHandSchema();
   bool upgradeDayMarkerKindsSchema();
   bool migrateLegacyUsersToV3();
   bool cleanupLegacyTables();
@@ -69,12 +71,14 @@ private:
   bool migrateSchemaV5ToV7();
   bool migrateSchemaV6ToV7();
   bool migrateSchemaV7ToV8();
+  bool migrateSchemaV8ToV9();
   bool createProfileValidationTriggers();
   bool verifySchemaV3();
   bool verifySchemaV4();
   bool verifySchemaV5();
   bool verifySchemaV7();
   bool verifySchemaV8();
+  bool verifySchemaV9();
   bool tableExists(const QString& tableName) const;
   bool enableForeignKeys();
   bool validateYearMonth(int year, int month) const;

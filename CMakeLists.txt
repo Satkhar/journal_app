@@ -111,6 +111,21 @@ target_include_directories(journal_storage_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
 add_test(NAME journal_storage_tests COMMAND journal_storage_tests)
 
+# Legacy input is converted to a small JSON contract outside the application.
+# The importer deliberately writes through SqliteConnect so schema constraints,
+# transactions and future migrations remain owned by the storage adapter.
+add_executable(journal_legacy_importer
+    ./Tools/LegacyImportMain.cpp
+    ./App/Src/Domain/JournalModels.cpp
+    ./App/Src/Storage/SqliteConnect.cpp
+    ./App/Inc/Domain/JournalModels.hpp
+    ./App/Inc/Domain/IJournalStorage.hpp
+    ./App/Inc/Storage/SqliteConnect.hpp)
+target_link_libraries(journal_legacy_importer PRIVATE Qt6::Core Qt6::Sql)
+target_include_directories(journal_legacy_importer PRIVATE
+    ${CMAKE_SOURCE_DIR}/App/Inc/Domain
+    ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
+
 add_executable(journal_event_storage_tests
     ./Test/EventStorageTests.cpp
     ./App/Src/Domain/EventModels.cpp

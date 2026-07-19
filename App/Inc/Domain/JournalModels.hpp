@@ -1,8 +1,8 @@
 #pragma once
 
+#include <QFlags>
 #include <QHash>
 #include <QHashFunctions>
-#include <QFlags>
 #include <QString>
 #include <QUuid>
 #include <QVector>
@@ -64,12 +64,22 @@ enum class ParticipantRank
   Knight,
 };
 
+enum class CombatHand
+{
+  Unknown,
+  Right,
+  Left,
+};
+
 const std::vector<ParticipantRank>& ParticipantRanksInDisplayOrder();
 QString ParticipantRankStorageValue(ParticipantRank rank);
 QString ParticipantRankDisplayName(ParticipantRank rank);
 std::optional<ParticipantRank>
 ParticipantRankFromStorageValue(const QString& value);
 int ParticipantRankSortKey(ParticipantRank rank);
+QString CombatHandStorageValue(CombatHand hand);
+QString CombatHandDisplayName(CombatHand hand);
+std::optional<CombatHand> CombatHandFromStorageValue(const QString& value);
 
 struct ParticipantProfile
 {
@@ -82,6 +92,7 @@ struct ParticipantProfile
   QString contact;
   std::optional<Birthday> birthday;
   ParticipantRank rank{ParticipantRank::Guest};
+  CombatHand combatHand{CombatHand::Unknown};
   QString notes;
   bool archived = false;
 
