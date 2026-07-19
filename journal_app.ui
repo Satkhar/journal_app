@@ -52,23 +52,12 @@
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="displayedMonthLabel">
+         <widget class="QComboBox" name="monthSelectorCombo">
           <property name="minimumSize">
            <size>
             <width>130</width>
             <height>0</height>
            </size>
-          </property>
-          <property name="font">
-           <font>
-            <bold>true</bold>
-           </font>
-          </property>
-          <property name="text">
-           <string>Месяц</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
           </property>
          </widget>
         </item>

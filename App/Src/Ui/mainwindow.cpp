@@ -5,7 +5,9 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QColor>
+#include <QComboBox>
 #include <QDate>
 #include <QDebug>
 #include <QDir>
@@ -151,6 +153,8 @@ MainWindow::MainWindow(QWidget* parent)
       activeStorageMode_(),
       activeServerUrl_(), isConnectingStorage_(false), syncInProgress_(false),
       refreshInProgress_(false), monthDataValid_(false),
+      monthDraft_(), monthDraftYear_(0), monthDraftMonth_(0),
+      revertingCalendarPage_(false),
       monthSetupPromptOpen_(false), monthSetupRequestId_(0),
       dismissedMonthSetupYear_(0), dismissedMonthSetupMonth_(0),
       baseTableWidget(nullptr), activeDays_(), day_in_month(0), month(0),
@@ -229,6 +233,16 @@ MainWindow::~MainWindow()
   delete ui;
 }
 
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+  if (finishMonthDraftBeforeContextChange())
+  {
+    event->accept();
+    return;
+  }
+  event->ignore();
+}
+
 //---------------------------------------------------------------
 
 void MainWindow::setupCalendarControls()
@@ -237,6 +251,7 @@ void MainWindow::setupCalendarControls()
   ui->calendarWidget->setNavigationBarVisible(false);
   ui->previousMonthButton->setMinimumSize(32, 28);
   ui->nextMonthButton->setMinimumSize(32, 28);
+  ui->monthSelectorCombo->setMinimumWidth(160);
   ui->toggleCalendarButton->setMinimumHeight(28);
 
   connect(ui->previousMonthButton, &QToolButton::clicked,
@@ -253,40 +268,119 @@ void MainWindow::setupCalendarControls()
             applyCalendarExpanded(isExpanded);
           });
 
-  updateDisplayedMonthLabel(ui->calendarWidget->yearShown(),
-                            ui->calendarWidget->monthShown());
+  updateMonthSelector(ui->calendarWidget->yearShown(),
+                      ui->calendarWidget->monthShown());
+  connect(ui->monthSelectorCombo,
+          qOverload<int>(&QComboBox::activated), this,
+          [this](int index)
+          {
+            const QDate selected =
+                ui->monthSelectorCombo->itemData(index).toDate();
+            if (selected.isValid())
+            {
+              ui->calendarWidget->setCurrentPage(selected.year(),
+                                                 selected.month());
+            }
+          });
   connect(ui->calendarWidget, &QCalendarWidget::currentPageChanged, this,
           [this](int shownYear, int shownMonth)
-          {
-            updateDisplayedMonthLabel(shownYear, shownMonth);
-            if (shownYear != dismissedMonthSetupYear_ ||
-                shownMonth != dismissedMonthSetupMonth_)
-            {
-              dismissedMonthSetupYear_ = 0;
-              dismissedMonthSetupMonth_ = 0;
-            }
-            activeDays_.clear();
-            createEmptyTable();
-            refreshMonth();
-          });
+          { handleMonthPageChanged(shownYear, shownMonth); });
 }
 
-void MainWindow::updateDisplayedMonthLabel(int shownYear, int shownMonth)
+void MainWindow::updateMonthSelector(int shownYear, int shownMonth)
 {
   const QDate firstDay(shownYear, shownMonth, 1);
   if (!firstDay.isValid())
   {
-    ui->displayedMonthLabel->clear();
+    ui->monthSelectorCombo->clear();
     return;
   }
 
-  const QLocale russian(QLocale::Russian, QLocale::Russia);
-  QString label = russian.toString(firstDay, "MMMM yyyy");
-  if (!label.isEmpty())
+  std::vector<JournalMonth> months;
+  if (journalApp_)
   {
-    label.replace(0, 1, label.left(1).toUpper());
+    const auto configured = journalApp_->configuredMonths();
+    if (configured.has_value())
+    {
+      months = *configured;
+    }
   }
-  ui->displayedMonthLabel->setText(label);
+  if (std::none_of(months.cbegin(), months.cend(),
+                   [shownYear, shownMonth](const JournalMonth& value)
+                   {
+                     return value.year == shownYear &&
+                            value.month == shownMonth;
+                   }))
+  {
+    months.push_back({shownYear, shownMonth});
+  }
+  std::sort(months.begin(), months.end(),
+            [](const JournalMonth& lhs, const JournalMonth& rhs)
+            {
+              return lhs.year != rhs.year ? lhs.year > rhs.year
+                                          : lhs.month > rhs.month;
+            });
+
+  const QSignalBlocker blocker(ui->monthSelectorCombo);
+  ui->monthSelectorCombo->clear();
+  const QLocale russian(QLocale::Russian, QLocale::Russia);
+  int selectedIndex = -1;
+  int previousKey = -1;
+  for (const JournalMonth& value : months)
+  {
+    const QDate date(value.year, value.month, 1);
+    const int key = value.year * 100 + value.month;
+    if (!date.isValid() || key == previousKey)
+    {
+      continue;
+    }
+    previousKey = key;
+    QString label = russian.toString(date, "MMMM yyyy");
+    if (!label.isEmpty())
+    {
+      label.replace(0, 1, label.left(1).toUpper());
+    }
+    if (monthDraft_.has_value() && value.year == monthDraftYear_ &&
+        value.month == monthDraftMonth_)
+    {
+      label += " — черновик";
+    }
+    ui->monthSelectorCombo->addItem(label, date);
+    if (date == firstDay)
+    {
+      selectedIndex = ui->monthSelectorCombo->count() - 1;
+    }
+  }
+  ui->monthSelectorCombo->setCurrentIndex(selectedIndex);
+}
+
+void MainWindow::handleMonthPageChanged(int shownYear, int shownMonth)
+{
+  if (revertingCalendarPage_)
+  {
+    return;
+  }
+  if (hasCurrentMonthDraft() &&
+      (shownYear != monthDraftYear_ || shownMonth != monthDraftMonth_) &&
+      !finishMonthDraftBeforeContextChange())
+  {
+    revertingCalendarPage_ = true;
+    ui->calendarWidget->setCurrentPage(monthDraftYear_, monthDraftMonth_);
+    revertingCalendarPage_ = false;
+    updateMonthSelector(monthDraftYear_, monthDraftMonth_);
+    return;
+  }
+
+  updateMonthSelector(shownYear, shownMonth);
+  if (shownYear != dismissedMonthSetupYear_ ||
+      shownMonth != dismissedMonthSetupMonth_)
+  {
+    dismissedMonthSetupYear_ = 0;
+    dismissedMonthSetupMonth_ = 0;
+  }
+  activeDays_.clear();
+  createEmptyTable();
+  refreshMonth();
 }
 
 void MainWindow::applyCalendarExpanded(bool expanded)
@@ -317,6 +411,14 @@ void MainWindow::refreshMonth()
   // Синхронизируем внутренние переменные месяца и перечитываем snapshot
   // из текущего активного storage.
   updateCalendarVariables(ui->calendarWidget);
+  if (hasCurrentMonthDraft())
+  {
+    monthDataValid_ = true;
+    renderMonth(*monthDraft_);
+    updateMonthSelector(static_cast<int>(year), static_cast<int>(month));
+    updateEditControlsByMode();
+    return;
+  }
   refreshInProgress_ = true;
   updateEditControlsByMode();
   const MonthSnapshot snapshot =
@@ -332,6 +434,7 @@ void MainWindow::refreshMonth()
   }
   monthDataValid_ = true;
   renderMonth(snapshot);
+  updateMonthSelector(static_cast<int>(year), static_cast<int>(month));
   updateEditControlsByMode();
   scheduleMonthSetup(snapshot);
 }
@@ -683,6 +786,12 @@ void MainWindow::createEmptyTable()
                                         : QString()};
             if (id.isValid())
             {
+              if (hasCurrentMonthDraft())
+              {
+                ui->statusbar->showMessage(
+                    "Сначала сохраните или отмените черновик месяца", 4000);
+                return;
+              }
               openParticipantProfile(id);
             }
           });
@@ -869,28 +978,133 @@ void MainWindow::removeSelectedParticipantFromMonth()
   }
 }
 
-void MainWindow::saveCurrentMonth()
+bool MainWindow::saveCurrentMonth()
 {
   if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
       !monthDataValid_ || activeStorageMode_ == "server")
   {
     ui->statusbar->showMessage("Сохранение запрещено: месяц не загружен");
-    return;
+    return false;
   }
   if (!journalApp_)
   {
     ui->statusbar->showMessage("Сервис не инициализирован");
-    return;
+    return false;
   }
 
   const auto data = collectMonthFromTable();
+  if (hasCurrentMonthDraft())
+  {
+    MonthSnapshot snapshot = *monthDraft_;
+    // Таблица содержит только active days. Скрытые attendance сохраняются,
+    // поэтому черновик обновляет записи активных дат, а не заменяет весь list.
+    snapshot.attendance.erase(
+        std::remove_if(snapshot.attendance.begin(), snapshot.attendance.end(),
+                       [this](const AttendanceRecord& record)
+                       { return activeDays_.contains(record.day); }),
+        snapshot.attendance.end());
+    snapshot.attendance.insert(snapshot.attendance.end(), data.begin(),
+                               data.end());
+    if (!journalApp_->saveMonthSnapshot(monthDraftYear_, monthDraftMonth_,
+                                        snapshot))
+    {
+      ui->statusbar->showMessage("Ошибка сохранения черновика месяца", 6000);
+      return false;
+    }
+    monthDraft_.reset();
+    monthDraftYear_ = 0;
+    monthDraftMonth_ = 0;
+    updateMonthSelector(static_cast<int>(year), static_cast<int>(month));
+    updateEditControlsByMode();
+    ui->statusbar->showMessage("Черновик месяца сохранён", 5000);
+    return true;
+  }
+
   if (!journalApp_->saveAttendance(static_cast<int>(year),
                                    static_cast<int>(month), data))
   {
     ui->statusbar->showMessage("Ошибка сохранения");
-    return;
+    return false;
   }
   ui->statusbar->showMessage("Таблица сохранена");
+  return true;
+}
+
+bool MainWindow::finishMonthDraftBeforeContextChange()
+{
+  if (!monthDraft_.has_value())
+  {
+    return true;
+  }
+
+  const QMessageBox::StandardButton decision = QMessageBox::warning(
+      this, "Несохранённый месяц",
+      QString("Изменения месяца %1.%2 ещё не сохранены.")
+          .arg(monthDraftMonth_, 2, 10, QLatin1Char('0'))
+          .arg(monthDraftYear_),
+      QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+      QMessageBox::Cancel);
+  if (decision == QMessageBox::Save)
+  {
+    return saveCurrentMonth();
+  }
+  if (decision == QMessageBox::Discard)
+  {
+    monthDraft_.reset();
+    monthDraftYear_ = 0;
+    monthDraftMonth_ = 0;
+    updateEditControlsByMode();
+    return true;
+  }
+  return false;
+}
+
+bool MainWindow::hasCurrentMonthDraft() const
+{
+  return monthDraft_.has_value() &&
+         monthDraftYear_ == static_cast<int>(year) &&
+         monthDraftMonth_ == static_cast<int>(month);
+}
+
+void MainWindow::updateDraftDayMarker(const ParticipantDayMarker& marker)
+{
+  if (!hasCurrentMonthDraft())
+  {
+    return;
+  }
+  const auto existing = std::find_if(
+      monthDraft_->dayMarkers.begin(), monthDraft_->dayMarkers.end(),
+      [&marker](const ParticipantDayMarker& value)
+      {
+        return value.participantId == marker.participantId &&
+               value.day == marker.day;
+      });
+  if (existing == monthDraft_->dayMarkers.end())
+  {
+    monthDraft_->dayMarkers.push_back(marker);
+  }
+  else
+  {
+    *existing = marker;
+  }
+}
+
+void MainWindow::removeDraftDayMarker(const ParticipantId& participantId,
+                                      int day)
+{
+  if (!hasCurrentMonthDraft())
+  {
+    return;
+  }
+  monthDraft_->dayMarkers.erase(
+      std::remove_if(monthDraft_->dayMarkers.begin(),
+                     monthDraft_->dayMarkers.end(),
+                     [&participantId, day](const ParticipantDayMarker& value)
+                     {
+                       return value.participantId == participantId &&
+                              value.day == day;
+                     }),
+      monthDraft_->dayMarkers.end());
 }
 
 std::optional<QString> MainWindow::requestServerUrl(const QString& title)
@@ -1296,7 +1510,7 @@ void MainWindow::addParticipantsFromMonth(bool copyWeekdayPatternByDefault)
   const CopyScheduleMode scheduleMode =
       applySourceWeekdays ? CopyScheduleMode::ApplySourceWeekdays
                           : CopyScheduleMode::KeepTargetDates;
-  const AddParticipantsResult result = journalApp_->addParticipantsFromMonth(
+  AddParticipantsResult result = journalApp_->prepareParticipantsFromMonth(
       dialog.sourceYear(), dialog.sourceMonth(), static_cast<int>(year),
       static_cast<int>(month), scheduleMode);
 
@@ -1307,18 +1521,29 @@ void MainWindow::addParticipantsFromMonth(bool copyWeekdayPatternByDefault)
         6000);
     return;
   }
-
-  refreshMonth();
-  if (monthDataValid_)
+  if (result.copied == 0 && !applySourceWeekdays)
   {
     ui->statusbar->showMessage(
-        QString("Добавление завершено. Добавлено: %1, уже были: %2. %3")
-            .arg(result.copied)
-            .arg(result.skipped)
-            .arg(applySourceWeekdays ? "Расписание применено по дням недели."
-                                     : "Расписание источника не применялось."),
-        5000);
+        "Все участники этого месяца уже есть в текущем составе", 5000);
+    return;
   }
+
+  monthDraft_ = std::move(result.snapshot);
+  monthDraftYear_ = static_cast<int>(year);
+  monthDraftMonth_ = static_cast<int>(month);
+  dismissedMonthSetupYear_ = monthDraftYear_;
+  dismissedMonthSetupMonth_ = monthDraftMonth_;
+  renderMonth(*monthDraft_);
+  updateMonthSelector(monthDraftYear_, monthDraftMonth_);
+  updateEditControlsByMode();
+  ui->statusbar->showMessage(
+      QString("Черновик: добавлено %1, уже были %2. Нажмите «Сохранить "
+              "месяц». %3")
+          .arg(result.copied)
+          .arg(result.skipped)
+          .arg(applySourceWeekdays ? "Дни недели источника применены."
+                                   : "Даты учёта сохранены без изменений."),
+      8000);
 }
 
 void MainWindow::updateModeIndicator()
@@ -1373,22 +1598,26 @@ void MainWindow::updateEditControlsByMode()
       !isConnectingStorage_ && !syncInProgress_ && !refreshInProgress_;
   const bool canEditMonth =
       activeStorageMode_ != "server" && monthDataValid_ && controlsIdle;
-  addParticipantAction_->setEnabled(canEditMonth);
-  removeParticipantAction_->setEnabled(canEditMonth);
-  configureMonthAction_->setEnabled(canEditMonth);
-  copyParticipantsAction_->setEnabled(canEditMonth);
+  const bool draftActive = hasCurrentMonthDraft();
+  const bool canChangeStructure = canEditMonth && !draftActive;
+  addParticipantAction_->setEnabled(canChangeStructure);
+  removeParticipantAction_->setEnabled(canChangeStructure);
+  configureMonthAction_->setEnabled(canChangeStructure);
+  copyParticipantsAction_->setEnabled(canChangeStructure);
   saveMonthAction_->setEnabled(canEditMonth);
-  pushMonthAction_->setEnabled(canEditMonth);
-  pullMonthAction_->setEnabled(canEditMonth);
-  participantsAction_->setEnabled(controlsIdle && journalApp_ != nullptr);
+  pushMonthAction_->setEnabled(canEditMonth && !draftActive);
+  pullMonthAction_->setEnabled(canEditMonth && !draftActive);
+  participantsAction_->setEnabled(controlsIdle && journalApp_ != nullptr &&
+                                  !draftActive);
   tournamentsAction_->setEnabled(controlsIdle);
-  readLocalAction_->setEnabled(controlsIdle);
+  readLocalAction_->setEnabled(controlsIdle && !draftActive);
   serverUrlAction_->setEnabled(controlsIdle);
-  localStorageAction_->setEnabled(controlsIdle);
-  remoteStorageAction_->setEnabled(controlsIdle);
+  localStorageAction_->setEnabled(controlsIdle && !draftActive);
+  remoteStorageAction_->setEnabled(controlsIdle && !draftActive);
   ui->calendarWidget->setEnabled(controlsIdle);
   ui->previousMonthButton->setEnabled(controlsIdle);
   ui->nextMonthButton->setEnabled(controlsIdle);
+  ui->monthSelectorCombo->setEnabled(controlsIdle);
 
   QTableWidget* tableWidget = findChild<QTableWidget*>("bigTable");
   if (tableWidget)
@@ -1617,6 +1846,11 @@ void MainWindow::addAttendanceCell(
             {
               return;
             }
+            if (hasCurrentMonthDraft())
+            {
+              // Черновик собирается из виджетов целиком при явном Save.
+              return;
+            }
 
             // Сохраняем только изменённую запись, а не всю таблицу. Это
             // устраняет потерю отметок при смене месяца/закрытии окна и
@@ -1667,6 +1901,14 @@ void MainWindow::editDayMarker(AttendanceCellWidget* cell,
 
   if (dialog.clearRequested())
   {
+    if (hasCurrentMonthDraft())
+    {
+      removeDraftDayMarker(participant.id, day);
+      cell->setMarker(std::nullopt);
+      ui->statusbar->showMessage(
+          "Отметка удалена из черновика; сохраните месяц", 4000);
+      return;
+    }
     if (!journalApp_->removeDayMarker(static_cast<int>(year),
                                       static_cast<int>(month), participant.id,
                                       day))
@@ -1681,6 +1923,14 @@ void MainWindow::editDayMarker(AttendanceCellWidget* cell,
 
   const ParticipantDayMarker marker{participant.id, day, dialog.selectedKinds(),
                                     dialog.note()};
+  if (hasCurrentMonthDraft())
+  {
+    updateDraftDayMarker(marker);
+    cell->setMarker(marker);
+    ui->statusbar->showMessage(
+        "Отметка добавлена в черновик; сохраните месяц", 4000);
+    return;
+  }
   if (!journalApp_->saveDayMarker(static_cast<int>(year),
                                   static_cast<int>(month), marker))
   {

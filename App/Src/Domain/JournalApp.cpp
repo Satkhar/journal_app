@@ -99,23 +99,30 @@ MonthSnapshot JournalApp::loadMonth(int year, int month)
   return snapshot;
 }
 
+bool JournalApp::saveMonthSnapshot(int year, int month,
+                                   const MonthSnapshot& snapshot)
+{
+  return snapshot.state == MonthState::Ready &&
+         storage_->replaceMonth(year, month, snapshot);
+}
+
 bool JournalApp::saveActiveDays(int year, int month, const QVector<int>& days)
 {
   return storage_->saveActiveDays(year, month, days);
 }
 
-AddParticipantsResult JournalApp::addParticipantsFromMonth(
+AddParticipantsResult JournalApp::prepareParticipantsFromMonth(
     int fromYear, int fromMonth, int toYear, int toMonth,
     CopyScheduleMode scheduleMode)
 {
   if (!QDate(fromYear, fromMonth, 1).isValid() ||
       !QDate(toYear, toMonth, 1).isValid())
   {
-    return {false, 0, 0, "Некорректный месяц"};
+    return {false, 0, 0, "Некорректный месяц", {}};
   }
   if (fromYear == toYear && fromMonth == toMonth)
   {
-    return {false, 0, 0, "Месяц-источник совпадает с текущим месяцем"};
+    return {false, 0, 0, "Месяц-источник совпадает с текущим месяцем", {}};
   }
 
   // Источник и цель читаются целыми aggregates. Несколько отдельных SELECT
@@ -124,13 +131,13 @@ AddParticipantsResult JournalApp::addParticipantsFromMonth(
       storage_->loadMonthSnapshot(fromYear, fromMonth);
   if (sourceSnapshot.state == MonthState::Error)
   {
-    return {false, 0, 0, sourceSnapshot.errorMessage};
+    return {false, 0, 0, sourceSnapshot.errorMessage, {}};
   }
   const MonthSnapshot targetSnapshot =
       storage_->loadMonthSnapshot(toYear, toMonth);
   if (targetSnapshot.state == MonthState::Error)
   {
-    return {false, 0, 0, targetSnapshot.errorMessage};
+    return {false, 0, 0, targetSnapshot.errorMessage, {}};
   }
 
   QVector<int> targetDays;
@@ -143,7 +150,7 @@ AddParticipantsResult JournalApp::addParticipantsFromMonth(
       const auto defaultTargetDays = fullMonthDays(toYear, toMonth);
       if (!defaultTargetDays.has_value())
       {
-        return {false, 0, 0, "Некорректный целевой месяц"};
+        return {false, 0, 0, "Некорректный целевой месяц", {}};
       }
       targetDays = *defaultTargetDays;
     }
@@ -154,7 +161,7 @@ AddParticipantsResult JournalApp::addParticipantsFromMonth(
       if (!mappedDays.has_value())
       {
         return {false, 0, 0,
-                "Некорректная настройка дней недели в месяце-источнике"};
+                "Некорректная настройка дней недели в месяце-источнике", {}};
       }
       targetDays = *mappedDays;
     }
@@ -167,7 +174,7 @@ AddParticipantsResult JournalApp::addParticipantsFromMonth(
       const auto defaultTargetDays = fullMonthDays(toYear, toMonth);
       if (!defaultTargetDays.has_value())
       {
-        return {false, 0, 0, "Некорректный целевой месяц"};
+        return {false, 0, 0, "Некорректный целевой месяц", {}};
       }
       targetDays = *defaultTargetDays;
     }
@@ -176,7 +183,7 @@ AddParticipantsResult JournalApp::addParticipantsFromMonth(
   const auto activeProfiles = storage_->listParticipantProfiles(false);
   if (!activeProfiles.has_value())
   {
-    return {false, 0, 0, "Не удалось прочитать каталог участников"};
+    return {false, 0, 0, "Не удалось прочитать каталог участников", {}};
   }
   QSet<QString> activeProfileIds;
   for (const ParticipantProfile& profile : *activeProfiles)
@@ -231,15 +238,9 @@ AddParticipantsResult JournalApp::addParticipantsFromMonth(
   snapshot.activeDays = std::move(targetDays);
   snapshot.attendance = std::move(mergedAttendance);
   snapshot.dayMarkers = targetSnapshot.dayMarkers;
-  if (!storage_->replaceMonth(toYear, toMonth, snapshot))
-  {
-    const QString error = storage_->lastError();
-    return {false, 0, 0,
-            error.isEmpty() ? "Не удалось атомарно обновить состав месяца"
-                            : error};
-  }
-
-  return {true, copied, skipped, QString()};
+  // Use case только готовит aggregate. UI явно сохраняет его кнопкой, поэтому
+  // Cancel/переход на другой месяц не изменяет целевую БД.
+  return {true, copied, skipped, QString(), std::move(snapshot)};
 }
 
 bool JournalApp::addUser(int year, int month, const QString& fullName)

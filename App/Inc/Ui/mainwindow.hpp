@@ -9,6 +9,7 @@
 #include <QtGlobal>
 
 class QAction;
+class QCloseEvent;
 class QLabel;
 class SqliteConnect;
 class JournalRemote;
@@ -38,6 +39,9 @@ public:
   explicit MainWindow(QWidget* parent = nullptr);
   // Освобождает ресурсы окна.
   ~MainWindow();
+
+protected:
+  void closeEvent(QCloseEvent* event) override;
 
 private:
   // Основной активный use-case слой, который в данный момент привязан
@@ -73,6 +77,12 @@ private:
   bool syncInProgress_;
   bool refreshInProgress_;
   bool monthDataValid_;
+  // Импорт состава редактируется как in-memory aggregate и не попадает в БД
+  // до явного действия "Сохранить месяц".
+  std::optional<MonthSnapshot> monthDraft_;
+  int monthDraftYear_;
+  int monthDraftMonth_;
+  bool revertingCalendarPage_;
   bool monthSetupPromptOpen_;
   quint64 monthSetupRequestId_;
   int dismissedMonthSetupYear_;
@@ -97,13 +107,18 @@ private:
   // Создает пустую таблицу под выбранный месяц.
   void createEmptyTable();
   void setupCalendarControls();
-  void updateDisplayedMonthLabel(int shownYear, int shownMonth);
+  void updateMonthSelector(int shownYear, int shownMonth);
+  void handleMonthPageChanged(int shownYear, int shownMonth);
   void applyCalendarExpanded(bool expanded);
   // Создает верхнее меню и связывает QAction с use-case обработчиками.
   void setupMenus();
   void addParticipantToMonth();
   void removeSelectedParticipantFromMonth();
-  void saveCurrentMonth();
+  bool saveCurrentMonth();
+  bool finishMonthDraftBeforeContextChange();
+  bool hasCurrentMonthDraft() const;
+  void updateDraftDayMarker(const ParticipantDayMarker& marker);
+  void removeDraftDayMarker(const ParticipantId& participantId, int day);
   void configureServerUrl();
   void setConfiguredServerUrl(const QString& serverUrl);
   std::optional<QString> requestServerUrl(const QString& title);

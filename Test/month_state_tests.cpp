@@ -228,10 +228,12 @@ bool AddFromEmptySourceCreatesTargetMonth()
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
 
-  const AddParticipantsResult result = app.addParticipantsFromMonth(
+  const AddParticipantsResult result = app.prepareParticipantsFromMonth(
       2026, 6, 2026, 7, CopyScheduleMode::ApplySourceWeekdays);
   TEST_CHECK(result.ok);
   TEST_CHECK(result.copied == 0);
+  TEST_CHECK(app.getMonthState(2026, 7).state == MonthState::Missing);
+  TEST_CHECK(app.saveMonthSnapshot(2026, 7, result.snapshot));
   TEST_CHECK(app.getMonthState(2026, 7).state == MonthState::Ready);
   TEST_CHECK(app.loadMonth(2026, 7).activeDays.size() == 31);
   return true;
@@ -253,10 +255,12 @@ bool AddWithWeekdayPatternMapsToTargetDates()
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
-  const AddParticipantsResult result = app.addParticipantsFromMonth(
+  const AddParticipantsResult result = app.prepareParticipantsFromMonth(
       2026, 6, 2026, 7, CopyScheduleMode::ApplySourceWeekdays);
   TEST_CHECK(result.ok);
   TEST_CHECK(result.copied == 1);
+  TEST_CHECK(app.getMonthState(2026, 7).state == MonthState::Missing);
+  TEST_CHECK(app.saveMonthSnapshot(2026, 7, result.snapshot));
 
   const MonthSnapshot target = app.loadMonth(2026, 7);
   const QVector<int> expectedDays{6, 7, 13, 14, 20, 21, 27, 28};
@@ -299,10 +303,23 @@ bool AddKeepsExistingMonthData()
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
-  const AddParticipantsResult result = app.addParticipantsFromMonth(
+  const AddParticipantsResult result = app.prepareParticipantsFromMonth(
       2026, 6, 2026, 7, CopyScheduleMode::KeepTargetDates);
   TEST_CHECK(result.ok);
   TEST_CHECK(result.copied == 1);
+  const MonthSnapshot beforeSave = app.loadMonth(2026, 7);
+  TEST_CHECK(beforeSave.participants.size() == 1);
+  TEST_CHECK(beforeSave.participants.front().id == targetParticipant.id);
+  TEST_CHECK(beforeSave.attendance.size() == 2);
+  TEST_CHECK(beforeSave.dayMarkers.size() == 1);
+  TEST_CHECK(std::any_of(
+      beforeSave.attendance.cbegin(), beforeSave.attendance.cend(),
+      [&targetParticipant](const AttendanceRecord& record)
+      {
+        return record.participantId == targetParticipant.id &&
+               record.day == 3 && record.isChecked;
+      }));
+  TEST_CHECK(app.saveMonthSnapshot(2026, 7, result.snapshot));
 
   const MonthSnapshot target = app.loadMonth(2026, 7);
   TEST_CHECK(target.activeDays == QVector<int>({3, 10}));
@@ -327,7 +344,7 @@ bool AddKeepsExistingMonthData()
   }
   TEST_CHECK(existingAttendancePreserved);
 
-  const AddParticipantsResult repeated = app.addParticipantsFromMonth(
+  const AddParticipantsResult repeated = app.prepareParticipantsFromMonth(
       2026, 6, 2026, 7, CopyScheduleMode::KeepTargetDates);
   TEST_CHECK(repeated.ok);
   TEST_CHECK(repeated.copied == 0);

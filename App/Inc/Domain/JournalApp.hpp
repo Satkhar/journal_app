@@ -11,6 +11,7 @@ struct AddParticipantsResult
   int copied;
   int skipped;
   QString errorMessage;
+  MonthSnapshot snapshot;
 };
 
 enum class CopyScheduleMode
@@ -29,8 +30,10 @@ public:
   std::optional<std::vector<JournalMonth>> configuredMonths();
   MonthStateResult getMonthState(int year, int month);
   MonthSnapshot loadMonth(int year, int month);
+  bool saveMonthSnapshot(int year, int month,
+                         const MonthSnapshot& snapshot);
   bool saveActiveDays(int year, int month, const QVector<int>& days);
-  AddParticipantsResult addParticipantsFromMonth(
+  AddParticipantsResult prepareParticipantsFromMonth(
       int fromYear, int fromMonth, int toYear, int toMonth,
       CopyScheduleMode scheduleMode);
   bool addUser(int year, int month, const QString& fullName);
