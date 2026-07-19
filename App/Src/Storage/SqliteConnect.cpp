@@ -94,6 +94,37 @@ QString SqliteConnect::lastError() const
   return lastError_;
 }
 
+std::optional<std::vector<JournalMonth>> SqliteConnect::listMonths()
+{
+  lastError_.clear();
+  QSqlQuery query(db_);
+  // Месяц считается сформированным по той же семантике, что getMonthState().
+  // UNION не даёт UI дубликаты, даже если aggregate заполнен во всех таблицах.
+  if (!query.exec(
+          "SELECT year, month FROM ("
+          "SELECT year, month FROM month_days UNION "
+          "SELECT year, month FROM month_participants UNION "
+          "SELECT year, month FROM attendance) "
+          "ORDER BY year DESC, month DESC"))
+  {
+    setError(query.lastError().text());
+    return std::nullopt;
+  }
+
+  std::vector<JournalMonth> result;
+  while (query.next())
+  {
+    const JournalMonth value{query.value(0).toInt(), query.value(1).toInt()};
+    if (!validateYearMonth(value.year, value.month))
+    {
+      setError("Invalid configured month in database");
+      return std::nullopt;
+    }
+    result.push_back(value);
+  }
+  return result;
+}
+
 MonthSnapshot SqliteConnect::loadMonthSnapshot(int year, int month)
 {
   MonthSnapshot snapshot;

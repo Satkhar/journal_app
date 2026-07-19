@@ -77,6 +77,11 @@ JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage)
   Q_ASSERT(storage_);
 }
 
+std::optional<std::vector<JournalMonth>> JournalApp::configuredMonths()
+{
+  return storage_->listMonths();
+}
+
 MonthStateResult JournalApp::getMonthState(int year, int month)
 {
   return storage_->getMonthState(year, month);
@@ -99,36 +104,39 @@ bool JournalApp::saveActiveDays(int year, int month, const QVector<int>& days)
   return storage_->saveActiveDays(year, month, days);
 }
 
-CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
-                                               int toYear, int toMonth,
-                                               CopyScheduleMode scheduleMode)
+AddParticipantsResult JournalApp::addParticipantsFromMonth(
+    int fromYear, int fromMonth, int toYear, int toMonth,
+    CopyScheduleMode scheduleMode)
 {
+  if (!QDate(fromYear, fromMonth, 1).isValid() ||
+      !QDate(toYear, toMonth, 1).isValid())
+  {
+    return {false, 0, 0, "Некорректный месяц"};
+  }
   if (fromYear == toYear && fromMonth == toMonth)
   {
     return {false, 0, 0, "Месяц-источник совпадает с текущим месяцем"};
   }
 
-  const MonthStateResult sourceState =
-      storage_->getMonthState(fromYear, fromMonth);
-  if (sourceState.state == MonthState::Error)
+  // Источник и цель читаются целыми aggregates. Несколько отдельных SELECT
+  // могли бы смешать состав до чужой записи с attendance после неё.
+  const MonthSnapshot sourceSnapshot =
+      storage_->loadMonthSnapshot(fromYear, fromMonth);
+  if (sourceSnapshot.state == MonthState::Error)
   {
-    return {false, 0, 0, sourceState.errorMessage};
+    return {false, 0, 0, sourceSnapshot.errorMessage};
+  }
+  const MonthSnapshot targetSnapshot =
+      storage_->loadMonthSnapshot(toYear, toMonth);
+  if (targetSnapshot.state == MonthState::Error)
+  {
+    return {false, 0, 0, targetSnapshot.errorMessage};
   }
 
-  const auto source = storage_->getParticipantsForMonth(fromYear, fromMonth);
-  if (!storage_->lastError().isEmpty())
-  {
-    return {false, 0, 0, storage_->lastError()};
-  }
-  const auto target = storage_->getParticipantsForMonth(toYear, toMonth);
-  if (!storage_->lastError().isEmpty())
-  {
-    return {false, 0, 0, storage_->lastError()};
-  }
   QVector<int> targetDays;
   if (scheduleMode == CopyScheduleMode::ApplySourceWeekdays)
   {
-    if (sourceState.state == MonthState::Missing)
+    if (sourceSnapshot.state == MonthState::Missing)
     {
       // У отсутствующего месяца нет расписания. Сохраняем прежнее поведение:
       // пустой источник создает целевой месяц со всеми календарными днями.
@@ -141,14 +149,8 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
     }
     else
     {
-      const QVector<int> sourceDays =
-          storage_->getActiveDays(fromYear, fromMonth);
-      if (!storage_->lastError().isEmpty())
-      {
-        return {false, 0, 0, storage_->lastError()};
-      }
       const auto mappedDays = mapActiveDaysByWeekday(
-          fromYear, fromMonth, sourceDays, toYear, toMonth);
+          fromYear, fromMonth, sourceSnapshot.activeDays, toYear, toMonth);
       if (!mappedDays.has_value())
       {
         return {false, 0, 0,
@@ -159,22 +161,18 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   }
   else
   {
-    targetDays = storage_->getActiveDays(toYear, toMonth);
-    if (!storage_->lastError().isEmpty())
+    targetDays = targetSnapshot.activeDays;
+    if (targetDays.isEmpty())
     {
-      return {false, 0, 0, storage_->lastError()};
+      const auto defaultTargetDays = fullMonthDays(toYear, toMonth);
+      if (!defaultTargetDays.has_value())
+      {
+        return {false, 0, 0, "Некорректный целевой месяц"};
+      }
+      targetDays = *defaultTargetDays;
     }
   }
-  const auto targetAttendance = storage_->getMonth(toYear, toMonth);
-  if (!storage_->lastError().isEmpty())
-  {
-    return {false, 0, 0, storage_->lastError()};
-  }
-  const auto targetDayMarkers = storage_->getDayMarkers(toYear, toMonth);
-  if (!storage_->lastError().isEmpty())
-  {
-    return {false, 0, 0, storage_->lastError()};
-  }
+
   const auto activeProfiles = storage_->listParticipantProfiles(false);
   if (!activeProfiles.has_value())
   {
@@ -186,15 +184,15 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
     activeProfileIds.insert(profile.id.value);
   }
   QSet<QString> targetIds;
-  for (const Participant& participant : target)
+  for (const Participant& participant : targetSnapshot.participants)
   {
     targetIds.insert(participant.id.value);
   }
 
   int copied = 0;
   int skipped = 0;
-  std::vector<Participant> targetParticipants = target;
-  for (const Participant& participant : source)
+  std::vector<Participant> targetParticipants = targetSnapshot.participants;
+  for (const Participant& participant : sourceSnapshot.participants)
   {
     if (!activeProfileIds.contains(participant.id.value) ||
         targetIds.contains(participant.id.value))
@@ -207,7 +205,7 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
     ++copied;
   }
 
-  std::vector<AttendanceRecord> mergedAttendance = targetAttendance;
+  std::vector<AttendanceRecord> mergedAttendance = targetSnapshot.attendance;
   QSet<QString> attendanceKeys;
   for (const AttendanceRecord& record : mergedAttendance)
   {
@@ -232,12 +230,13 @@ CopyUsersResult JournalApp::copyUsersFromMonth(int fromYear, int fromMonth,
   snapshot.participants = std::move(targetParticipants);
   snapshot.activeDays = std::move(targetDays);
   snapshot.attendance = std::move(mergedAttendance);
-  snapshot.dayMarkers = targetDayMarkers;
+  snapshot.dayMarkers = targetSnapshot.dayMarkers;
   if (!storage_->replaceMonth(toYear, toMonth, snapshot))
   {
     const QString error = storage_->lastError();
     return {false, 0, 0,
-            error.isEmpty() ? "Не удалось атомарно создать месяц" : error};
+            error.isEmpty() ? "Не удалось атомарно обновить состав месяца"
+                            : error};
   }
 
   return {true, copied, skipped, QString()};

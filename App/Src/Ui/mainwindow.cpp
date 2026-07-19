@@ -399,7 +399,7 @@ void MainWindow::showMonthSetupMenu(int targetYear, int targetMonth)
   QPushButton* createButton =
       menu.addButton("Создать с нуля", QMessageBox::AcceptRole);
   QPushButton* copyButton =
-      menu.addButton("Перенести участников", QMessageBox::ActionRole);
+      menu.addButton("Добавить из другого месяца", QMessageBox::ActionRole);
   QPushButton* laterButton = menu.addButton("Позже", QMessageBox::RejectRole);
   createButton->setObjectName("createMonthFromScratchButton");
   copyButton->setObjectName("copyMonthUsersButton");
@@ -414,7 +414,7 @@ void MainWindow::showMonthSetupMenu(int targetYear, int targetMonth)
   }
   else if (menu.clickedButton() == copyButton)
   {
-    copyUsersFromMonth(true);
+    addParticipantsFromMonth(true);
   }
   else
   {
@@ -725,7 +725,7 @@ void MainWindow::setupMenus()
   configureMonthAction_ = monthMenu->addAction("Настроить даты учёта…");
   configureMonthAction_->setObjectName("configureMonthAction");
   copyParticipantsAction_ =
-      monthMenu->addAction("Перенести участников…");
+      monthMenu->addAction("Добавить участников из месяца…");
   copyParticipantsAction_->setObjectName("copyParticipantsAction");
   copyParticipantsAction_->setStatusTip(
       "Добавить участников из другого месяца и при необходимости перенести "
@@ -776,7 +776,7 @@ void MainWindow::setupMenus()
   connect(configureMonthAction_, &QAction::triggered, this,
           [this]() { configureMonthDays(); });
   connect(copyParticipantsAction_, &QAction::triggered, this,
-          [this]() { copyUsersFromMonth(); });
+          [this]() { addParticipantsFromMonth(); });
   connect(readLocalAction_, &QAction::triggered, this,
           [this]() { readLocalMonthToTable(); });
   connect(saveMonthAction_, &QAction::triggered, this,
@@ -1242,7 +1242,7 @@ void MainWindow::configureMonthDays()
   }
 }
 
-void MainWindow::copyUsersFromMonth(bool copyWeekdayPatternByDefault)
+void MainWindow::addParticipantsFromMonth(bool copyWeekdayPatternByDefault)
 {
   if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_)
   {
@@ -1252,7 +1252,7 @@ void MainWindow::copyUsersFromMonth(bool copyWeekdayPatternByDefault)
   if (activeStorageMode_ == "server")
   {
     ui->statusbar->showMessage(
-        "Перенос участников доступен только в local режиме.", 5000);
+        "Добавление участников доступно только в local режиме.", 5000);
     return;
   }
 
@@ -1263,7 +1263,29 @@ void MainWindow::copyUsersFromMonth(bool copyWeekdayPatternByDefault)
   }
 
   updateCalendarVariables(ui->calendarWidget);
-  CopyUsersDialog dialog(static_cast<int>(year), static_cast<int>(month), this,
+  const auto configuredMonths = journalApp_->configuredMonths();
+  if (!configuredMonths.has_value())
+  {
+    ui->statusbar->showMessage(
+        "Не удалось прочитать список сформированных месяцев", 6000);
+    return;
+  }
+  const bool hasSource = std::any_of(
+      configuredMonths->cbegin(), configuredMonths->cend(),
+      [this](const JournalMonth& value)
+      {
+        return value.year != static_cast<int>(year) ||
+               value.month != static_cast<int>(month);
+      });
+  if (!hasSource)
+  {
+    ui->statusbar->showMessage(
+        "Нет другого сформированного месяца", 5000);
+    return;
+  }
+
+  CopyUsersDialog dialog(static_cast<int>(year), static_cast<int>(month),
+                         *configuredMonths, this,
                          copyWeekdayPatternByDefault);
   if (dialog.exec() != QDialog::Accepted)
   {
@@ -1274,14 +1296,15 @@ void MainWindow::copyUsersFromMonth(bool copyWeekdayPatternByDefault)
   const CopyScheduleMode scheduleMode =
       applySourceWeekdays ? CopyScheduleMode::ApplySourceWeekdays
                           : CopyScheduleMode::KeepTargetDates;
-  const CopyUsersResult result = journalApp_->copyUsersFromMonth(
+  const AddParticipantsResult result = journalApp_->addParticipantsFromMonth(
       dialog.sourceYear(), dialog.sourceMonth(), static_cast<int>(year),
       static_cast<int>(month), scheduleMode);
 
   if (!result.ok)
   {
     ui->statusbar->showMessage(
-        QString("Перенос не выполнен: %1").arg(result.errorMessage), 6000);
+        QString("Добавление не выполнено: %1").arg(result.errorMessage),
+        6000);
     return;
   }
 
@@ -1289,7 +1312,7 @@ void MainWindow::copyUsersFromMonth(bool copyWeekdayPatternByDefault)
   if (monthDataValid_)
   {
     ui->statusbar->showMessage(
-        QString("Перенос завершен. Добавлено: %1, пропущено: %2. %3")
+        QString("Добавление завершено. Добавлено: %1, уже были: %2. %3")
             .arg(result.copied)
             .arg(result.skipped)
             .arg(applySourceWeekdays ? "Расписание применено по дням недели."

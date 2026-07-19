@@ -20,6 +20,7 @@ public:
   // RemoteConnectionOptions::allowSchemaChanges.
   bool connect(QString* errorMessage = nullptr);
   QString lastError() const override;
+  std::optional<std::vector<JournalMonth>> listMonths() override;
   MonthSnapshot loadMonthSnapshot(int year, int month) override;
   MonthStateResult getMonthState(int year, int month) override;
 

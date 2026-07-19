@@ -219,7 +219,7 @@ bool StorageErrorIsNotReportedAsMissing()
   return true;
 }
 
-bool CopyFromEmptySourceCreatesTargetMonth()
+bool AddFromEmptySourceCreatesTargetMonth()
 {
   QTemporaryDir directory;
   TEST_CHECK(directory.isValid());
@@ -228,7 +228,7 @@ bool CopyFromEmptySourceCreatesTargetMonth()
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
 
-  const CopyUsersResult result = app.copyUsersFromMonth(
+  const AddParticipantsResult result = app.addParticipantsFromMonth(
       2026, 6, 2026, 7, CopyScheduleMode::ApplySourceWeekdays);
   TEST_CHECK(result.ok);
   TEST_CHECK(result.copied == 0);
@@ -237,7 +237,7 @@ bool CopyFromEmptySourceCreatesTargetMonth()
   return true;
 }
 
-bool CopyWeekdayPatternMapsToTargetDates()
+bool AddWithWeekdayPatternMapsToTargetDates()
 {
   QTemporaryDir directory;
   TEST_CHECK(directory.isValid());
@@ -253,9 +253,8 @@ bool CopyWeekdayPatternMapsToTargetDates()
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
-  const CopyUsersResult result =
-      app.copyUsersFromMonth(2026, 6, 2026, 7,
-                             CopyScheduleMode::ApplySourceWeekdays);
+  const AddParticipantsResult result = app.addParticipantsFromMonth(
+      2026, 6, 2026, 7, CopyScheduleMode::ApplySourceWeekdays);
   TEST_CHECK(result.ok);
   TEST_CHECK(result.copied == 1);
 
@@ -276,7 +275,7 @@ bool CopyWeekdayPatternMapsToTargetDates()
   return true;
 }
 
-bool CopyWithoutScheduleKeepsTargetDates()
+bool AddKeepsExistingMonthData()
 {
   QTemporaryDir directory;
   TEST_CHECK(directory.isValid());
@@ -287,31 +286,72 @@ bool CopyWithoutScheduleKeepsTargetDates()
   const Participant targetParticipant = MakeParticipant("Bob");
   TEST_CHECK(sqlite->saveActiveDays(2026, 6, {1, 2}));
   TEST_CHECK(sqlite->addParticipantToMonth(2026, 6, MakeProfile(participant)));
+  TEST_CHECK(sqlite->saveAttendance(2026, 6,
+                                    {{participant.id, 1, true}}));
   TEST_CHECK(sqlite->saveActiveDays(2026, 7, {3, 10}));
   TEST_CHECK(
       sqlite->addParticipantToMonth(2026, 7, MakeProfile(targetParticipant)));
+  TEST_CHECK(sqlite->saveAttendance(
+      2026, 7, {{targetParticipant.id, 3, true}}));
   TEST_CHECK(sqlite->saveDayMarker(
       2026, 7,
       {targetParticipant.id, 10, DayMarkerKind::Payment, "Целевая отметка"}));
 
   auto local = std::make_unique<JournalLocal>(std::move(sqlite));
   JournalApp app(std::move(local));
-  const CopyUsersResult result = app.copyUsersFromMonth(
+  const AddParticipantsResult result = app.addParticipantsFromMonth(
       2026, 6, 2026, 7, CopyScheduleMode::KeepTargetDates);
   TEST_CHECK(result.ok);
   TEST_CHECK(result.copied == 1);
 
   const MonthSnapshot target = app.loadMonth(2026, 7);
   TEST_CHECK(target.activeDays == QVector<int>({3, 10}));
+  TEST_CHECK(target.participants.size() == 2);
   TEST_CHECK(target.attendance.size() == 4);
   TEST_CHECK(target.dayMarkers.size() == 1);
   TEST_CHECK(target.dayMarkers.front().participantId == targetParticipant.id);
   TEST_CHECK(target.dayMarkers.front().day == 10);
   TEST_CHECK(target.dayMarkers.front().note == "Целевая отметка");
+  bool existingAttendancePreserved = false;
   for (const AttendanceRecord& record : target.attendance)
   {
     TEST_CHECK(record.day == 3 || record.day == 10);
+    if (record.participantId == targetParticipant.id && record.day == 3)
+    {
+      existingAttendancePreserved = record.isChecked;
+    }
+    if (record.participantId == participant.id)
+    {
+      TEST_CHECK(!record.isChecked);
+    }
   }
+  TEST_CHECK(existingAttendancePreserved);
+
+  const AddParticipantsResult repeated = app.addParticipantsFromMonth(
+      2026, 6, 2026, 7, CopyScheduleMode::KeepTargetDates);
+  TEST_CHECK(repeated.ok);
+  TEST_CHECK(repeated.copied == 0);
+  TEST_CHECK(repeated.skipped == 1);
+  const MonthSnapshot afterRepeatedAdd = app.loadMonth(2026, 7);
+  TEST_CHECK(afterRepeatedAdd.participants.size() == 2);
+  TEST_CHECK(afterRepeatedAdd.attendance.size() == 4);
+  TEST_CHECK(afterRepeatedAdd.dayMarkers.size() == 1);
+  return true;
+}
+
+bool ConfiguredMonthsAreListedNewestFirst()
+{
+  TemporaryDatabase db;
+  TEST_CHECK(db.isOpen());
+  TEST_CHECK(db.storage().saveActiveDays(2025, 12, {1}));
+  TEST_CHECK(db.storage().saveActiveDays(2026, 2, {1}));
+  TEST_CHECK(db.storage().saveActiveDays(2026, 1, {1}));
+
+  const auto months = db.storage().listMonths();
+  TEST_CHECK(months.has_value());
+  const std::vector<JournalMonth> expected = {
+      {2026, 2}, {2026, 1}, {2025, 12}};
+  TEST_CHECK(*months == expected);
   return true;
 }
 
@@ -418,12 +458,13 @@ int main(int argc, char* argv[])
        DayMarkerSurvivesHiddenDayAndCascadesWithParticipant},
       {"failed replace does not modify month", FailedReplaceDoesNotModifyMonth},
       {"storage error is not missing", StorageErrorIsNotReportedAsMissing},
-      {"copy from empty source creates target",
-       CopyFromEmptySourceCreatesTargetMonth},
-      {"copy weekday pattern maps to target dates",
-       CopyWeekdayPatternMapsToTargetDates},
-      {"copy without schedule keeps target dates",
-       CopyWithoutScheduleKeepsTargetDates},
+      {"add from empty source creates target",
+       AddFromEmptySourceCreatesTargetMonth},
+      {"add weekday pattern maps to target dates",
+       AddWithWeekdayPatternMapsToTargetDates},
+      {"add keeps existing month data", AddKeepsExistingMonthData},
+      {"configured months are listed newest first",
+       ConfiguredMonthsAreListedNewestFirst},
       {"new participant uses full name before historical name",
        NewParticipantUsesFullNameUntilHistoricalNameExists},
       {"legacy dates migrate to profile schema",

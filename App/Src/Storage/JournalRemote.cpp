@@ -72,6 +72,43 @@ QString JournalRemote::lastError() const
   return lastError_;
 }
 
+std::optional<std::vector<JournalMonth>> JournalRemote::listMonths()
+{
+  lastError_.clear();
+  QJsonArray results;
+  QString error;
+  const QString sql =
+      "SELECT year, month FROM ("
+      "SELECT year, month FROM month_days UNION "
+      "SELECT year, month FROM month_participants UNION "
+      "SELECT year, month FROM attendance) "
+      "ORDER BY year DESC, month DESC";
+  if (!executePipeline({sql}, &results, &error) || results.size() != 1)
+  {
+    lastError_ = error.isEmpty() ? "Invalid remote month list" : error;
+    return std::nullopt;
+  }
+
+  std::vector<JournalMonth> result;
+  for (const QJsonValue& value :
+       results.at(0).toObject().value("rows").toArray())
+  {
+    const QJsonArray row = value.toArray();
+    bool yearOk = false;
+    bool monthOk = false;
+    const int year = cellString(row, 0).toInt(&yearOk);
+    const int month = cellString(row, 1).toInt(&monthOk);
+    if (row.size() < 2 || !yearOk || !monthOk ||
+        !QDate(year, month, 1).isValid())
+    {
+      lastError_ = "Invalid configured month in remote database";
+      return std::nullopt;
+    }
+    result.push_back({year, month});
+  }
+  return result;
+}
+
 MonthStateResult JournalRemote::getMonthState(int year, int month)
 {
   lastError_.clear();

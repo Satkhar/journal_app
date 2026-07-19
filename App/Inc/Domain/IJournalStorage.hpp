@@ -15,6 +15,9 @@ public:
 
   // Точечные операции нужны редактору. Полный перенос месяца выполняется
   // только через IMonthSnapshotStore, чтобы sync не зависел от CRUD API.
+  // Сформированные месяцы возвращаются от новых к старым. nullopt означает
+  // ошибку чтения, пустой vector — отсутствие сформированных месяцев.
+  virtual std::optional<std::vector<JournalMonth>> listMonths() = 0;
   virtual MonthStateResult getMonthState(int year, int month) = 0;
   virtual std::vector<Participant> getParticipantsForMonth(int year,
                                                            int month) = 0;

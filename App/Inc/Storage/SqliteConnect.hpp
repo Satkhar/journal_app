@@ -20,6 +20,7 @@ public:
 
   bool open(const QString& dbPath);
   QString lastError() const;
+  std::optional<std::vector<JournalMonth>> listMonths();
   MonthSnapshot loadMonthSnapshot(int year, int month);
   MonthStateResult getMonthState(int year, int month);
 

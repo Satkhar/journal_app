@@ -159,6 +159,7 @@ add_executable(journal_ui_tests
     ./App/Src/Domain/EventModels.cpp
     ./App/Src/Domain/JournalModels.cpp
     ./App/Src/Ui/AttendanceCellWidget.cpp
+    ./App/Src/Ui/CopyUsersDialog.cpp
     ./App/Src/Ui/DayMarkerDialog.cpp
     ./App/Src/Ui/EventDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
@@ -167,6 +168,7 @@ add_executable(journal_ui_tests
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Domain/EventModels.hpp
     ./App/Inc/Ui/AttendanceCellWidget.hpp
+    ./App/Inc/Ui/CopyUsersDialog.hpp
     ./App/Inc/Ui/DayMarkerDialog.hpp
     ./App/Inc/Ui/EventDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp

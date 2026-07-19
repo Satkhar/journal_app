@@ -2,13 +2,18 @@
 
 #include <QDialog>
 
-class QCalendarWidget;
 class QCheckBox;
+class QComboBox;
+
+#include <vector>
+
+#include "JournalModels.hpp"
 
 class CopyUsersDialog : public QDialog
 {
 public:
   explicit CopyUsersDialog(int targetYear, int targetMonth,
+                           std::vector<JournalMonth> sourceMonths,
                            QWidget* parent = nullptr,
                            bool copyWeekdayPatternByDefault = false);
 
@@ -17,6 +22,6 @@ public:
   bool copyWeekdayPattern() const;
 
 private:
-  QCalendarWidget* calendar_;
+  QComboBox* sourceMonthCombo_;
   QCheckBox* copyWeekdayPatternCheckBox_;
 };

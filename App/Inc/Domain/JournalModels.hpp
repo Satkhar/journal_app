@@ -145,6 +145,19 @@ struct MonthStateResult
   QString errorMessage;
 };
 
+// Идентификатор сформированного месяца для навигации и выбора источника.
+// Это value object, а не признак существования: наличие подтверждает storage.
+struct JournalMonth
+{
+  int year;
+  int month;
+};
+
+inline bool operator==(const JournalMonth& lhs, const JournalMonth& rhs)
+{
+  return lhs.year == rhs.year && lhs.month == rhs.month;
+}
+
 struct MonthSnapshot
 {
   MonthState state{MonthState::Error};

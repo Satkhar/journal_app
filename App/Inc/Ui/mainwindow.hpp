@@ -119,8 +119,8 @@ private:
   void connectRemoteStorage();
   // Открывает диалог выбора дней учета для текущего месяца.
   void configureMonthDays();
-  // Переносит пользователей из другого месяца в текущий.
-  void copyUsersFromMonth(bool copyWeekdayPatternByDefault = false);
+  // Добавляет отсутствующих участников другого месяца, сохраняя текущих.
+  void addParticipantsFromMonth(bool copyWeekdayPatternByDefault = false);
   void openParticipantProfile(const ParticipantId& id);
   void openParticipantDirectory();
   void openEventDirectory();

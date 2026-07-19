@@ -1,4 +1,5 @@
 #include "AttendanceCellWidget.hpp"
+#include "CopyUsersDialog.hpp"
 #include "DayMarkerDialog.hpp"
 #include "EventDialog.hpp"
 #include "MonthDaysDialog.hpp"
@@ -126,6 +127,37 @@ bool BulkControlsStaySynchronized()
          Check(monday != nullptr &&
                    monday->checkState() == Qt::PartiallyChecked,
                "partial state not restored after date click");
+}
+
+bool AddParticipantsDialogUsesConfiguredMonthDropdown()
+{
+  CopyUsersDialog dialog(
+      2026, 7, {{2025, 12}, {2026, 7}, {2026, 6}, {2026, 6}}, nullptr,
+      true);
+  auto* source =
+      dialog.findChild<QComboBox*>("copyUsersSourceMonthCombo");
+  auto* copyWeekdays =
+      dialog.findChild<QCheckBox*>("copyWeekdayPatternCheckBox");
+  if (!Check(source && copyWeekdays,
+             "add-participants dialog controls missing"))
+  {
+    return false;
+  }
+  if (!Check(source->count() == 2,
+             "source dropdown contains target or duplicate month") ||
+      !Check(source->findData(QDate(2026, 7, 1)) < 0,
+             "target month remains selectable") ||
+      !Check(dialog.sourceYear() == 2026 && dialog.sourceMonth() == 6,
+             "previous formed month is not selected by default") ||
+      !Check(copyWeekdays->isChecked(),
+             "weekday-copy default was not applied"))
+  {
+    return false;
+  }
+
+  source->setCurrentIndex(source->findData(QDate(2025, 12, 1)));
+  return Check(dialog.sourceYear() == 2025 && dialog.sourceMonth() == 12,
+               "dropdown did not expose selected source month");
 }
 
 bool DayMarkerDialogSupportsMultipleKindsAndClear()
@@ -474,6 +506,7 @@ int main(int argc, char* argv[])
 {
   QApplication app(argc, argv);
   if (!WeekdayClickSelectsAndClearsGroup() || !BulkControlsStaySynchronized() ||
+      !AddParticipantsDialogUsesConfiguredMonthDropdown() ||
       !DayMarkerDialogSupportsMultipleKindsAndClear() ||
       !NoteOnlyMarkerBecomesOther() ||
       !AttendanceCellUsesCompactSemanticBadge() ||

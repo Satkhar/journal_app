@@ -5,7 +5,7 @@
 
 #include "IJournalStorage.hpp"
 
-struct CopyUsersResult
+struct AddParticipantsResult
 {
   bool ok;
   int copied;
@@ -26,12 +26,13 @@ public:
   // поэтому будущий async callback не сможет записать в "последний" месяц.
   explicit JournalApp(std::unique_ptr<IJournalStorage> storage);
 
+  std::optional<std::vector<JournalMonth>> configuredMonths();
   MonthStateResult getMonthState(int year, int month);
   MonthSnapshot loadMonth(int year, int month);
   bool saveActiveDays(int year, int month, const QVector<int>& days);
-  CopyUsersResult copyUsersFromMonth(int fromYear, int fromMonth, int toYear,
-                                     int toMonth,
-                                     CopyScheduleMode scheduleMode);
+  AddParticipantsResult addParticipantsFromMonth(
+      int fromYear, int fromMonth, int toYear, int toMonth,
+      CopyScheduleMode scheduleMode);
   bool addUser(int year, int month, const QString& fullName);
   bool removeParticipant(int year, int month, const ParticipantId& id);
   bool saveAttendance(int year, int month,
