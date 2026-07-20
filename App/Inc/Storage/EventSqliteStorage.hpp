@@ -20,6 +20,8 @@ public:
   QString lastError() const override;
   std::optional<std::vector<EventRecord>> listEvents() override;
   std::optional<EventRecord> getEvent(const EventId& id) override;
+  std::optional<ParticipantEventStatistics>
+  participantStatistics(const ParticipantId& id) override;
   bool saveEvent(const EventRecord& event) override;
   bool removeEvent(const EventId& id, qint64 expectedRevision) override;
 
@@ -32,7 +34,13 @@ private:
   bool ensureSchema();
   bool createSchema();
   bool migrateSchemaV1ToV2();
-  bool verifySchema(int participantSnapshotNameMaxLength);
+  bool migrateSchemaV2ToV3();
+  bool migrateSchemaV3ToV4();
+  bool migrateSchemaV4ToV5();
+  bool verifySchema(int participantSnapshotNameMaxLength,
+                    bool requireParticipantHistoryIndex,
+                    bool requireEventCategory, int maxEventCategory,
+                    bool requireNonCompetingAttendees);
   std::optional<EventRecord> loadEvent(const EventId& id);
   bool tableExists(const QString& name) const;
   void setError(const QString& error);

@@ -22,9 +22,16 @@ std::optional<EventRecord> EventApp::event(const EventId& id)
   return id.isValid() ? storage_->getEvent(id) : std::nullopt;
 }
 
+std::optional<ParticipantEventStatistics>
+EventApp::participantStatistics(const ParticipantId& id)
+{
+  return id.isValid() ? storage_->participantStatistics(id) : std::nullopt;
+}
+
 bool EventApp::save(const EventRecord& event)
 {
-  return event.isValid() && storage_->saveEvent(event);
+  return event.isValid() && IsClassifiedEventCategory(event.category) &&
+         storage_->saveEvent(event);
 }
 
 bool EventApp::remove(const EventId& id, qint64 expectedRevision)

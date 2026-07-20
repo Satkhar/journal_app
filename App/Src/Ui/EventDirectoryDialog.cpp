@@ -13,27 +13,52 @@
 
 #include "EventDialog.hpp"
 
+namespace
+{
+
+QString EventCategoryText(EventCategory category)
+{
+  switch (category)
+  {
+    case EventCategory::ClubTrainingTournament:
+      return "Клубный турнир";
+    case EventCategory::ExternalCompetition:
+      return "Выездное соревнование";
+    case EventCategory::SoftCombatTournament:
+      return "СМБ-турнир";
+    case EventCategory::Unspecified:
+      return "Не указана";
+  }
+  return "Некорректная категория";
+}
+
+} // namespace
+
 EventDirectoryDialog::EventDirectoryDialog(
     EventApp& eventApp, std::vector<ParticipantProfile> profiles,
     QWidget* parent)
     : QDialog(parent), eventApp_(eventApp), profiles_(std::move(profiles)),
       table_(new QTableWidget(this))
 {
-  setWindowTitle("Турниры");
+  setWindowTitle("Турниры и соревнования");
   resize(900, 560);
   table_->setObjectName("eventsTable");
-  table_->setColumnCount(4);
+  table_->setColumnCount(6);
   table_->setHorizontalHeaderLabels(
-      {"Дата", "Название", "Наши участники", "Бои"});
+      {"Дата", "Категория", "Название", "Соревновались", "Сопровождали",
+       "Бои"});
   table_->setSelectionBehavior(QAbstractItemView::SelectRows);
   table_->setSelectionMode(QAbstractItemView::SingleSelection);
   table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
   table_->horizontalHeader()->setSectionResizeMode(
       0, QHeaderView::ResizeToContents);
-  table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-  table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
   table_->horizontalHeader()->setSectionResizeMode(
-      3, QHeaderView::ResizeToContents);
+      1, QHeaderView::ResizeToContents);
+  table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+  table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+  table_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+  table_->horizontalHeader()->setSectionResizeMode(
+      5, QHeaderView::ResizeToContents);
 
   auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
   auto* addButton =
@@ -75,7 +100,9 @@ void EventDirectoryDialog::reload()
     dateItem->setData(Qt::UserRole, event.id.value);
     dateItem->setData(Qt::UserRole + 1, event.revision);
     table_->setItem(row, 0, dateItem);
-    table_->setItem(row, 1, new QTableWidgetItem(event.title));
+    table_->setItem(row, 1,
+                    new QTableWidgetItem(EventCategoryText(event.category)));
+    table_->setItem(row, 2, new QTableWidgetItem(event.title));
     QStringList names;
     for (const EventParticipantSnapshot& participant : event.participants)
     {
@@ -87,11 +114,25 @@ void EventDirectoryDialog::reload()
     }
     auto* participantsItem = new QTableWidgetItem(names.join(", "));
     participantsItem->setToolTip(names.join("\n"));
-    table_->setItem(row, 2, participantsItem);
+    table_->setItem(row, 3, participantsItem);
+    QStringList attendeeNames;
+    for (const EventParticipantSnapshot& attendee :
+         event.nonCompetingAttendees)
+    {
+      const QString displayName = attendee.displayNameSnapshot.trimmed();
+      const QString fullName = attendee.fullNameSnapshot.trimmed();
+      attendeeNames.push_back(fullName.isEmpty() || displayName == fullName
+                                  ? displayName
+                                  : QString("%1 — %2").arg(displayName,
+                                                              fullName));
+    }
+    auto* attendeesItem = new QTableWidgetItem(attendeeNames.join(", "));
+    attendeesItem->setToolTip(attendeeNames.join("\n"));
+    table_->setItem(row, 4, attendeesItem);
     auto* boutsItem =
         new QTableWidgetItem(QString::number(event.bouts.size()));
     boutsItem->setTextAlignment(Qt::AlignCenter);
-    table_->setItem(row, 3, boutsItem);
+    table_->setItem(row, 5, boutsItem);
   }
 }
 
@@ -138,7 +179,8 @@ void EventDirectoryDialog::editEvent()
   const auto selection = selectedEvent();
   if (!selection.has_value())
   {
-    QMessageBox::information(this, "Турниры", "Выберите турнир.");
+    QMessageBox::information(this, "Турниры и соревнования",
+                             "Выберите событие.");
     return;
   }
   const auto event = eventApp_.event(selection->id);
@@ -165,7 +207,8 @@ void EventDirectoryDialog::removeEvent()
   const auto selection = selectedEvent();
   if (!selection.has_value())
   {
-    QMessageBox::information(this, "Турниры", "Выберите турнир.");
+    QMessageBox::information(this, "Турниры и соревнования",
+                             "Выберите событие.");
     return;
   }
   if (QMessageBox::question(

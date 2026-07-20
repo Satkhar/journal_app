@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSet>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTextEdit>
@@ -63,7 +64,9 @@ EventDialog::EventDialog(const EventRecord& event,
                          const std::vector<ParticipantProfile>& profiles,
                          QWidget* parent)
     : QDialog(parent), original_(event), titleEdit_(new QLineEdit(this)),
-      dateEdit_(new QDateEdit(this)), participantsList_(new QListWidget(this)),
+      dateEdit_(new QDateEdit(this)), categoryCombo_(new QComboBox(this)),
+      participantsList_(new QListWidget(this)),
+      attendeesList_(new QListWidget(this)),
       boutsTable_(new QTableWidget(this)), notesEdit_(new QTextEdit(this))
 {
   setWindowTitle(event.title.isEmpty() ? "Новый турнир"
@@ -77,10 +80,26 @@ EventDialog::EventDialog(const EventRecord& event,
   dateEdit_->setCalendarPopup(true);
   dateEdit_->setDisplayFormat("dd.MM.yyyy");
   dateEdit_->setDate(event.date.isValid() ? event.date : QDate::currentDate());
+  categoryCombo_->setObjectName("eventCategoryCombo");
+  categoryCombo_->addItem("Выберите тип турнира",
+                          static_cast<int>(EventCategory::Unspecified));
+  categoryCombo_->addItem(
+      "Клубный турнир на тренировке",
+      static_cast<int>(EventCategory::ClubTrainingTournament));
+  categoryCombo_->addItem(
+      "Внешние соревнования (выезд)",
+      static_cast<int>(EventCategory::ExternalCompetition));
+  categoryCombo_->addItem(
+      "СМБ-турнир (мягкий)",
+      static_cast<int>(EventCategory::SoftCombatTournament));
+  const int categoryIndex =
+      categoryCombo_->findData(static_cast<int>(event.category));
+  categoryCombo_->setCurrentIndex(categoryIndex >= 0 ? categoryIndex : 0);
 
   auto* form = new QFormLayout();
   form->addRow("Название", titleEdit_);
   form->addRow("Дата", dateEdit_);
+  form->addRow("Тип", categoryCombo_);
 
   QHash<QString, EventParticipantSnapshot> choicesById;
   QHash<QString, QString> choiceLabels;
@@ -89,6 +108,12 @@ EventDialog::EventDialog(const EventRecord& event,
     choicesById.insert(participant.participantId.value, participant);
     choiceLabels.insert(participant.participantId.value,
                         ParticipantChoiceText(participant));
+  }
+  for (const EventParticipantSnapshot& attendee : event.nonCompetingAttendees)
+  {
+    choicesById.insert(attendee.participantId.value, attendee);
+    choiceLabels.insert(attendee.participantId.value,
+                        ParticipantChoiceText(attendee));
   }
   for (const ParticipantProfile& profile : profiles)
   {
@@ -144,22 +169,100 @@ EventDialog::EventDialog(const EventRecord& event,
     }
     return result;
   }();
+  const QSet<QString> selectedAttendeeIds = [&event, &selectedIds]()
+  {
+    QSet<QString> result;
+    for (const EventParticipantSnapshot& attendee :
+         event.nonCompetingAttendees)
+    {
+      if (!selectedIds.contains(attendee.participantId.value))
+      {
+        result.insert(attendee.participantId.value);
+      }
+    }
+    return result;
+  }();
   participantsList_->setObjectName("eventParticipantsList");
+  attendeesList_->setObjectName("eventNonCompetingAttendeesList");
   for (const EventParticipantSnapshot& participant : participantChoices_)
   {
-    auto* item = new QListWidgetItem(
-        choiceLabels.value(participant.participantId.value,
-                           participant.displayNameSnapshot),
-        participantsList_);
-    item->setData(Qt::UserRole, participant.participantId.value);
-    item->setData(Qt::UserRole + 1, participant.displayNameSnapshot);
-    item->setData(Qt::UserRole + 2, participant.fullNameSnapshot);
-    item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-    item->setCheckState(selectedIds.contains(participant.participantId.value)
-                            ? Qt::Checked
-                            : Qt::Unchecked);
+    const auto addChoice = [&participant, &choiceLabels](
+                               QListWidget* list, bool selected)
+    {
+      auto* item = new QListWidgetItem(
+          choiceLabels.value(participant.participantId.value,
+                             participant.displayNameSnapshot),
+          list);
+      item->setData(Qt::UserRole, participant.participantId.value);
+      item->setData(Qt::UserRole + 1, participant.displayNameSnapshot);
+      item->setData(Qt::UserRole + 2, participant.fullNameSnapshot);
+      item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+      item->setCheckState(selected ? Qt::Checked : Qt::Unchecked);
+    };
+    addChoice(participantsList_,
+              selectedIds.contains(participant.participantId.value));
+    addChoice(attendeesList_,
+              selectedAttendeeIds.contains(participant.participantId.value));
   }
   participantsList_->setMinimumHeight(120);
+  attendeesList_->setMinimumHeight(100);
+  connect(participantsList_, &QListWidget::itemChanged, this,
+          [this](QListWidgetItem* participantItem)
+          {
+            if (!participantItem ||
+                participantItem->checkState() != Qt::Checked)
+            {
+              return;
+            }
+            const QString id = participantItem->data(Qt::UserRole).toString();
+            const QSignalBlocker blocker(attendeesList_);
+            for (int row = 0; row < attendeesList_->count(); ++row)
+            {
+              QListWidgetItem* attendee = attendeesList_->item(row);
+              if (attendee->data(Qt::UserRole).toString() == id)
+              {
+                attendee->setCheckState(Qt::Unchecked);
+                break;
+              }
+            }
+          });
+  connect(attendeesList_, &QListWidget::itemChanged, this,
+          [this](QListWidgetItem* attendeeItem)
+          {
+            if (!attendeeItem || attendeeItem->checkState() != Qt::Checked)
+            {
+              return;
+            }
+            const QString id = attendeeItem->data(Qt::UserRole).toString();
+            const QSignalBlocker blocker(participantsList_);
+            for (int row = 0; row < participantsList_->count(); ++row)
+            {
+              QListWidgetItem* participant = participantsList_->item(row);
+              if (participant->data(Qt::UserRole).toString() == id)
+              {
+                participant->setCheckState(Qt::Unchecked);
+                break;
+              }
+            }
+          });
+  const auto updateAttendeeAvailability = [this]()
+  {
+    const EventCategory category = static_cast<EventCategory>(
+        categoryCombo_->currentData().toInt());
+    const bool allowed = category != EventCategory::ClubTrainingTournament;
+    attendeesList_->setEnabled(allowed);
+    if (!allowed)
+    {
+      const QSignalBlocker blocker(attendeesList_);
+      for (int row = 0; row < attendeesList_->count(); ++row)
+      {
+        attendeesList_->item(row)->setCheckState(Qt::Unchecked);
+      }
+    }
+  };
+  connect(categoryCombo_, &QComboBox::currentIndexChanged, attendeesList_,
+          updateAttendeeAvailability);
+  updateAttendeeAvailability();
 
   boutsTable_->setObjectName("eventBoutsTable");
   boutsTable_->setColumnCount(5);
@@ -197,7 +300,7 @@ EventDialog::EventDialog(const EventRecord& event,
   notesEdit_->setAcceptRichText(false);
   notesEdit_->setPlainText(event.notes);
   notesEdit_->setPlaceholderText(
-      "Итоги, места, секунданты, ошибки и задачи для разбора");
+      "Итоги, места, ошибки и задачи для разбора");
 
   auto* buttons = new QDialogButtonBox(
       QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
@@ -209,8 +312,10 @@ EventDialog::EventDialog(const EventRecord& event,
 
   auto* layout = new QVBoxLayout(this);
   layout->addLayout(form);
-  layout->addWidget(new QLabel("Наши участники", this));
+  layout->addWidget(new QLabel("Соревновались от клуба", this));
   layout->addWidget(participantsList_);
+  layout->addWidget(new QLabel("Ездили, но не соревновались", this));
+  layout->addWidget(attendeesList_);
   auto* boutHint = new QLabel(
       "Выберите нашего участника из списка или введите свободное имя.", this);
   boutHint->setWordWrap(true);
@@ -422,6 +527,25 @@ void EventDialog::updateParticipantRequirements()
     }
     item->setFlags(flags);
   }
+  for (int row = 0; row < attendeesList_->count(); ++row)
+  {
+    QListWidgetItem* item = attendeesList_->item(row);
+    const bool linked =
+        linkedIds.contains(item->data(Qt::UserRole).toString());
+    Qt::ItemFlags flags = item->flags() | Qt::ItemIsUserCheckable;
+    if (linked)
+    {
+      const QSignalBlocker blocker(attendeesList_);
+      item->setCheckState(Qt::Unchecked);
+      flags &= ~Qt::ItemIsUserCheckable;
+      item->setToolTip("Участник указан в строке боя");
+    }
+    else
+    {
+      item->setToolTip(QString());
+    }
+    item->setFlags(flags);
+  }
 }
 
 EventRecord EventDialog::eventRecord() const
@@ -429,11 +553,15 @@ EventRecord EventDialog::eventRecord() const
   EventRecord result = original_;
   result.title = titleEdit_->text().trimmed();
   result.date = dateEdit_->date();
+  result.category =
+      static_cast<EventCategory>(categoryCombo_->currentData().toInt());
   result.notes = notesEdit_->toPlainText();
   result.participants.clear();
+  result.nonCompetingAttendees.clear();
   result.bouts.clear();
 
   QHash<QString, EventParticipantSnapshot> selectedParticipants;
+  QHash<QString, EventParticipantSnapshot> selectedAttendees;
   for (int row = 0; row < participantsList_->count(); ++row)
   {
     const QListWidgetItem* item = participantsList_->item(row);
@@ -448,6 +576,19 @@ EventRecord EventDialog::eventRecord() const
     participant.fullNameSnapshot =
         item->data(Qt::UserRole + 2).toString();
     selectedParticipants.insert(participant.participantId.value, participant);
+  }
+  for (int row = 0; row < attendeesList_->count(); ++row)
+  {
+    const QListWidgetItem* item = attendeesList_->item(row);
+    if (item->checkState() != Qt::Checked)
+    {
+      continue;
+    }
+    EventParticipantSnapshot attendee;
+    attendee.participantId = {item->data(Qt::UserRole).toString()};
+    attendee.displayNameSnapshot = item->data(Qt::UserRole + 1).toString();
+    attendee.fullNameSnapshot = item->data(Qt::UserRole + 2).toString();
+    selectedAttendees.insert(attendee.participantId.value, attendee);
   }
 
   for (int row = 0; row < boutsTable_->rowCount(); ++row)
@@ -488,11 +629,23 @@ EventRecord EventDialog::eventRecord() const
       result.participants.push_back(found.value());
       selectedParticipants.erase(found);
     }
+    const auto attendee =
+        selectedAttendees.constFind(choice.participantId.value);
+    if (attendee != selectedAttendees.cend())
+    {
+      result.nonCompetingAttendees.push_back(attendee.value());
+      selectedAttendees.erase(attendee);
+    }
   }
   for (auto it = selectedParticipants.cbegin();
        it != selectedParticipants.cend(); ++it)
   {
     result.participants.push_back(it.value());
+  }
+  for (auto it = selectedAttendees.cbegin();
+       it != selectedAttendees.cend(); ++it)
+  {
+    result.nonCompetingAttendees.push_back(it.value());
   }
   return result;
 }
@@ -504,6 +657,14 @@ void EventDialog::save()
   {
     QMessageBox::warning(this, "Слишком длинный текст",
                          "Общая информация превышает 32768 символов.");
+    return;
+  }
+  if (!IsClassifiedEventCategory(candidate.category))
+  {
+    QMessageBox::warning(
+        this, "Не выбран тип турнира",
+        "Укажите: клубный турнир на тренировке, внешние соревнования или "
+        "СМБ-турнир.");
     return;
   }
   if (!candidate.isValid())

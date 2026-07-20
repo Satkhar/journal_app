@@ -14,6 +14,8 @@ public:
   QString lastError() const;
   std::optional<std::vector<EventRecord>> events();
   std::optional<EventRecord> event(const EventId& id);
+  std::optional<ParticipantEventStatistics>
+  participantStatistics(const ParticipantId& id);
   bool save(const EventRecord& event);
   bool remove(const EventId& id, qint64 expectedRevision);
 

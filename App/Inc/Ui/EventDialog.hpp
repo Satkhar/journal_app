@@ -28,7 +28,9 @@ private:
   std::vector<EventParticipantSnapshot> participantChoices_;
   QLineEdit* titleEdit_;
   QDateEdit* dateEdit_;
+  QComboBox* categoryCombo_;
   QListWidget* participantsList_;
+  QListWidget* attendeesList_;
   QTableWidget* boutsTable_;
   QTextEdit* notesEdit_;
 

@@ -62,9 +62,30 @@ bool EventBout::isValid() const
          *sideA.participantId != *sideB.participantId;
 }
 
+bool IsValidEventCategory(EventCategory category)
+{
+  switch (category)
+  {
+    case EventCategory::Unspecified:
+    case EventCategory::ClubTrainingTournament:
+    case EventCategory::ExternalCompetition:
+    case EventCategory::SoftCombatTournament:
+      return true;
+  }
+  return false;
+}
+
+bool IsClassifiedEventCategory(EventCategory category)
+{
+  return category == EventCategory::ClubTrainingTournament ||
+         category == EventCategory::ExternalCompetition ||
+         category == EventCategory::SoftCombatTournament;
+}
+
 bool EventRecord::isValid() const
 {
   if (!id.isValid() || !date.isValid() || revision < 0 ||
+      !IsValidEventCategory(category) ||
       !IsSingleLine(title, kMaxEventTitleLength) ||
       notes.size() > kMaxEventNotesLength)
   {
@@ -80,6 +101,23 @@ bool EventRecord::isValid() const
       return false;
     }
     participantIds.insert(participant.participantId.value);
+  }
+
+  QSet<QString> attendeeIds;
+  for (const EventParticipantSnapshot& attendee : nonCompetingAttendees)
+  {
+    if (!attendee.isValid() ||
+        attendeeIds.contains(attendee.participantId.value) ||
+        participantIds.contains(attendee.participantId.value))
+    {
+      return false;
+    }
+    attendeeIds.insert(attendee.participantId.value);
+  }
+  if (category == EventCategory::ClubTrainingTournament &&
+      !nonCompetingAttendees.empty())
+  {
+    return false;
   }
 
   QSet<QString> boutIds;

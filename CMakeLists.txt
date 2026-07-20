@@ -128,8 +128,10 @@ target_include_directories(journal_legacy_importer PRIVATE
 
 add_executable(journal_event_storage_tests
     ./Test/EventStorageTests.cpp
+    ./App/Src/Domain/EventApp.cpp
     ./App/Src/Domain/EventModels.cpp
     ./App/Src/Storage/EventSqliteStorage.cpp
+    ./App/Inc/Domain/EventApp.hpp
     ./App/Inc/Domain/EventModels.hpp
     ./App/Inc/Domain/IEventStorage.hpp
     ./App/Inc/Storage/EventSqliteStorage.hpp)
