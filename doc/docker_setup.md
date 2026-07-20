@@ -86,7 +86,7 @@ $env:JOURNAL_BOOTSTRAP_REMOTE_SCHEMA = '1'
 Remove-Item Env:JOURNAL_BOOTSTRAP_REMOTE_SCHEMA
 ```
 
-Без этого флага desktop только проверяет schema v8. Флаг даёт клиенту DDL-права
+Без этого флага desktop только проверяет schema v9. Флаг даёт клиенту DDL-права
 и не должен оставаться в обычной эксплуатации.
 
 ## Данные, backup и restore

@@ -6,8 +6,9 @@
 - `month_participants` — участие человека в конкретном месяце.
 - `attendance` ссылается на membership через составной FK.
 - Удаление из месяца не удаляет глобального участника.
-- Local schema version — `PRAGMA user_version = 8`.
-- Versioned local/remote schema v2-v7 мигрируют последовательно до v8.
+- Local schema version — `PRAGMA user_version = 10`.
+- Versioned local schema v2-v9 мигрирует последовательно до v10; remote — до
+  v9.
 - Промежуточная development-v6 с `is_trainer` чинится при открытии; колонка
   удаляется, прежние значения сохраняются в compatibility-таблице.
 - Unversioned remote legacy schema автоматически не мигрируется.
