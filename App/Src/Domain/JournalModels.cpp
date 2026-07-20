@@ -17,7 +17,34 @@ constexpr int kKnownDayMarkerKindsMask =
     static_cast<int>(DayMarkerKind::Other) |
     static_cast<int>(DayMarkerKind::LedTraining);
 
+bool isStructurallyValidTrainingStartMonth(
+    const std::optional<JournalMonth>& month)
+{
+  if (!month.has_value())
+  {
+    return true;
+  }
+  const QDate start(month->year, month->month, 1);
+  return month->year >= 1900 && start.isValid();
+}
+
 } // namespace
+
+bool IsTrainingStartMonthNotAfter(
+    const std::optional<JournalMonth>& month, const QDate& referenceDate)
+{
+  if (!isStructurallyValidTrainingStartMonth(month) ||
+      !referenceDate.isValid())
+  {
+    return false;
+  }
+  if (!month.has_value())
+  {
+    return true;
+  }
+  const QDate referenceMonth(referenceDate.year(), referenceDate.month(), 1);
+  return QDate(month->year, month->month, 1) <= referenceMonth;
+}
 
 bool Birthday::isValid() const
 {
@@ -161,7 +188,8 @@ bool ParticipantProfile::isValid() const
          !ParticipantRankStorageValue(rank).isEmpty() &&
          !CombatHandStorageValue(combatHand).isEmpty() &&
          notes.size() <= kMaxNotesLength &&
-         (!birthday.has_value() || birthday->isValid());
+         (!birthday.has_value() || birthday->isValid()) &&
+         isStructurallyValidTrainingStartMonth(trainingStartMonth);
 }
 
 QString ParticipantDisplayName(const ParticipantProfile& profile)

@@ -45,6 +45,8 @@ public:
                     const MonthSnapshot& snapshot) override;
   std::optional<ParticipantProfile>
   getParticipantProfile(const ParticipantId& id) override;
+  std::optional<ParticipantJournalStatistics>
+  participantStatistics(const ParticipantId& id) override;
   std::optional<std::vector<ParticipantProfile>>
   listParticipantProfiles(bool includeArchived) override;
   bool updateParticipantProfile(const ParticipantProfile& profile) override;

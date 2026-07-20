@@ -75,6 +75,22 @@
          </widget>
         </item>
         <item>
+         <widget class="QToolButton" name="todayButton">
+          <property name="toolTip">
+           <string>Вернуться к текущей дате</string>
+          </property>
+          <property name="accessibleName">
+           <string>Текущая дата</string>
+          </property>
+          <property name="text">
+           <string>Сегодня</string>
+          </property>
+          <property name="autoRaise">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QToolButton" name="toggleCalendarButton">
           <property name="text">
            <string>Свернуть календарь</string>

@@ -27,6 +27,7 @@ public:
   // поэтому будущий async callback не сможет записать в "последний" месяц.
   explicit JournalApp(std::unique_ptr<IJournalStorage> storage);
 
+  QString lastError() const;
   std::optional<std::vector<JournalMonth>> configuredMonths();
   MonthStateResult getMonthState(int year, int month);
   MonthSnapshot loadMonth(int year, int month);
@@ -46,6 +47,8 @@ public:
                        const ParticipantId& participantId, int day);
 
   std::optional<ParticipantProfile> participantProfile(const ParticipantId& id);
+  std::optional<ParticipantJournalStatistics>
+  participantStatistics(const ParticipantId& id);
   std::optional<std::vector<ParticipantProfile>>
   participantProfiles(bool includeArchived);
   bool updateParticipantProfile(const ParticipantProfile& profile);

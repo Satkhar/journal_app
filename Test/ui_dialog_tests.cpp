@@ -5,20 +5,26 @@
 #include "MonthDaysDialog.hpp"
 #include "ParticipantDialog.hpp"
 #include "ParticipantDirectoryDialog.hpp"
+#include "ParticipantStatisticsWidget.hpp"
 
 #include <QApplication>
 #include <QCalendarWidget>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QDate>
 #include <QDateEdit>
+#include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QTableWidget>
+#include <QTimer>
 #include <QToolButton>
 
 #include <iostream>
@@ -172,6 +178,12 @@ bool DayMarkerDialogSupportsMultipleKindsAndClear()
   {
     return false;
   }
+  if (!Check(special->text() ==
+                 QString::fromUtf8("Тренировка в доспехах"),
+             "armor-training marker uses stale terminology"))
+  {
+    return false;
+  }
   firstVisit->setChecked(true);
   trainer->setChecked(true);
   save->click();
@@ -221,6 +233,7 @@ bool AttendanceCellUsesCompactSemanticBadge()
   const ParticipantId id{"12345678-1234-1234-1234-123456789abc"};
   const ParticipantDayMarker marker{id, 16,
                                     DayMarkerKind::Payment |
+                                        DayMarkerKind::SpecialTraining |
                                         DayMarkerKind::FirstVisit |
                                         DayMarkerKind::LedTraining,
                                     "<оплачено>"};
@@ -237,6 +250,8 @@ bool AttendanceCellUsesCompactSemanticBadge()
                  markerButton->text() == QString::fromUtf8("Т+"),
              "combined trainer marker is not scan-visible") ||
       !Check(markerButton->toolTip().contains("Оплата") &&
+                 markerButton->toolTip().contains(
+                     "Тренировка в доспехах") &&
                  markerButton->toolTip().contains("Первое посещение") &&
                  markerButton->toolTip().contains("Вёл тренировку") &&
                  markerButton->toolTip().contains("&lt;оплачено&gt;"),
@@ -261,6 +276,315 @@ bool TrainerMarkerUsesDedicatedBadge()
                "trainer marker has no readable dedicated badge");
 }
 
+bool AttendanceCellHighlightsVisitAndSupportsContextMarkerEdit()
+{
+  AttendanceCellWidget cell(false, "Alice", QDate(2026, 7, 16),
+                            std::nullopt);
+  auto* checkBox = cell.attendanceCheckBox();
+  auto* markerButton = cell.markerButton();
+  if (!Check(checkBox && markerButton, "attendance cell controls missing") ||
+      !Check(markerButton->styleSheet().contains("#ECEFF1"),
+             "empty marker button is not light gray"))
+  {
+    return false;
+  }
+
+  checkBox->setChecked(true);
+  if (!Check(cell.styleSheet().contains("#DFF2DF"),
+             "checked attendance cell is not highlighted"))
+  {
+    return false;
+  }
+  cell.setAttendanceChecked(false);
+  if (!Check(!checkBox->isChecked() &&
+                 cell.styleSheet().contains("background: transparent"),
+             "programmatic attendance rollback left stale highlight"))
+  {
+    return false;
+  }
+
+  bool markerEditRequested = false;
+  QObject::connect(&cell, &AttendanceCellWidget::markerEditRequested, &cell,
+                   [&markerEditRequested]() { markerEditRequested = true; });
+  QContextMenuEvent event(QContextMenuEvent::Mouse, QPoint(1, 1),
+                          QPoint(1, 1), Qt::NoModifier);
+  QApplication::sendEvent(&cell, &event);
+  return Check(markerEditRequested,
+               "cell context menu did not request marker editing");
+}
+
+ParticipantJournalStatistics MakeJournalStatistics(
+    const ParticipantId& participantId)
+{
+  ParticipantMonthStatistics july;
+  july.month = {2026, 7};
+  july.trackedDayCount = 16;
+  july.attendedDayCount = 9;
+  july.specialTrainingVisitCount = 2;
+  july.ledTrainingDayCount = 1;
+
+  ParticipantMonthStatistics december;
+  december.month = {2025, 12};
+  december.trackedDayCount = 12;
+  december.attendedDayCount = 0;
+
+  ParticipantJournalStatistics result;
+  result.participantId = participantId;
+  result.months = {july, december};
+  result.totalAttendedDayCount = 9;
+  result.totalSpecialTrainingVisitCount = 2;
+  result.totalLedTrainingDayCount = 1;
+  result.firstRecordedVisit = QDate(2026, 7, 2);
+  result.lastRecordedVisit = QDate(2026, 7, 28);
+  return result;
+}
+
+ParticipantEventStatistics MakeEventStatistics(
+    const ParticipantId& participantId)
+{
+  ParticipantEventStatistics result;
+  result.participantId = participantId;
+  result.tournamentCount = 4;
+  result.clubTournamentCount = 1;
+  result.externalCompetitionCount = 1;
+  result.softCombatTournamentCount = 1;
+  result.unspecifiedTournamentCount = 1;
+  result.nonCompetingTripCount = 2;
+  result.boutCount = 8;
+  result.firstTournament = QDate(2025, 9, 20);
+  result.lastTournament = QDate(2026, 6, 14);
+  return result;
+}
+
+bool ParticipantStatisticsShowsAccessibleMonthHistory()
+{
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+  const QDate currentMonth(QDate::currentDate().year(),
+                           QDate::currentDate().month(), 1);
+  const QDate trainingStart = currentMonth.addMonths(-14);
+  profile.trainingStartMonth =
+      JournalMonth{trainingStart.year(), trainingStart.month()};
+  const ParticipantJournalStatistics journal =
+      MakeJournalStatistics(profile.id);
+  const ParticipantEventStatistics events = MakeEventStatistics(profile.id);
+  const ParticipantStatisticsData statistics{journal, {}, events, {}};
+  ParticipantDialog dialog(profile, statistics, true);
+
+  auto* tabs = dialog.findChild<QTabWidget*>("participantTabWidget");
+  auto* total =
+      dialog.findChild<QLabel*>("participantTotalAttendanceLabel");
+  auto* average =
+      dialog.findChild<QLabel*>("participantAverageAttendanceLabel");
+  auto* tournaments =
+      dialog.findChild<QLabel*>("participantTournamentCountLabel");
+  auto* clubTournaments =
+      dialog.findChild<QLabel*>("participantClubTournamentCountLabel");
+  auto* externalCompetitions = dialog.findChild<QLabel*>(
+      "participantExternalCompetitionCountLabel");
+  auto* softCombatTournaments = dialog.findChild<QLabel*>(
+      "participantSoftCombatTournamentCountLabel");
+  auto* unspecifiedTournaments = dialog.findChild<QLabel*>(
+      "participantUnspecifiedTournamentCountLabel");
+  auto* nonCompetingTrips = dialog.findChild<QLabel*>(
+      "participantNonCompetingTripCountLabel");
+  auto* trainingStartLabel =
+      dialog.findChild<QLabel*>("participantTrainingStartLabel");
+  auto* trainingDuration =
+      dialog.findChild<QLabel*>("participantTrainingDurationLabel");
+  auto* july =
+      dialog.findChild<QToolButton*>("participantMonthButton_2026_07");
+  auto* december =
+      dialog.findChild<QToolButton*>("participantMonthButton_2025_12");
+  auto* content =
+      dialog.findChild<QWidget*>("participantMonthStatisticsContent");
+  auto* grid = content ? qobject_cast<QGridLayout*>(content->layout())
+                       : nullptr;
+  if (!Check(tabs && total && average && tournaments && clubTournaments &&
+                 externalCompetitions && softCombatTournaments &&
+                 unspecifiedTournaments && nonCompetingTrips &&
+                 trainingStartLabel && trainingDuration && july && december &&
+                 grid,
+             "participant statistics controls missing"))
+  {
+    return false;
+  }
+
+  int julyRow = -1;
+  int julyColumn = -1;
+  int julyRowSpan = 0;
+  int julyColumnSpan = 0;
+  int decemberRow = -1;
+  int decemberColumn = -1;
+  int decemberRowSpan = 0;
+  int decemberColumnSpan = 0;
+  grid->getItemPosition(grid->indexOf(july), &julyRow, &julyColumn,
+                        &julyRowSpan, &julyColumnSpan);
+  grid->getItemPosition(grid->indexOf(december), &decemberRow,
+                        &decemberColumn, &decemberRowSpan,
+                        &decemberColumnSpan);
+
+  return Check(tabs->count() == 2 && tabs->tabText(1) ==
+                                           QString::fromUtf8("Статистика"),
+               "participant statistics tab missing") &&
+         Check(total->text() == "9" && !average->text().isEmpty() &&
+                    tournaments->text() == "4" &&
+                    clubTournaments->text() == "1" &&
+                    externalCompetitions->text() == "1" &&
+                    softCombatTournaments->text() == "1" &&
+                    unspecifiedTournaments->text() == "1" &&
+                    nonCompetingTrips->text() == "2",
+               "participant statistics totals are wrong") &&
+          Check(trainingStartLabel->text().contains(
+                    QString::number(trainingStart.year())) &&
+                    trainingDuration->text() ==
+                        QString::fromUtf8("≈ 1 г. 2 мес."),
+                "manual training start is not reflected in experience") &&
+         Check(july->text().contains("9/16") &&
+                   july->toolTip().contains("Посещено: 9") &&
+                   july->toolTip().contains(
+                       "Дат учёта в месяце состава: 16") &&
+                   july->toolTip().contains("Тренировки в доспехах: 2") &&
+                   july->accessibleName().contains("Открыть месяц") &&
+                   july->focusPolicy() == Qt::StrongFocus,
+               "active month cell is not readable or accessible") &&
+         Check(december->text().contains("0/12") &&
+                   december->styleSheet().contains("#ECEFF1"),
+               "zero-attendance month is missing or visually ambiguous") &&
+         Check(decemberRow < julyRow && decemberColumn == 12 &&
+                   julyColumn == 7,
+               "month history is not grouped chronologically by year");
+}
+
+bool ParticipantAverageUsesOnlyCompletedMonths()
+{
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+
+  const QDate today = QDate::currentDate();
+  const QDate currentMonth(today.year(), today.month(), 1);
+  const QDate previousMonth = currentMonth.addMonths(-1);
+  const QDate futureMonth = currentMonth.addMonths(1);
+
+  ParticipantMonthStatistics completed;
+  completed.month = {previousMonth.year(), previousMonth.month()};
+  completed.trackedDayCount = 8;
+  completed.attendedDayCount = 4;
+
+  ParticipantMonthStatistics current;
+  current.month = {currentMonth.year(), currentMonth.month()};
+  current.trackedDayCount = 12;
+  current.attendedDayCount = 10;
+
+  ParticipantMonthStatistics future;
+  future.month = {futureMonth.year(), futureMonth.month()};
+  future.trackedDayCount = 12;
+  future.attendedDayCount = 12;
+
+  ParticipantJournalStatistics journal;
+  journal.participantId = profile.id;
+  journal.months = {completed, current, future};
+  journal.totalAttendedDayCount = 26;
+
+  const ParticipantStatisticsData statistics{
+      journal, {}, std::nullopt, "Турниры не загружались"};
+  ParticipantDialog dialog(profile, statistics, false);
+  const auto* average =
+      dialog.findChild<QLabel*>("participantAverageAttendanceLabel");
+  return Check(average && average->text() == QString::fromUtf8("4,0"),
+               "current or future month affected completed-month average");
+}
+
+bool ParticipantMonthNavigationReturnsSelectionAndProtectsDirtyProfile()
+{
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+  profile.fullName = "Alice Example";
+  const ParticipantJournalStatistics journal =
+      MakeJournalStatistics(profile.id);
+  const ParticipantStatisticsData statistics{
+      journal, {}, std::nullopt, "Турниры не загружались"};
+
+  ParticipantDialog cleanDialog(profile, statistics, true);
+  auto* cleanMonth = cleanDialog.findChild<QToolButton*>(
+      "participantMonthButton_2026_07");
+  if (!Check(cleanMonth != nullptr, "month navigation control missing"))
+  {
+    return false;
+  }
+  cleanMonth->click();
+  const auto selected = cleanDialog.selectedMonth();
+  if (!Check(cleanDialog.result() == QDialog::Accepted &&
+                 cleanDialog.action() == ParticipantDialog::Action::OpenMonth &&
+                 selected.has_value() && selected->year == 2026 &&
+                 selected->month == 7,
+             "month click did not return a navigation request"))
+  {
+    return false;
+  }
+
+  ParticipantDialog dirtyDialog(profile, statistics, true);
+  auto* fullName =
+      dirtyDialog.findChild<QLineEdit*>("participantFullNameEdit");
+  auto* dirtyMonth = dirtyDialog.findChild<QToolButton*>(
+      "participantMonthButton_2026_07");
+  if (!Check(fullName && dirtyMonth,
+             "dirty-profile navigation controls missing"))
+  {
+    return false;
+  }
+  fullName->setText("Alice Changed");
+  bool warningShown = false;
+  QTimer::singleShot(
+      0, &dirtyDialog,
+      [&warningShown]()
+      {
+        auto* warning =
+            qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if (warning)
+        {
+          warningShown = true;
+          warning->accept();
+        }
+      });
+  dirtyMonth->click();
+  return Check(warningShown &&
+                   dirtyDialog.action() == ParticipantDialog::Action::Cancel &&
+                   !dirtyDialog.selectedMonth().has_value(),
+               "dirty profile was silently discarded by month navigation");
+}
+
+bool ParticipantStatisticsDistinguishesUnavailableSources()
+{
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+  ParticipantStatisticsData statistics;
+  statistics.journalError = "Ошибка чтения журнала";
+  statistics.eventError = "Ошибка чтения турниров";
+  ParticipantDialog dialog(profile, statistics, false);
+  const auto* journalError = dialog.findChild<QLabel*>(
+      "participantJournalStatisticsUnavailableLabel");
+  const auto* eventError = dialog.findChild<QLabel*>(
+      "participantEventStatisticsUnavailableLabel");
+  return Check(journalError &&
+                   journalError->text().contains(statistics.journalError),
+               "journal statistics error reason is hidden") &&
+         Check(eventError &&
+                   eventError->text().contains(statistics.eventError),
+               "event statistics error reason is hidden") &&
+         Check(dialog.findChild<QLabel*>(
+                   "participantMonthStatisticsEmptyLabel") != nullptr,
+               "missing month statistics have no explicit state");
+}
+
 bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
 {
   ParticipantProfile profile;
@@ -269,6 +593,7 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
   profile.fullName = "Alice Example";
   profile.contact = "@alice";
   profile.rank = ParticipantRank::Guest;
+  profile.trainingStartMonth = JournalMonth{2018, 9};
   ParticipantDialog dialog(profile, true);
   auto* year = dialog.findChild<QSpinBox*>("participantBirthYearSpinBox");
   auto* rank = dialog.findChild<QComboBox*>("participantRankComboBox");
@@ -279,8 +604,17 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
       dialog.findChild<QLineEdit*>("participantHistoricalNameEdit");
   auto* fullName = dialog.findChild<QLineEdit*>("participantFullNameEdit");
   auto* contact = dialog.findChild<QLineEdit*>("participantContactEdit");
+  auto* trainingStartCheck =
+      dialog.findChild<QCheckBox*>("participantTrainingStartCheckBox");
+  auto* trainingStartMonth = dialog.findChild<QComboBox*>(
+      "participantTrainingStartMonthComboBox");
+  auto* trainingStartYear = dialog.findChild<QSpinBox*>(
+      "participantTrainingStartYearSpinBox");
+  auto* trainingStartLabel =
+      dialog.findChild<QLabel*>("participantTrainingStartLabel");
   if (!Check(year && rank && combatHand && id && historicalName && fullName &&
-                 contact,
+                 contact && trainingStartCheck && trainingStartMonth &&
+                 trainingStartYear && trainingStartLabel,
              "participant profile controls missing"))
   {
     return false;
@@ -296,7 +630,13 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
                  fullName->maxLength() == kMaxParticipantFullNameLength &&
                  contact->text() == profile.contact &&
                  contact->maxLength() == kMaxParticipantContactLength,
-             "participant details did not populate new profile fields"))
+             "participant details did not populate new profile fields") ||
+      !Check(trainingStartCheck->isChecked() &&
+                 trainingStartMonth->currentData().toInt() == 9 &&
+                 trainingStartYear->value() == 2018 &&
+                 trainingStartYear->minimum() == 1900 &&
+                 trainingStartYear->maximum() == QDate::currentDate().year(),
+             "training-start month was clamped or not populated"))
   {
     return false;
   }
@@ -312,14 +652,196 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
   fullName->setText("Alice Updated");
   historicalName->setText("Alicia");
   contact->setText("+7 900 000-00-00");
+  trainingStartMonth->setCurrentIndex(trainingStartMonth->findData(4));
+  trainingStartYear->setValue(2017);
   const ParticipantProfile edited = dialog.profile();
-  return Check(edited.rank == ParticipantRank::Knight &&
+  if (!Check(edited.rank == ParticipantRank::Knight &&
                    edited.combatHand == CombatHand::Left &&
                    edited.historicalName == "Alicia" &&
                    edited.displayName == "Alicia" &&
                    edited.fullName == "Alice Updated" &&
-                   edited.contact == "+7 900 000-00-00",
-               "participant editor lost profile details");
+                   edited.contact == "+7 900 000-00-00" &&
+                   edited.trainingStartMonth == JournalMonth{2017, 4} &&
+                   trainingStartLabel->text().contains("2017"),
+             "participant editor lost profile details"))
+  {
+    return false;
+  }
+  trainingStartCheck->setChecked(false);
+  return Check(!dialog.profile().trainingStartMonth.has_value() &&
+                   !trainingStartMonth->isEnabled() &&
+                   !trainingStartYear->isEnabled() &&
+                   trainingStartLabel->text() ==
+                       QString::fromUtf8("Не указано"),
+               "participant editor cannot explicitly clear training start");
+}
+
+bool ParticipantEditorRejectsFutureTrainingStart()
+{
+  const QDate today = QDate::currentDate();
+  if (today.month() == 12)
+  {
+    return true;
+  }
+
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+  ParticipantDialog dialog(profile, true);
+  auto* trainingStartCheck =
+      dialog.findChild<QCheckBox*>("participantTrainingStartCheckBox");
+  auto* trainingStartMonth = dialog.findChild<QComboBox*>(
+      "participantTrainingStartMonthComboBox");
+  auto* trainingStartYear = dialog.findChild<QSpinBox*>(
+      "participantTrainingStartYearSpinBox");
+  QPushButton* saveButton = nullptr;
+  for (QPushButton* button : dialog.findChildren<QPushButton*>())
+  {
+    if (button->text() == QString::fromUtf8("Сохранить"))
+    {
+      saveButton = button;
+      break;
+    }
+  }
+  if (!Check(trainingStartCheck && trainingStartMonth && trainingStartYear &&
+                 saveButton,
+             "future training-start test controls missing"))
+  {
+    return false;
+  }
+
+  trainingStartCheck->setChecked(true);
+  trainingStartYear->setValue(today.year());
+  trainingStartMonth->setCurrentIndex(
+      trainingStartMonth->findData(today.month() + 1));
+  bool warningShown = false;
+  QTimer::singleShot(
+      0, &dialog,
+      [&warningShown]()
+      {
+        auto* warning =
+            qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if (warning)
+        {
+          warningShown = warning->windowTitle() ==
+                         QString::fromUtf8(
+                             "Некорректное начало тренировок");
+          warning->accept();
+        }
+      });
+  saveButton->click();
+  return Check(warningShown &&
+                   dialog.action() == ParticipantDialog::Action::Cancel,
+               "future training-start month was accepted by editor");
+}
+
+bool ParticipantEditorPreservesStoredFutureTrainingStart()
+{
+  const QDate futureMonth =
+      QDate(QDate::currentDate().year(), QDate::currentDate().month(), 1)
+          .addYears(1);
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+  profile.trainingStartMonth =
+      JournalMonth{futureMonth.year(), futureMonth.month()};
+
+  ParticipantDialog dialog(profile, true);
+  const auto* trainingStartMonth = dialog.findChild<QComboBox*>(
+      "participantTrainingStartMonthComboBox");
+  const auto* trainingStartYear = dialog.findChild<QSpinBox*>(
+      "participantTrainingStartYearSpinBox");
+  return Check(trainingStartMonth && trainingStartYear &&
+                   trainingStartYear->maximum() == futureMonth.year() &&
+                   trainingStartYear->value() == futureMonth.year() &&
+                   trainingStartMonth->currentData().toInt() ==
+                       futureMonth.month() &&
+                   dialog.profile().trainingStartMonth ==
+                       profile.trainingStartMonth,
+               "stored future training start was silently clamped by UI");
+}
+
+bool ParticipantEditorWarnsAboutStartAfterFirstRecordedVisit()
+{
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+
+  const QDate currentMonth(QDate::currentDate().year(),
+                           QDate::currentDate().month(), 1);
+  const QDate firstVisitMonth = currentMonth.addMonths(-2);
+  const QDate declaredStart = firstVisitMonth.addMonths(1);
+  ParticipantJournalStatistics journal;
+  journal.participantId = profile.id;
+  journal.firstRecordedVisit =
+      QDate(firstVisitMonth.year(), firstVisitMonth.month(), 15);
+  const ParticipantStatisticsData statistics{
+      journal, {}, std::nullopt, "Турниры не загружались"};
+  ParticipantDialog dialog(profile, statistics, true);
+  auto* trainingStartCheck =
+      dialog.findChild<QCheckBox*>("participantTrainingStartCheckBox");
+  auto* trainingStartMonth = dialog.findChild<QComboBox*>(
+      "participantTrainingStartMonthComboBox");
+  auto* trainingStartYear = dialog.findChild<QSpinBox*>(
+      "participantTrainingStartYearSpinBox");
+  const auto* consistencyWarning = dialog.findChild<QLabel*>(
+      "participantTrainingStartConsistencyWarning");
+  QPushButton* saveButton = nullptr;
+  for (QPushButton* button : dialog.findChildren<QPushButton*>())
+  {
+    if (button->text() == QString::fromUtf8("Сохранить"))
+    {
+      saveButton = button;
+      break;
+    }
+  }
+  if (!Check(trainingStartCheck && trainingStartMonth && trainingStartYear &&
+                 consistencyWarning && saveButton,
+             "first-visit consistency test controls missing"))
+  {
+    return false;
+  }
+
+  trainingStartCheck->setChecked(true);
+  trainingStartYear->setValue(declaredStart.year());
+  trainingStartMonth->setCurrentIndex(
+      trainingStartMonth->findData(declaredStart.month()));
+  if (!Check(!consistencyWarning->isHidden() &&
+                 consistencyWarning->text().contains(
+                     QString::fromUtf8("первое посещение")),
+             "statistics hide contradictory manual training start"))
+  {
+    return false;
+  }
+  bool warningShown = false;
+  QTimer::singleShot(
+      0, &dialog,
+      [&warningShown]()
+      {
+        auto* warning =
+            qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if (warning)
+        {
+          auto* saveAnywayButton = warning->button(QMessageBox::Save);
+          warningShown =
+              warning->windowTitle() ==
+                  QString::fromUtf8("Проверьте начало тренировок") &&
+              warning->text().contains(
+                  QString::fromUtf8("первого посещения")) &&
+              saveAnywayButton != nullptr;
+          if (saveAnywayButton)
+          {
+            saveAnywayButton->click();
+          }
+        }
+      });
+  saveButton->click();
+  return Check(warningShown &&
+                   dialog.action() == ParticipantDialog::Action::Save,
+               "training-start contradiction was not explicitly warned");
 }
 
 bool ParticipantDirectoryHidesIdAndSortsByRank()
@@ -374,9 +896,102 @@ bool EventEditorDoesNotDuplicateFullNameOnlyParticipant()
   event.date = QDate(2026, 7, 18);
   EventDialog dialog(event, {profile});
   const auto* roster = dialog.findChild<QListWidget*>("eventParticipantsList");
-  return Check(roster && roster->count() == 1 &&
+  const auto* attendees = dialog.findChild<QListWidget*>(
+      "eventNonCompetingAttendeesList");
+  return Check(roster && attendees && roster->count() == 1 &&
+                   attendees->count() == 1 &&
                    roster->item(0)->text() == QString::fromUtf8("Анна Иванова"),
                "full-name-only participant label is duplicated");
+}
+
+bool EventEditorSeparatesCompetitorsAndAttendees()
+{
+  ParticipantProfile profile;
+  profile.id = {"33333333-3333-3333-3333-333333333333"};
+  profile.displayName = "Анна";
+  profile.historicalName = "Анна";
+  EventRecord event;
+  event.id = CreateEventId();
+  event.title = "Выезд";
+  event.date = QDate(2026, 7, 18);
+  event.category = EventCategory::ExternalCompetition;
+  EventDialog dialog(event, {profile});
+  auto* competitors =
+      dialog.findChild<QListWidget*>("eventParticipantsList");
+  auto* attendees = dialog.findChild<QListWidget*>(
+      "eventNonCompetingAttendeesList");
+  if (!Check(competitors && attendees && competitors->count() == 1 &&
+                 attendees->count() == 1,
+             "event delegation role controls are missing"))
+  {
+    return false;
+  }
+  attendees->item(0)->setCheckState(Qt::Checked);
+  EventRecord attendeeOnly = dialog.eventRecord();
+  if (!Check(attendeeOnly.participants.empty() &&
+                 attendeeOnly.nonCompetingAttendees.size() == 1 &&
+                 attendeeOnly.isValid(),
+             "non-competing attendee was added as competitor"))
+  {
+    return false;
+  }
+  competitors->item(0)->setCheckState(Qt::Checked);
+  const EventRecord competitorOnly = dialog.eventRecord();
+  return Check(competitorOnly.participants.size() == 1 &&
+                   competitorOnly.nonCompetingAttendees.empty() &&
+                   competitorOnly.isValid(),
+               "competitor and attendee roles are not mutually exclusive");
+}
+
+bool EventEditorRequiresExplicitCategory()
+{
+  EventRecord event;
+  event.id = CreateEventId();
+  event.date = QDate(2026, 7, 18);
+  EventDialog dialog(event, {});
+  auto* category = dialog.findChild<QComboBox*>("eventCategoryCombo");
+  if (!Check(category && category->count() == 4 &&
+                 category->currentData().toInt() ==
+                     static_cast<int>(EventCategory::Unspecified),
+             "new event does not expose an explicit category choice"))
+  {
+    return false;
+  }
+  const int clubIndex = category->findData(
+      static_cast<int>(EventCategory::ClubTrainingTournament));
+  const int externalIndex = category->findData(
+      static_cast<int>(EventCategory::ExternalCompetition));
+  const int softCombatIndex = category->findData(
+      static_cast<int>(EventCategory::SoftCombatTournament));
+  if (!Check(clubIndex > 0 && externalIndex > 0 && softCombatIndex > 0 &&
+                 category->itemText(clubIndex).contains(
+                     QString::fromUtf8("Клубный")) &&
+                 category->itemText(externalIndex).contains(
+                     QString::fromUtf8("Внешние")) &&
+                 category->itemText(softCombatIndex).contains(
+                     QString::fromUtf8("СМБ")),
+             "event category choices are incomplete"))
+  {
+    return false;
+  }
+  category->setCurrentIndex(clubIndex);
+  const EventRecord classified = dialog.eventRecord();
+  if (!Check(classified.category ==
+                 EventCategory::ClubTrainingTournament,
+             "event editor did not return selected category"))
+  {
+    return false;
+  }
+
+  EventRecord externalEvent = classified;
+  externalEvent.category = EventCategory::ExternalCompetition;
+  EventDialog reopened(externalEvent, {});
+  const auto* reopenedCategory =
+      reopened.findChild<QComboBox*>("eventCategoryCombo");
+  return Check(reopenedCategory &&
+                   reopenedCategory->currentData().toInt() ==
+                       static_cast<int>(EventCategory::ExternalCompetition),
+               "event editor did not restore persisted category");
 }
 
 bool EventEditorSupportsInternalAndFreeBoutSides()
@@ -394,6 +1009,7 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
   EventRecord event;
   event.id = CreateEventId();
   event.date = QDate(2026, 7, 18);
+  event.category = EventCategory::ClubTrainingTournament;
   EventDialog dialog(event, {petya, namesake});
   auto* title = dialog.findChild<QLineEdit*>("eventTitleEdit");
   auto* addBout = dialog.findChild<QPushButton*>("addEventBoutButton");
@@ -494,6 +1110,7 @@ bool EventEditorSupportsInternalAndFreeBoutSides()
   const EventRecord preserved = reopened.eventRecord();
   return Check(
       preserved.participants.size() == 1 &&
+          preserved.category == EventCategory::ClubTrainingTournament &&
           preserved.participants.front().displayNameSnapshot == "Петя" &&
           preserved.participants.front().fullNameSnapshot == "Пётр Петров",
       "editing event silently rewrote historical name snapshot");
@@ -510,9 +1127,19 @@ int main(int argc, char* argv[])
       !NoteOnlyMarkerBecomesOther() ||
       !AttendanceCellUsesCompactSemanticBadge() ||
       !TrainerMarkerUsesDedicatedBadge() ||
+      !AttendanceCellHighlightsVisitAndSupportsContextMarkerEdit() ||
+      !ParticipantStatisticsShowsAccessibleMonthHistory() ||
+      !ParticipantAverageUsesOnlyCompletedMonths() ||
+      !ParticipantMonthNavigationReturnsSelectionAndProtectsDirtyProfile() ||
+      !ParticipantStatisticsDistinguishesUnavailableSources() ||
       !ParticipantEditorUsesReasonableYearAndKeepsIdInDetails() ||
+      !ParticipantEditorRejectsFutureTrainingStart() ||
+      !ParticipantEditorPreservesStoredFutureTrainingStart() ||
+      !ParticipantEditorWarnsAboutStartAfterFirstRecordedVisit() ||
       !ParticipantDirectoryHidesIdAndSortsByRank() ||
       !EventEditorDoesNotDuplicateFullNameOnlyParticipant() ||
+      !EventEditorSeparatesCompetitorsAndAttendees() ||
+      !EventEditorRequiresExplicitCategory() ||
       !EventEditorSupportsInternalAndFreeBoutSides())
   {
     return 1;

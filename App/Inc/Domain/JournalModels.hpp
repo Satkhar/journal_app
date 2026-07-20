@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDate>
 #include <QFlags>
 #include <QHash>
 #include <QHashFunctions>
@@ -71,6 +72,22 @@ enum class CombatHand
   Left,
 };
 
+// Календарный месяц без ложной точности до дня. Используется как для
+// навигации по журналу, так и для известных только до месяца дат профиля.
+struct JournalMonth
+{
+  int year;
+  int month;
+};
+
+inline bool operator==(const JournalMonth& lhs, const JournalMonth& rhs)
+{
+  return lhs.year == rhs.year && lhs.month == rhs.month;
+}
+
+bool IsTrainingStartMonthNotAfter(
+    const std::optional<JournalMonth>& month, const QDate& referenceDate);
+
 const std::vector<ParticipantRank>& ParticipantRanksInDisplayOrder();
 QString ParticipantRankStorageValue(ParticipantRank rank);
 QString ParticipantRankDisplayName(ParticipantRank rank);
@@ -91,6 +108,7 @@ struct ParticipantProfile
   QString fullName;
   QString contact;
   std::optional<Birthday> birthday;
+  std::optional<JournalMonth> trainingStartMonth;
   ParticipantRank rank{ParticipantRank::Guest};
   CombatHand combatHand{CombatHand::Unknown};
   QString notes;
@@ -156,18 +174,26 @@ struct MonthStateResult
   QString errorMessage;
 };
 
-// Идентификатор сформированного месяца для навигации и выбора источника.
-// Это value object, а не признак существования: наличие подтверждает storage.
-struct JournalMonth
+struct ParticipantMonthStatistics
 {
-  int year;
-  int month;
+  JournalMonth month{0, 0};
+  int trackedDayCount = 0;
+  int attendedDayCount = 0;
+  int specialTrainingVisitCount = 0;
+  int ledTrainingDayCount = 0;
 };
 
-inline bool operator==(const JournalMonth& lhs, const JournalMonth& rhs)
+struct ParticipantJournalStatistics
 {
-  return lhs.year == rhs.year && lhs.month == rhs.month;
-}
+  ParticipantId participantId;
+  // Месяцы присутствия в составе, включая месяцы без посещений.
+  std::vector<ParticipantMonthStatistics> months;
+  int totalAttendedDayCount = 0;
+  int totalSpecialTrainingVisitCount = 0;
+  int totalLedTrainingDayCount = 0;
+  std::optional<QDate> firstRecordedVisit;
+  std::optional<QDate> lastRecordedVisit;
+};
 
 struct MonthSnapshot
 {

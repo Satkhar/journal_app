@@ -81,7 +81,56 @@ bool cachedNameWithoutSourceIsRejected(const QString& path)
   return rejected;
 }
 
-bool isNormalizedSchemaV9(const QString& path, bool expectsTrainerBackup)
+bool partialTrainingStartIsRejected(const QString& path,
+                                    const ParticipantId& participantId)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  bool rejected = false;
+  if (db.open())
+  {
+    QSqlQuery query(db);
+    query.prepare("UPDATE participants SET training_start_year = 2019, "
+                  "training_start_month = NULL WHERE id = :id");
+    query.bindValue(":id", participantId.value);
+    rejected = !query.exec();
+    query.prepare("UPDATE participants SET training_start_year = 1899, "
+                  "training_start_month = 12 WHERE id = :id");
+    query.bindValue(":id", participantId.value);
+    rejected = rejected && !query.exec();
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return rejected;
+}
+
+bool setStoredTrainingStartMonth(const QString& path,
+                                 const ParticipantId& participantId,
+                                 const JournalMonth& month)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  bool updated = false;
+  if (db.open())
+  {
+    QSqlQuery query(db);
+    query.prepare("UPDATE participants SET training_start_year = :year, "
+                  "training_start_month = :month WHERE id = :id");
+    query.bindValue(":year", month.year);
+    query.bindValue(":month", month.month);
+    query.bindValue(":id", participantId.value);
+    updated = query.exec() && query.numRowsAffected() == 1;
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return updated;
+}
+
+bool isNormalizedSchemaV10(const QString& path, bool expectsTrainerBackup)
 {
   const QString connection = QUuid::createUuid().toString();
   QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
@@ -90,12 +139,14 @@ bool isNormalizedSchemaV9(const QString& path, bool expectsTrainerBackup)
   bool hasTrainerColumn = false;
   bool hasHistoricalNameColumn = false;
   bool hasCombatHandColumn = false;
+  bool hasTrainingStartYearColumn = false;
+  bool hasTrainingStartMonthColumn = false;
   bool backupOk = !expectsTrainerBackup;
   if (db.open())
   {
     QSqlQuery query(db);
     versionOk = query.exec("PRAGMA user_version") && query.next() &&
-                query.value(0).toInt() == 9;
+                query.value(0).toInt() == 10;
     if (query.exec("PRAGMA table_info(participants)"))
     {
       while (query.next())
@@ -107,6 +158,12 @@ bool isNormalizedSchemaV9(const QString& path, bool expectsTrainerBackup)
             query.value(1).toString() == "historical_name";
         hasCombatHandColumn =
             hasCombatHandColumn || query.value(1).toString() == "combat_hand";
+        hasTrainingStartYearColumn =
+            hasTrainingStartYearColumn ||
+            query.value(1).toString() == "training_start_year";
+        hasTrainingStartMonthColumn =
+            hasTrainingStartMonthColumn ||
+            query.value(1).toString() == "training_start_month";
       }
     }
     else
@@ -125,7 +182,8 @@ bool isNormalizedSchemaV9(const QString& path, bool expectsTrainerBackup)
   db = QSqlDatabase();
   QSqlDatabase::removeDatabase(connection);
   return versionOk && !hasTrainerColumn && hasHistoricalNameColumn &&
-         hasCombatHandColumn && backupOk;
+         hasCombatHandColumn && hasTrainingStartYearColumn &&
+         hasTrainingStartMonthColumn && backupOk;
 }
 
 bool createSchemaV5Database(const QString& path, const Participant& person)
@@ -330,6 +388,31 @@ bool birthdayValidationTest()
                "invalid month day was accepted");
 }
 
+bool trainingStartValidationTest()
+{
+  ParticipantProfile profile = participantProfile("Training Start");
+  profile.trainingStartMonth = JournalMonth{1900, 1};
+  if (!check(profile.isValid(), "valid training-start month was rejected"))
+  {
+    return false;
+  }
+  profile.trainingStartMonth = JournalMonth{1899, 12};
+  if (!check(!profile.isValid(), "pre-1900 training-start month was accepted"))
+  {
+    return false;
+  }
+  const QDate futureMonth =
+      QDate(QDate::currentDate().year(), QDate::currentDate().month(), 1)
+          .addMonths(1);
+  profile.trainingStartMonth =
+      JournalMonth{futureMonth.year(), futureMonth.month()};
+  return check(profile.isValid(),
+               "structurally valid future month invalidated stored profile") &&
+         check(!IsTrainingStartMonthNotAfter(profile.trainingStartMonth,
+                                             QDate::currentDate()),
+               "future training-start month passed temporal validation");
+}
+
 bool freshDatabaseTest(const QString& path)
 {
   SqliteConnect storage;
@@ -418,6 +501,7 @@ bool freshDatabaseTest(const QString& path)
   profile->fullName = "Alice Example Smith";
   profile->contact = "@alice_example";
   profile->birthday = Birthday{29, 2, std::nullopt};
+  profile->trainingStartMonth = JournalMonth{2019, 9};
   profile->rank = ParticipantRank::Squire;
   profile->combatHand = CombatHand::Left;
   profile->notes = "Plain text note";
@@ -435,6 +519,7 @@ bool freshDatabaseTest(const QString& path)
                  renamed.front().id == alice.id &&
                  updatedProfile->fullName == "Alice Example Smith" &&
                  updatedProfile->contact == "@alice_example" &&
+                 updatedProfile->trainingStartMonth == JournalMonth{2019, 9} &&
                  updatedProfile->rank == ParticipantRank::Squire &&
                  updatedProfile->combatHand == CombatHand::Left,
              "profile update lost identity, contact, rank, or combat hand"))
@@ -446,6 +531,39 @@ bool freshDatabaseTest(const QString& path)
   invalid.birthday = Birthday{29, 2, 2023};
   if (!check(!storage.updateParticipantProfile(invalid),
              "invalid birthday was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.trainingStartMonth = JournalMonth{2020, 13};
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "invalid training-start month was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  const QDate futureMonth =
+      QDate(QDate::currentDate().year(), QDate::currentDate().month(), 1)
+          .addMonths(1);
+  invalid.trainingStartMonth =
+      JournalMonth{futureMonth.year(), futureMonth.month()};
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "future training-start month was accepted"))
+  {
+    return false;
+  }
+  const JournalMonth futureStored{futureMonth.year(), futureMonth.month()};
+  if (!check(setStoredTrainingStartMonth(path, profile->id, futureStored),
+             "test setup could not store a structurally valid future month"))
+  {
+    return false;
+  }
+  const auto futureProfile = storage.getParticipantProfile(profile->id);
+  if (!check(futureProfile.has_value() &&
+                 futureProfile->trainingStartMonth == futureStored,
+             "future stored month made the entire profile unreadable") ||
+      !check(setStoredTrainingStartMonth(path, profile->id, {2019, 9}),
+             "test setup could not restore training-start month"))
   {
     return false;
   }
@@ -539,8 +657,171 @@ bool freshDatabaseTest(const QString& path)
                "membership removal failed") &&
          check(storage.getParticipantProfile(alice.id).has_value(),
                "membership removal deleted global profile") &&
+         check(partialTrainingStartIsRejected(path, alice.id),
+               "database accepted partial training-start month") &&
          check(cachedNameWithoutSourceIsRejected(path),
                "database accepted cached name without a source name");
+}
+
+bool participantStatisticsTest(const QString& path)
+{
+  SqliteConnect storage;
+  if (!check(storage.open(path), "statistics database open failed"))
+  {
+    return false;
+  }
+  const ParticipantProfile alice = participantProfile("Statistics Alice");
+
+  if (!check(storage.saveActiveDays(2025, 1, {2, 3, 4, 5}),
+             "January active days setup failed") ||
+      !check(storage.addParticipantToMonth(2025, 1, alice),
+             "January participant insert failed") ||
+      !check(storage.saveAttendance(
+                 2025, 1,
+                 {{alice.id, 2, true}, {alice.id, 4, true},
+                  {alice.id, 5, true}}),
+             "January attendance setup failed") ||
+      !check(storage.saveDayMarker(
+                 2025, 1,
+                 {alice.id, 2, DayMarkerKind::SpecialTraining, "Special"}),
+             "January special marker setup failed") ||
+      !check(storage.saveDayMarker(
+                 2025, 1,
+                 {alice.id, 3, DayMarkerKind::LedTraining, "Led"}),
+             "January led marker setup failed") ||
+      !check(storage.saveDayMarker(
+                 2025, 1,
+                 {alice.id, 5,
+                  DayMarkerKind::SpecialTraining |
+                      DayMarkerKind::LedTraining,
+                  "Hidden"}),
+             "January hidden marker setup failed") ||
+      !check(storage.saveActiveDays(2025, 1, {2, 3, 4}),
+             "January active day reduction failed"))
+  {
+    return false;
+  }
+
+  if (!check(storage.saveActiveDays(2025, 2, {1, 2}),
+             "February active days setup failed") ||
+      !check(storage.addParticipantToMonth(2025, 2, alice),
+             "February participant insert failed") ||
+      !check(storage.saveActiveDays(2025, 3, {1, 2}),
+             "March active days setup failed") ||
+      !check(storage.addParticipantToMonth(2025, 3, alice),
+             "March participant insert failed") ||
+      !check(storage.saveAttendance(
+                 2025, 3, {{alice.id, 1, true}, {alice.id, 2, true}}),
+             "March attendance setup failed") ||
+      !check(storage.saveDayMarker(
+                 2025, 3,
+                 {alice.id, 1,
+                  DayMarkerKind::SpecialTraining |
+                      DayMarkerKind::LedTraining,
+                  "Special led"}),
+             "March special marker setup failed") ||
+      !check(storage.saveDayMarker(
+                 2025, 3,
+                 {alice.id, 2, DayMarkerKind::LedTraining, "Led"}),
+             "March led marker setup failed"))
+  {
+    return false;
+  }
+
+  const auto statistics = storage.participantStatistics(alice.id);
+  if (!check(statistics.has_value(), "participant statistics missing") ||
+      !check(statistics->participantId == alice.id,
+             "participant statistics identity mismatch") ||
+      !check(statistics->months.size() == 3,
+             "participant statistics lost roster month") ||
+      !check(statistics->months.at(0).month == JournalMonth{2025, 1} &&
+                 statistics->months.at(1).month == JournalMonth{2025, 2} &&
+                 statistics->months.at(2).month == JournalMonth{2025, 3},
+             "participant statistics are not chronological"))
+  {
+    return false;
+  }
+  const ParticipantMonthStatistics& january = statistics->months.at(0);
+  const ParticipantMonthStatistics& february = statistics->months.at(1);
+  const ParticipantMonthStatistics& march = statistics->months.at(2);
+  if (!check(january.trackedDayCount == 3 &&
+                 january.attendedDayCount == 2 &&
+                 january.specialTrainingVisitCount == 1 &&
+                 january.ledTrainingDayCount == 1,
+             "January statistics include hidden or unchecked days") ||
+      !check(february.trackedDayCount == 2 &&
+                 february.attendedDayCount == 0 &&
+                 february.specialTrainingVisitCount == 0 &&
+                 february.ledTrainingDayCount == 0,
+             "zero-attendance roster month statistics are invalid") ||
+      !check(march.trackedDayCount == 2 && march.attendedDayCount == 2 &&
+                 march.specialTrainingVisitCount == 1 &&
+                 march.ledTrainingDayCount == 2,
+             "March statistics are invalid") ||
+      !check(statistics->totalAttendedDayCount == 4 &&
+                 statistics->totalSpecialTrainingVisitCount == 2 &&
+                 statistics->totalLedTrainingDayCount == 3,
+             "participant statistics totals are invalid") ||
+      !check(statistics->firstRecordedVisit == QDate(2025, 1, 2) &&
+                 statistics->lastRecordedVisit == QDate(2025, 3, 2),
+             "participant visit bounds are invalid"))
+  {
+    return false;
+  }
+
+  if (!check(storage.setParticipantArchived(alice.id, true),
+             "statistics participant archive failed"))
+  {
+    return false;
+  }
+  const auto archivedStatistics = storage.participantStatistics(alice.id);
+  if (!check(archivedStatistics.has_value() &&
+                 archivedStatistics->totalAttendedDayCount == 4,
+             "archive removed participant statistics"))
+  {
+    return false;
+  }
+
+  const ParticipantId missing{
+      QUuid::createUuid().toString(QUuid::WithoutBraces)};
+  if (!check(!storage.participantStatistics(missing).has_value() &&
+                 !storage.lastError().isEmpty(),
+             "missing participant returned zero statistics") ||
+      !check(!storage.participantStatistics({"invalid"}).has_value(),
+             "invalid participant ID returned statistics"))
+  {
+    return false;
+  }
+
+  if (!check(storage.removeParticipantFromMonth(2025, 1, alice.id),
+             "statistics membership removal failed"))
+  {
+    return false;
+  }
+  const auto reduced = storage.participantStatistics(alice.id);
+  if (!check(reduced.has_value() && reduced->months.size() == 2 &&
+                 reduced->totalAttendedDayCount == 2 &&
+                 reduced->totalSpecialTrainingVisitCount == 1 &&
+                 reduced->totalLedTrainingDayCount == 2 &&
+                 reduced->firstRecordedVisit == QDate(2025, 3, 1),
+             "membership cascade did not update statistics"))
+  {
+    return false;
+  }
+
+  if (!check(storage.removeParticipantFromMonth(2025, 2, alice.id),
+             "February membership removal failed") ||
+      !check(storage.removeParticipantFromMonth(2025, 3, alice.id),
+             "March membership removal failed"))
+  {
+    return false;
+  }
+  const auto empty = storage.participantStatistics(alice.id);
+  return check(empty.has_value() && empty->months.empty() &&
+                   empty->totalAttendedDayCount == 0 &&
+                   !empty->firstRecordedVisit.has_value() &&
+                   !empty->lastRecordedVisit.has_value(),
+               "profile without memberships returned history");
 }
 
 bool snapshotNameSourcesRoundTrip(const QString& sourcePath,
@@ -582,7 +863,7 @@ bool snapshotNameSourcesRoundTrip(const QString& sourcePath,
                "snapshot import lost ordinary or historical name source");
 }
 
-bool migrationV5ToV9Test(const QString& path)
+bool migrationV5ToV10Test(const QString& path)
 {
   const Participant alice = participant("V5 Alice");
   if (!createSchemaV5Database(path, alice))
@@ -590,7 +871,7 @@ bool migrationV5ToV9Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v5 to v9 migration failed"))
+  if (!check(storage.open(path), "schema v5 to v10 migration failed"))
   {
     return false;
   }
@@ -601,6 +882,7 @@ bool migrationV5ToV9Test(const QString& path)
   return check(profile.has_value() &&
                    profile->rank == ParticipantRank::Knight &&
                    profile->combatHand == CombatHand::Unknown &&
+                   !profile->trainingStartMonth.has_value() &&
                    profile->historicalName == "V5 Alice" &&
                    profile->fullName.isEmpty() && profile->contact.isEmpty(),
                "v5 migration lost rank or assigned invalid detail defaults") &&
@@ -608,13 +890,13 @@ bool migrationV5ToV9Test(const QString& path)
                    migratedMarkers.front().kinds == DayMarkerKind::Payment,
                "v5 migration lost old day marker") &&
          check(storage.saveDayMarker(2025, 7, trainerMarker),
-               "v9 schema rejected trainer day marker") &&
-         check(storage.open(path), "migrated v9 reopen is not idempotent") &&
-         check(isNormalizedSchemaV9(path, false),
-               "v5 migration did not produce clean schema v9");
+               "v10 schema rejected trainer day marker") &&
+         check(storage.open(path), "migrated v10 reopen is not idempotent") &&
+         check(isNormalizedSchemaV10(path, false),
+               "v5 migration did not produce clean schema v10");
 }
 
-bool migrationV7ToV9Test(const QString& path)
+bool migrationV7ToV10Test(const QString& path)
 {
   const Participant alice = participant("V7 Alice");
   const QString fullName(kMaxParticipantFullNameLength, QLatin1Char('f'));
@@ -623,14 +905,15 @@ bool migrationV7ToV9Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v7 to v9 migration failed"))
+  if (!check(storage.open(path), "schema v7 to v10 migration failed"))
   {
     return false;
   }
   auto profile = storage.getParticipantProfile(alice.id);
   if (!check(profile.has_value() && profile->displayName == "V7 Alice" &&
                  profile->historicalName == "V7 Alice" &&
-                 profile->fullName == fullName,
+                 profile->fullName == fullName &&
+                 !profile->trainingStartMonth.has_value(),
              "v7 migration confused historical and ordinary names"))
   {
     return false;
@@ -640,8 +923,8 @@ bool migrationV7ToV9Test(const QString& path)
                "migrated schema rejected 300-character ordinary name") &&
          check(storage.getParticipantProfile(alice.id)->displayName == fullName,
                "ordinary-name fallback failed after v7 migration") &&
-         check(isNormalizedSchemaV9(path, false),
-               "v7 migration did not produce clean schema v9");
+         check(isNormalizedSchemaV10(path, false),
+               "v7 migration did not produce clean schema v10");
 }
 
 bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
@@ -662,8 +945,8 @@ bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
                "repaired schema v6 rejected trainer marker") &&
          check(storage.open(path),
                "repaired development schema v6 reopen failed") &&
-         check(isNormalizedSchemaV9(path, withTrainerColumn),
-               "development schema v6 was not normalized to v9");
+      check(isNormalizedSchemaV10(path, withTrainerColumn),
+            "development schema v6 was not normalized to v10");
 }
 
 } // namespace
@@ -677,12 +960,13 @@ int main(int argc, char* argv[])
     return 1;
   }
   const bool ok =
-      birthdayValidationTest() &&
+      birthdayValidationTest() && trainingStartValidationTest() &&
       freshDatabaseTest(directory.filePath("fresh.db")) &&
+      participantStatisticsTest(directory.filePath("statistics.db")) &&
       snapshotNameSourcesRoundTrip(directory.filePath("snapshot-source.db"),
                                    directory.filePath("snapshot-target.db")) &&
-      migrationV5ToV9Test(directory.filePath("v5.db")) &&
-      migrationV7ToV9Test(directory.filePath("v7.db")) &&
+      migrationV5ToV10Test(directory.filePath("v5.db")) &&
+      migrationV7ToV10Test(directory.filePath("v7.db")) &&
       developmentV6IsRepaired(directory.filePath("old-v6-trainer.db"), true) &&
       developmentV6IsRepaired(directory.filePath("old-v6-marker.db"), false);
   return ok ? 0 : 1;

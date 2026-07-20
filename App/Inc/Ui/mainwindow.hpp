@@ -107,6 +107,7 @@ private:
   // Создает пустую таблицу под выбранный месяц.
   void createEmptyTable();
   void setupCalendarControls();
+  bool navigateToMonth(int targetYear, int targetMonth);
   void updateMonthSelector(int shownYear, int shownMonth);
   void handleMonthPageChanged(int shownYear, int shownMonth);
   void applyCalendarExpanded(bool expanded);
@@ -160,6 +161,7 @@ private:
                      const Participant& participant, int day);
   // Пересчитывает число отмеченных активных дней для строки участника.
   void updateAttendanceCount(QTableWidget* tableWidget, int row);
+  void updateDayAttendanceCount(QTableWidget* tableWidget, int column);
   // Считывает текущий месяц/год/число дней из календаря.
   void updateCalendarVariables(QCalendarWidget* calendarWidget);
 };

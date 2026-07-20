@@ -21,7 +21,7 @@ DayMarkerDialog::DayMarkerDialog(const QString& participantName,
                                  const QString& initialNote, QWidget* parent)
     : QDialog(parent), paymentCheckBox_(new QCheckBox("Оплата", this)),
       specialTrainingCheckBox_(
-          new QCheckBox("Особенная тренировка", this)),
+          new QCheckBox("Тренировка в доспехах", this)),
       firstVisitCheckBox_(new QCheckBox("Первое посещение", this)),
       otherCheckBox_(new QCheckBox("Другое", this)),
       trainerCheckBox_(new QCheckBox("Вёл тренировку", this)),

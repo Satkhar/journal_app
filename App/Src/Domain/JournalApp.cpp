@@ -77,6 +77,11 @@ JournalApp::JournalApp(std::unique_ptr<IJournalStorage> storage)
   Q_ASSERT(storage_);
 }
 
+QString JournalApp::lastError() const
+{
+  return storage_->lastError();
+}
+
 std::optional<std::vector<JournalMonth>> JournalApp::configuredMonths()
 {
   return storage_->listMonths();
@@ -294,6 +299,16 @@ JournalApp::participantProfile(const ParticipantId& id)
   return storage_->getParticipantProfile(id);
 }
 
+std::optional<ParticipantJournalStatistics>
+JournalApp::participantStatistics(const ParticipantId& id)
+{
+  if (!id.isValid())
+  {
+    return std::nullopt;
+  }
+  return storage_->participantStatistics(id);
+}
+
 std::optional<std::vector<ParticipantProfile>>
 JournalApp::participantProfiles(bool includeArchived)
 {
@@ -308,7 +323,9 @@ bool JournalApp::updateParticipantProfile(const ParticipantProfile& profile)
   normalized.contact = normalized.contact.trimmed();
   normalized.displayName = ParticipantDisplayName(normalized);
   if ((normalized.historicalName.isEmpty() && normalized.fullName.isEmpty()) ||
-      !normalized.isValid())
+      !normalized.isValid() ||
+      !IsTrainingStartMonthNotAfter(normalized.trainingStartMonth,
+                                    QDate::currentDate()))
   {
     return false;
   }

@@ -44,6 +44,11 @@ public:
   // rank, notes и archive status пока остаются локальными данными.
   virtual std::optional<ParticipantProfile>
   getParticipantProfile(const ParticipantId& id) = 0;
+  // Вычисляемый read-model: месяцы состава идут хронологически, выключенные
+  // даты не считаются посещениями. nullopt означает storage/not-found error,
+  // а профиль без истории возвращает валидную статистику с пустым months.
+  virtual std::optional<ParticipantJournalStatistics>
+  participantStatistics(const ParticipantId& id) = 0;
   virtual std::optional<std::vector<ParticipantProfile>>
   listParticipantProfiles(bool includeArchived) = 0;
   virtual bool updateParticipantProfile(const ParticipantProfile& profile) = 0;

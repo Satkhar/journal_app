@@ -40,6 +40,8 @@ public:
   bool replaceMonth(int year, int month, const MonthSnapshot& snapshot);
   std::optional<ParticipantProfile>
   getParticipantProfile(const ParticipantId& id);
+  std::optional<ParticipantJournalStatistics>
+  participantStatistics(const ParticipantId& id);
   std::optional<std::vector<ParticipantProfile>>
   listParticipantProfiles(bool includeArchived);
   bool updateParticipantProfile(const ParticipantProfile& profile);
@@ -57,11 +59,13 @@ private:
   bool createSchemaV7();
   bool createSchemaV8();
   bool createSchemaV9();
+  bool createSchemaV10();
   bool createDayMarkerSchema();
   bool createRankSchema();
   bool createParticipantDetailsSchema();
   bool createParticipantNameSchema();
   bool createCombatHandSchema();
+  bool createTrainingStartSchema();
   bool upgradeDayMarkerKindsSchema();
   bool migrateLegacyUsersToV3();
   bool cleanupLegacyTables();
@@ -72,6 +76,7 @@ private:
   bool migrateSchemaV6ToV7();
   bool migrateSchemaV7ToV8();
   bool migrateSchemaV8ToV9();
+  bool migrateSchemaV9ToV10();
   bool createProfileValidationTriggers();
   bool verifySchemaV3();
   bool verifySchemaV4();
@@ -79,6 +84,7 @@ private:
   bool verifySchemaV7();
   bool verifySchemaV8();
   bool verifySchemaV9();
+  bool verifySchemaV10();
   bool tableExists(const QString& tableName) const;
   bool enableForeignKeys();
   bool validateYearMonth(int year, int month) const;

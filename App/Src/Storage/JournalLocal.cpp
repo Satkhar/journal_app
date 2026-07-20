@@ -95,6 +95,12 @@ JournalLocal::getParticipantProfile(const ParticipantId& id)
   return sqlite_->getParticipantProfile(id);
 }
 
+std::optional<ParticipantJournalStatistics>
+JournalLocal::participantStatistics(const ParticipantId& id)
+{
+  return sqlite_->participantStatistics(id);
+}
+
 std::optional<std::vector<ParticipantProfile>>
 JournalLocal::listParticipantProfiles(bool includeArchived)
 {

@@ -2,6 +2,7 @@
 
 #include <QCheckBox>
 #include <QHBoxLayout>
+#include <QSignalBlocker>
 #include <QStringList>
 #include <QToolButton>
 
@@ -21,7 +22,7 @@ QStringList markerKindNames(DayMarkerKinds kinds)
   }
   if (kinds.testFlag(DayMarkerKind::SpecialTraining))
   {
-    names.push_back("Особенная тренировка");
+    names.push_back("Тренировка в доспехах");
   }
   if (kinds.testFlag(DayMarkerKind::FirstVisit))
   {
@@ -48,6 +49,7 @@ AttendanceCellWidget::AttendanceCellWidget(
       attendanceCheckBox_(new QCheckBox(this)),
       markerButton_(new QToolButton(this)), marker_(std::move(marker))
 {
+  setObjectName("attendanceCell");
   auto* layout = new QHBoxLayout(this);
   layout->setContentsMargins(1, 0, 1, 0);
   layout->setSpacing(1);
@@ -59,11 +61,34 @@ AttendanceCellWidget::AttendanceCellWidget(
       QString("Посещение: %1, %2")
           .arg(participantName_, date_.toString("dd.MM.yyyy")));
   layout->addWidget(attendanceCheckBox_);
+  connect(attendanceCheckBox_, &QCheckBox::toggled, this,
+          [this]() { updateAttendancePresentation(); });
 
   markerButton_->setObjectName("dayMarkerButton");
   markerButton_->setFixedSize(kMarkerButtonSize, kMarkerButtonSize);
   markerButton_->setFocusPolicy(Qt::StrongFocus);
   layout->addWidget(markerButton_);
+  connect(markerButton_, &QToolButton::clicked, this,
+          &AttendanceCellWidget::markerEditRequested);
+
+  const auto requestMarkerEdit = [this](const QPoint&)
+  {
+    if (markerButton_->isEnabled())
+    {
+      emit markerEditRequested();
+    }
+  };
+  setContextMenuPolicy(Qt::CustomContextMenu);
+  attendanceCheckBox_->setContextMenuPolicy(Qt::CustomContextMenu);
+  markerButton_->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(this, &QWidget::customContextMenuRequested, this,
+          requestMarkerEdit);
+  connect(attendanceCheckBox_, &QWidget::customContextMenuRequested, this,
+          requestMarkerEdit);
+  connect(markerButton_, &QWidget::customContextMenuRequested, this,
+          requestMarkerEdit);
+
+  updateAttendancePresentation();
   updateMarkerPresentation();
 }
 
@@ -87,6 +112,13 @@ const std::optional<ParticipantDayMarker>& AttendanceCellWidget::marker() const
   return marker_;
 }
 
+void AttendanceCellWidget::setAttendanceChecked(bool checked)
+{
+  const QSignalBlocker blocker(attendanceCheckBox_);
+  attendanceCheckBox_->setChecked(checked);
+  updateAttendancePresentation();
+}
+
 void AttendanceCellWidget::setMarker(
     const std::optional<ParticipantDayMarker>& marker)
 {
@@ -100,14 +132,32 @@ void AttendanceCellWidget::setEditable(bool editable)
   markerButton_->setEnabled(editable);
 }
 
+void AttendanceCellWidget::updateAttendancePresentation()
+{
+  setAttribute(Qt::WA_StyledBackground, true);
+  if (attendanceCheckBox_->isChecked())
+  {
+    setStyleSheet(
+        "QWidget#attendanceCell { background: #DFF2DF; "
+        "border: 1px solid #A6D2A6; }");
+  }
+  else
+  {
+    setStyleSheet(
+        "QWidget#attendanceCell { background: transparent; border: 0; }");
+  }
+}
+
 void AttendanceCellWidget::updateMarkerPresentation()
 {
   if (!marker_.has_value())
   {
     markerButton_->setText("+");
     markerButton_->setStyleSheet(
-        "QToolButton { color: #555; background: transparent; "
-        "border: 1px solid #999; border-radius: 9px; font-weight: 700; }");
+        "QToolButton { color: #607D8B; background: #ECEFF1; "
+        "border: 1px solid #B0BEC5; border-radius: 9px; font-weight: 700; }"
+        "QToolButton:hover, QToolButton:focus { background: #CFD8DC; "
+        "border-color: #90A4AE; }");
     const QString text =
         QString("Добавить отметку: %1, %2")
             .arg(participantName_, date_.toString("dd.MM.yyyy"));

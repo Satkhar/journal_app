@@ -139,7 +139,7 @@ def convert(input_path: Path, sheet_name: str | None) -> dict:
                 add_marker(markers, participant_id, date.day, 1, "Оплата")
             if color == SPECIAL_TRAINING_COLOR:
                 add_marker(markers, participant_id, date.day, 2,
-                           "Железная тренировка")
+                           "Тренировка в доспехах")
             if color in FIRST_VISIT_COLORS:
                 add_marker(markers, participant_id, date.day, 4,
                            "Первая тренировка")

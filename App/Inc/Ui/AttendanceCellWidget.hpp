@@ -23,8 +23,12 @@ public:
   QCheckBox* attendanceCheckBox() const;
   QToolButton* markerButton() const;
   const std::optional<ParticipantDayMarker>& marker() const;
+  void setAttendanceChecked(bool checked);
   void setMarker(const std::optional<ParticipantDayMarker>& marker);
   void setEditable(bool editable);
+
+signals:
+  void markerEditRequested();
 
 private:
   QString participantName_;
@@ -33,5 +37,6 @@ private:
   QToolButton* markerButton_;
   std::optional<ParticipantDayMarker> marker_;
 
+  void updateAttendancePresentation();
   void updateMarkerPresentation();
 };

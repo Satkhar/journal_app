@@ -8,26 +8,52 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
+#include <algorithm>
+
+#include "ParticipantStatisticsWidget.hpp"
+
 ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
                                      bool editable, QWidget* parent)
+    : ParticipantDialog(profile, ParticipantStatisticsData(), editable,
+                        parent)
+{
+}
+
+ParticipantDialog::ParticipantDialog(
+    const ParticipantProfile& profile,
+    const ParticipantStatisticsData& statistics,
+    bool editable, QWidget* parent)
     : QDialog(parent), original_(profile), action_(Action::Cancel),
       nameEdit_(new QLineEdit(profile.historicalName, this)),
       fullNameEdit_(new QLineEdit(profile.fullName, this)),
       contactEdit_(new QLineEdit(profile.contact, this)),
       birthdayCheck_(new QCheckBox("Дата рождения известна", this)),
       daySpin_(new QSpinBox(this)), monthSpin_(new QSpinBox(this)),
-      yearSpin_(new QSpinBox(this)), rankCombo_(new QComboBox(this)),
+      yearSpin_(new QSpinBox(this)),
+      trainingStartCheck_(
+          new QCheckBox("Начало тренировок известно", this)),
+      trainingStartMonthCombo_(new QComboBox(this)),
+      trainingStartYearSpin_(new QSpinBox(this)),
+      rankCombo_(new QComboBox(this)),
       combatHandCombo_(new QComboBox(this)), notesEdit_(new QTextEdit(this)),
-      saveButton_(nullptr), archiveButton_(nullptr), dirty_(false)
+      saveButton_(nullptr), archiveButton_(nullptr),
+      firstRecordedVisit_(statistics.journal.has_value()
+                              ? statistics.journal->firstRecordedVisit
+                              : std::optional<QDate>()),
+      dirty_(false),
+      selectedMonth_(std::nullopt)
 {
   setWindowTitle("Карточка участника");
-  setMinimumWidth(460);
+  setMinimumWidth(620);
+  resize(980, 700);
 
   nameEdit_->setObjectName("participantHistoricalNameEdit");
   nameEdit_->setMaxLength(kMaxParticipantHistoricalNameLength);
@@ -46,6 +72,26 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   yearSpin_->setSpecialValueText("Не указан");
   yearSpin_->setValue(kYearNotSpecified);
   yearSpin_->setMinimumWidth(105);
+  trainingStartCheck_->setObjectName(
+      "participantTrainingStartCheckBox");
+  trainingStartMonthCombo_->setObjectName(
+      "participantTrainingStartMonthComboBox");
+  const QLocale russian(QLocale::Russian, QLocale::Russia);
+  for (int month = 1; month <= 12; ++month)
+  {
+    trainingStartMonthCombo_->addItem(
+        russian.standaloneMonthName(month, QLocale::LongFormat), month);
+  }
+  trainingStartMonthCombo_->setCurrentIndex(QDate::currentDate().month() - 1);
+  trainingStartYearSpin_->setObjectName(
+      "participantTrainingStartYearSpinBox");
+  const int storedTrainingStartYear =
+      profile.trainingStartMonth.has_value()
+          ? profile.trainingStartMonth->year
+          : QDate::currentDate().year();
+  trainingStartYearSpin_->setRange(
+      1900, std::max(QDate::currentDate().year(), storedTrainingStartYear));
+  trainingStartYearSpin_->setValue(QDate::currentDate().year());
   rankCombo_->setObjectName("participantRankComboBox");
   for (ParticipantRank rank : ParticipantRanksInDisplayOrder())
   {
@@ -73,6 +119,14 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
     monthSpin_->setValue(profile.birthday->month);
     yearSpin_->setValue(profile.birthday->year.value_or(kYearNotSpecified));
   }
+  if (profile.trainingStartMonth.has_value())
+  {
+    trainingStartCheck_->setChecked(true);
+    trainingStartMonthCombo_->setCurrentIndex(
+        trainingStartMonthCombo_->findData(
+            profile.trainingStartMonth->month));
+    trainingStartYearSpin_->setValue(profile.trainingStartMonth->year);
+  }
 
   auto* birthdayLayout = new QHBoxLayout();
   birthdayLayout->addWidget(new QLabel("День", this));
@@ -81,6 +135,12 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   birthdayLayout->addWidget(monthSpin_);
   birthdayLayout->addWidget(new QLabel("Год", this));
   birthdayLayout->addWidget(yearSpin_);
+
+  auto* trainingStartLayout = new QHBoxLayout();
+  trainingStartLayout->addWidget(new QLabel("Месяц", this));
+  trainingStartLayout->addWidget(trainingStartMonthCombo_);
+  trainingStartLayout->addWidget(new QLabel("Год", this));
+  trainingStartLayout->addWidget(trainingStartYearSpin_);
 
   auto* form = new QFormLayout();
   auto* idLabel = new QLabel(profile.id.value, this);
@@ -94,6 +154,8 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   form->addRow("Боевая рука", combatHandCombo_);
   form->addRow(QString(), birthdayCheck_);
   form->addRow("Дата рождения", birthdayLayout);
+  form->addRow(QString(), trainingStartCheck_);
+  form->addRow("Начало тренировок", trainingStartLayout);
   form->addRow("Заметка", notesEdit_);
   form->addRow("Статус",
                new QLabel(profile.archived ? "Архив" : "Активен", this));
@@ -129,6 +191,7 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
     rankCombo_->setEnabled(false);
     combatHandCombo_->setEnabled(false);
     birthdayCheck_->setEnabled(false);
+    trainingStartCheck_->setEnabled(false);
     notesEdit_->setReadOnly(true);
   }
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -149,6 +212,16 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
           [this]() { dirty_ = true; });
   connect(yearSpin_, &QSpinBox::valueChanged, this,
           [this]() { dirty_ = true; });
+  connect(trainingStartCheck_, &QCheckBox::toggled, this,
+          [this]()
+          {
+            dirty_ = true;
+            updateTrainingStartControls();
+          });
+  connect(trainingStartMonthCombo_, &QComboBox::currentIndexChanged, this,
+          [this]() { dirty_ = true; });
+  connect(trainingStartYearSpin_, &QSpinBox::valueChanged, this,
+          [this]() { dirty_ = true; });
   connect(rankCombo_, &QComboBox::currentIndexChanged, this,
           [this]() { dirty_ = true; });
   connect(combatHandCombo_, &QComboBox::currentIndexChanged, this,
@@ -156,10 +229,45 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
   connect(notesEdit_, &QTextEdit::textChanged, this,
           [this]() { dirty_ = true; });
 
+  auto* profilePage = new QWidget(this);
+  profilePage->setObjectName("participantProfilePage");
+  auto* profileLayout = new QVBoxLayout(profilePage);
+  profileLayout->addLayout(form);
+
+  auto* statisticsWidget = new ParticipantStatisticsWidget(
+      statistics, profile.trainingStartMonth, this);
+  const auto updateStatisticsTrainingStart =
+      [this, statisticsWidget]()
+      {
+        std::optional<JournalMonth> value;
+        if (trainingStartCheck_->isChecked())
+        {
+          value = JournalMonth{
+              trainingStartYearSpin_->value(),
+              trainingStartMonthCombo_->currentData().toInt()};
+        }
+        statisticsWidget->setTrainingStartMonth(value);
+      };
+  connect(trainingStartCheck_, &QCheckBox::toggled, statisticsWidget,
+          updateStatisticsTrainingStart);
+  connect(trainingStartMonthCombo_, &QComboBox::currentIndexChanged,
+          statisticsWidget, updateStatisticsTrainingStart);
+  connect(trainingStartYearSpin_, &QSpinBox::valueChanged, statisticsWidget,
+          updateStatisticsTrainingStart);
+  connect(statisticsWidget, &ParticipantStatisticsWidget::monthActivated,
+          this,
+          [this](int year, int month) { openMonth(year, month); });
+
+  auto* tabs = new QTabWidget(this);
+  tabs->setObjectName("participantTabWidget");
+  tabs->addTab(profilePage, "Профиль");
+  tabs->addTab(statisticsWidget, "Статистика");
+
   auto* layout = new QVBoxLayout(this);
-  layout->addLayout(form);
+  layout->addWidget(tabs);
   layout->addWidget(buttons);
   updateBirthdayControls();
+  updateTrainingStartControls();
 }
 
 ParticipantDialog::Action ParticipantDialog::action() const
@@ -188,12 +296,24 @@ ParticipantProfile ParticipantDialog::profile() const
     }
     result.birthday = birthday;
   }
+  result.trainingStartMonth = std::nullopt;
+  if (trainingStartCheck_->isChecked())
+  {
+    result.trainingStartMonth =
+        JournalMonth{trainingStartYearSpin_->value(),
+                     trainingStartMonthCombo_->currentData().toInt()};
+  }
   return result;
 }
 
 bool ParticipantDialog::targetArchived() const
 {
   return !original_.archived;
+}
+
+std::optional<JournalMonth> ParticipantDialog::selectedMonth() const
+{
+  return selectedMonth_;
 }
 
 void ParticipantDialog::updateBirthdayControls()
@@ -205,18 +325,76 @@ void ParticipantDialog::updateBirthdayControls()
   yearSpin_->setEnabled(enabled);
 }
 
+void ParticipantDialog::updateTrainingStartControls()
+{
+  const bool enabled =
+      trainingStartCheck_->isChecked() && trainingStartCheck_->isEnabled();
+  trainingStartMonthCombo_->setEnabled(enabled);
+  trainingStartYearSpin_->setEnabled(enabled);
+}
+
 void ParticipantDialog::save()
 {
   const ParticipantProfile edited = profile();
+  if (edited.trainingStartMonth.has_value() &&
+      !IsTrainingStartMonthNotAfter(edited.trainingStartMonth,
+                                    QDate::currentDate()))
+  {
+    QMessageBox::warning(
+        this, "Некорректное начало тренировок",
+        "Месяц начала тренировок не может быть в будущем.");
+    return;
+  }
+  if (edited.trainingStartMonth.has_value() &&
+      firstRecordedVisit_.has_value())
+  {
+    const QDate trainingStart(edited.trainingStartMonth->year,
+                              edited.trainingStartMonth->month, 1);
+    const QDate firstVisitMonth(firstRecordedVisit_->year(),
+                                firstRecordedVisit_->month(), 1);
+    if (trainingStart > firstVisitMonth)
+    {
+      // Это предупреждение, а не storage-инвариант: profile и исторические
+      // month snapshots могут импортироваться или синхронизироваться отдельно.
+      const QMessageBox::StandardButton choice = QMessageBox::warning(
+          this, "Проверьте начало тренировок",
+          QString("Указанное начало тренировок позже первого посещения "
+                  "в журнале (%1). Сохранить это ручное значение?")
+              .arg(firstRecordedVisit_->toString("dd.MM.yyyy")),
+          QMessageBox::Save | QMessageBox::Cancel, QMessageBox::Cancel);
+      if (choice != QMessageBox::Save)
+      {
+        return;
+      }
+    }
+  }
   if ((edited.historicalName.isEmpty() && edited.fullName.isEmpty()) ||
       !edited.isValid())
   {
     QMessageBox::warning(this, "Некорректный профиль",
                          "Укажите ФИО или историчное имя. Проверьте контакт, "
-                         "дату рождения и длину заметки (не более 4096 "
-                         "символов).");
+                         "дату рождения, месяц начала тренировок и длину "
+                         "заметки (не более 4096 символов).");
     return;
   }
   action_ = Action::Save;
+  accept();
+}
+
+void ParticipantDialog::openMonth(int year, int month)
+{
+  if (!QDate(year, month, 1).isValid())
+  {
+    return;
+  }
+  if (dirty_)
+  {
+    QMessageBox::warning(
+        this, "Несохраненные изменения",
+        "Сохраните или отмените изменения профиля перед переходом к месяцу.");
+    return;
+  }
+  selectedMonth_ = JournalMonth{year, month};
+  action_ = Action::OpenMonth;
   accept();
 }

@@ -46,6 +46,7 @@ add_executable(journal_app
     ./App/Src/Ui/CopyUsersDialog.cpp
     ./App/Src/Ui/ParticipantDialog.cpp
     ./App/Src/Ui/ParticipantDirectoryDialog.cpp
+    ./App/Src/Ui/ParticipantStatisticsWidget.cpp
 
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Domain/EventApp.hpp
@@ -69,6 +70,7 @@ add_executable(journal_app
     ./App/Inc/Ui/CopyUsersDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
     ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
+    ./App/Inc/Ui/ParticipantStatisticsWidget.hpp
 
     ./journal_app.ui
     )
@@ -182,6 +184,7 @@ add_executable(journal_ui_tests
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/ParticipantDialog.cpp
     ./App/Src/Ui/ParticipantDirectoryDialog.cpp
+    ./App/Src/Ui/ParticipantStatisticsWidget.cpp
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Domain/EventModels.hpp
     ./App/Inc/Ui/AttendanceCellWidget.hpp
@@ -190,7 +193,8 @@ add_executable(journal_ui_tests
     ./App/Inc/Ui/EventDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
-    ./App/Inc/Ui/ParticipantDirectoryDialog.hpp)
+    ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
+    ./App/Inc/Ui/ParticipantStatisticsWidget.hpp)
 target_link_libraries(journal_ui_tests PRIVATE
     Qt6::Core
     Qt6::Gui

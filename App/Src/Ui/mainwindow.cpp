@@ -47,6 +47,7 @@
 #include "MonthDaysDialog.hpp"
 #include "ParticipantDialog.hpp"
 #include "ParticipantDirectoryDialog.hpp"
+#include "ParticipantStatisticsWidget.hpp"
 #include "SqliteConnect.hpp"
 #include "SyncService.hpp"
 #include "config.h"
@@ -127,6 +128,20 @@ QString dayHeaderLabel(int year, int month, int day)
       .arg(day, 2, 10, QLatin1Char('0'))
       .arg(month, 2, 10, QLatin1Char('0'))
       .arg(kDaysOfWeek.at(date.dayOfWeek() - 1));
+}
+
+QString dayHeaderLabel(int year, int month, int day, int attendanceCount)
+{
+  const QDate date(year, month, day);
+  if (!date.isValid() || attendanceCount < 0)
+  {
+    return {};
+  }
+  return QString("%1.%2\n%3 · %4")
+      .arg(day, 2, 10, QLatin1Char('0'))
+      .arg(month, 2, 10, QLatin1Char('0'))
+      .arg(kDaysOfWeek.at(date.dayOfWeek() - 1))
+      .arg(attendanceCount);
 }
 
 bool environmentFlag(const QProcessEnvironment& environment,
@@ -251,6 +266,7 @@ void MainWindow::setupCalendarControls()
   ui->calendarWidget->setNavigationBarVisible(false);
   ui->previousMonthButton->setMinimumSize(32, 28);
   ui->nextMonthButton->setMinimumSize(32, 28);
+  ui->todayButton->setMinimumHeight(28);
   ui->monthSelectorCombo->setMinimumWidth(160);
   ui->toggleCalendarButton->setMinimumHeight(28);
 
@@ -258,6 +274,15 @@ void MainWindow::setupCalendarControls()
           ui->calendarWidget, &QCalendarWidget::showPreviousMonth);
   connect(ui->nextMonthButton, &QToolButton::clicked, ui->calendarWidget,
           &QCalendarWidget::showNextMonth);
+  connect(ui->todayButton, &QToolButton::clicked, this,
+          [this]()
+          {
+            const QDate today = QDate::currentDate();
+            if (navigateToMonth(today.year(), today.month()))
+            {
+              ui->calendarWidget->setSelectedDate(today);
+            }
+          });
 
   ui->toggleCalendarButton->setChecked(false);
   applyCalendarExpanded(false);
@@ -278,13 +303,36 @@ void MainWindow::setupCalendarControls()
                 ui->monthSelectorCombo->itemData(index).toDate();
             if (selected.isValid())
             {
-              ui->calendarWidget->setCurrentPage(selected.year(),
-                                                 selected.month());
+              navigateToMonth(selected.year(), selected.month());
             }
           });
   connect(ui->calendarWidget, &QCalendarWidget::currentPageChanged, this,
           [this](int shownYear, int shownMonth)
           { handleMonthPageChanged(shownYear, shownMonth); });
+}
+
+bool MainWindow::navigateToMonth(int targetYear, int targetMonth)
+{
+  const QDate target(targetYear, targetMonth, 1);
+  if (!target.isValid())
+  {
+    return false;
+  }
+  const bool pageChanges =
+      ui->calendarWidget->yearShown() != targetYear ||
+      ui->calendarWidget->monthShown() != targetMonth;
+  if (!pageChanges)
+  {
+    updateMonthSelector(targetYear, targetMonth);
+    return true;
+  }
+  if (hasCurrentMonthDraft() && !finishMonthDraftBeforeContextChange())
+  {
+    return false;
+  }
+  ui->calendarWidget->setCurrentPage(targetYear, targetMonth);
+  return ui->calendarWidget->yearShown() == targetYear &&
+         ui->calendarWidget->monthShown() == targetMonth;
 }
 
 void MainWindow::updateMonthSelector(int shownYear, int shownMonth)
@@ -672,6 +720,11 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
                         marker);
     }
     updateAttendanceCount(tableWidget, row);
+  }
+
+  for (int index = 0; index < activeDays_.size(); ++index)
+  {
+    updateDayAttendanceCount(tableWidget, index + kFirstDayColumn);
   }
 
   tableWidget->resizeColumnsToContents();
@@ -1617,6 +1670,7 @@ void MainWindow::updateEditControlsByMode()
   ui->calendarWidget->setEnabled(controlsIdle);
   ui->previousMonthButton->setEnabled(controlsIdle);
   ui->nextMonthButton->setEnabled(controlsIdle);
+  ui->todayButton->setEnabled(controlsIdle);
   ui->monthSelectorCombo->setEnabled(controlsIdle);
 
   QTableWidget* tableWidget = findChild<QTableWidget*>("bigTable");
@@ -1832,14 +1886,14 @@ void MainWindow::addAttendanceCell(
   auto* cell = new AttendanceCellWidget(isChecked, participant.displayName,
                                         date, marker, tableWidget);
   tableWidget->setCellWidget(row, column, cell);
-  QCheckBox* checkBox = cell->attendanceCheckBox();
   const int targetYear = static_cast<int>(year);
   const int targetMonth = static_cast<int>(month);
   connect(cell->attendanceCheckBox(), &QCheckBox::toggled, tableWidget,
-          [this, tableWidget, row, checkBox, participantId = participant.id,
-           day, targetYear, targetMonth](bool checked)
+          [this, tableWidget, row, cell, participantId = participant.id, day,
+           column, targetYear, targetMonth](bool checked)
           {
             updateAttendanceCount(tableWidget, row);
+            updateDayAttendanceCount(tableWidget, column);
             if (!journalApp_ || activeStorageMode_ != "local" ||
                 isConnectingStorage_ || syncInProgress_ ||
                 refreshInProgress_ || !monthDataValid_)
@@ -1863,13 +1917,13 @@ void MainWindow::addAttendanceCell(
             }
 
             // UI не должен показывать значение, которое storage отклонил.
-            const QSignalBlocker blocker(checkBox);
-            checkBox->setChecked(!checked);
+            cell->setAttendanceChecked(!checked);
             updateAttendanceCount(tableWidget, row);
+            updateDayAttendanceCount(tableWidget, column);
             ui->statusbar->showMessage(
                 "Не удалось сохранить отметку посещения", 5000);
           });
-  connect(cell->markerButton(), &QToolButton::clicked, cell,
+  connect(cell, &AttendanceCellWidget::markerEditRequested, cell,
           [this, cell, participant, day]()
           { editDayMarker(cell, participant, day); });
 }
@@ -1973,6 +2027,38 @@ void MainWindow::updateAttendanceCount(QTableWidget* tableWidget, int row)
       QString::number(CountCheckedActiveDays(activeDays_, attendanceByDay)));
 }
 
+void MainWindow::updateDayAttendanceCount(QTableWidget* tableWidget,
+                                          int column)
+{
+  const int dayIndex = column - kFirstDayColumn;
+  if (!tableWidget || dayIndex < 0 || dayIndex >= activeDays_.size())
+  {
+    return;
+  }
+
+  int attendanceCount = 0;
+  for (int row = kFirstContentRow; row < tableWidget->rowCount(); ++row)
+  {
+    const auto* cell = qobject_cast<AttendanceCellWidget*>(
+        tableWidget->cellWidget(row, column));
+    if (cell && cell->isChecked())
+    {
+      ++attendanceCount;
+    }
+  }
+
+  QTableWidgetItem* header = tableWidget->horizontalHeaderItem(column);
+  if (!header)
+  {
+    header = new QTableWidgetItem();
+    tableWidget->setHorizontalHeaderItem(column, header);
+  }
+  header->setText(dayHeaderLabel(static_cast<int>(year),
+                                 static_cast<int>(month),
+                                 activeDays_.at(dayIndex), attendanceCount));
+  header->setToolTip(QString("Посетили: %1").arg(attendanceCount));
+}
+
 //---------------------------------------------------------------
 
 void MainWindow::updateCalendarVariables(QCalendarWidget* calendarWidget)
@@ -2005,10 +2091,58 @@ void MainWindow::openParticipantProfile(const ParticipantId& id)
     return;
   }
 
+  ParticipantStatisticsData statistics;
+  statistics.journal = journalApp_->participantStatistics(id);
+  if (!statistics.journal.has_value())
+  {
+    statistics.journalError = journalApp_->lastError();
+  }
+
+  if (activeStorageMode_ == "local")
+  {
+    const QString eventsPath = eventDatabasePath();
+    if (!QFileInfo::exists(eventsPath))
+    {
+      statistics.events = ParticipantEventStatistics{
+          id, 0, 0, std::nullopt, std::nullopt};
+    }
+    else
+    {
+      auto eventStorage = std::make_unique<EventSqliteStorage>();
+      if (eventStorage->open(eventsPath))
+      {
+        EventApp eventApp(std::move(eventStorage));
+        statistics.events = eventApp.participantStatistics(id);
+        if (!statistics.events.has_value())
+        {
+          statistics.eventError = eventApp.lastError();
+        }
+      }
+      else
+      {
+        statistics.eventError = eventStorage->lastError();
+      }
+    }
+  }
+  else
+  {
+    statistics.eventError =
+        "Статистика турниров доступна только в локальном режиме";
+  }
+
   const bool editable = activeStorageMode_ == "local";
-  ParticipantDialog dialog(*loaded, editable, this);
+  ParticipantDialog dialog(*loaded, statistics, editable, this);
   if (dialog.exec() != QDialog::Accepted)
   {
+    return;
+  }
+  if (dialog.action() == ParticipantDialog::Action::OpenMonth)
+  {
+    const auto selectedMonth = dialog.selectedMonth();
+    if (selectedMonth.has_value())
+    {
+      navigateToMonth(selectedMonth->year, selectedMonth->month);
+    }
     return;
   }
   if (dialog.action() == ParticipantDialog::Action::Save)
