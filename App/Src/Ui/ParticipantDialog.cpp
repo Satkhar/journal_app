@@ -19,10 +19,22 @@
 #include <algorithm>
 
 #include "ParticipantStatisticsWidget.hpp"
+#include "ParticipantEmblemWidget.hpp"
+#include "ParticipantStrikeHistoryDialog.hpp"
+#include "JournalApp.hpp"
 
 ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
                                      bool editable, QWidget* parent)
-    : ParticipantDialog(profile, ParticipantStatisticsData(), editable,
+    : ParticipantDialog(profile, ParticipantStatisticsData(), std::nullopt,
+                        nullptr, editable, parent)
+{
+}
+
+ParticipantDialog::ParticipantDialog(
+    const ParticipantProfile& profile,
+    const ParticipantStatisticsData& statistics,
+    bool editable, QWidget* parent)
+    : ParticipantDialog(profile, statistics, std::nullopt, nullptr, editable,
                         parent)
 {
 }
@@ -30,6 +42,7 @@ ParticipantDialog::ParticipantDialog(const ParticipantProfile& profile,
 ParticipantDialog::ParticipantDialog(
     const ParticipantProfile& profile,
     const ParticipantStatisticsData& statistics,
+    const std::optional<ParticipantEmblem>& emblem, JournalApp* journalApp,
     bool editable, QWidget* parent)
     : QDialog(parent), original_(profile), action_(Action::Cancel),
       nameEdit_(new QLineEdit(profile.historicalName, this)),
@@ -43,13 +56,16 @@ ParticipantDialog::ParticipantDialog(
       trainingStartMonthCombo_(new QComboBox(this)),
       trainingStartYearSpin_(new QSpinBox(this)),
       rankCombo_(new QComboBox(this)),
-      combatHandCombo_(new QComboBox(this)), notesEdit_(new QTextEdit(this)),
+      combatHandCombo_(new QComboBox(this)),
+      emblemWidget_(new ParticipantEmblemWidget(profile.id, emblem, editable,
+                                                 this)),
+      notesEdit_(new QTextEdit(this)),
       saveButton_(nullptr), archiveButton_(nullptr),
       firstRecordedVisit_(statistics.journal.has_value()
                               ? statistics.journal->firstRecordedVisit
                               : std::optional<QDate>()),
       dirty_(false),
-      selectedMonth_(std::nullopt)
+      selectedMonth_(std::nullopt), journalApp_(journalApp)
 {
   setWindowTitle("Карточка участника");
   setMinimumWidth(620);
@@ -152,6 +168,7 @@ ParticipantDialog::ParticipantDialog(
   form->addRow("Контакт", contactEdit_);
   form->addRow("Звание", rankCombo_);
   form->addRow("Боевая рука", combatHandCombo_);
+  form->addRow("Герб", emblemWidget_);
   form->addRow(QString(), birthdayCheck_);
   form->addRow("Дата рождения", birthdayLayout);
   form->addRow(QString(), trainingStartCheck_);
@@ -226,6 +243,8 @@ ParticipantDialog::ParticipantDialog(
           [this]() { dirty_ = true; });
   connect(combatHandCombo_, &QComboBox::currentIndexChanged, this,
           [this]() { dirty_ = true; });
+  connect(emblemWidget_, &ParticipantEmblemWidget::changed, this,
+          [this]() { dirty_ = true; });
   connect(notesEdit_, &QTextEdit::textChanged, this,
           [this]() { dirty_ = true; });
 
@@ -236,6 +255,17 @@ ParticipantDialog::ParticipantDialog(
 
   auto* statisticsWidget = new ParticipantStatisticsWidget(
       statistics, profile.trainingStartMonth, this);
+  if (!journalApp_)
+  {
+    auto* strikeHistoryButton = statisticsWidget->findChild<QPushButton*>(
+        "participantStrikeHistoryButton");
+    if (strikeHistoryButton)
+    {
+      strikeHistoryButton->setEnabled(false);
+      strikeHistoryButton->setToolTip(
+          "История замеров пока доступна только в локальном режиме");
+    }
+  }
   const auto updateStatisticsTrainingStart =
       [this, statisticsWidget]()
       {
@@ -257,6 +287,21 @@ ParticipantDialog::ParticipantDialog(
   connect(statisticsWidget, &ParticipantStatisticsWidget::monthActivated,
           this,
           [this](int year, int month) { openMonth(year, month); });
+  connect(statisticsWidget,
+          &ParticipantStatisticsWidget::strikeHistoryRequested, this,
+          [this, editable]()
+          {
+            if (!journalApp_)
+            {
+              QMessageBox::information(
+                  this, "Статистика недоступна",
+                  "Замеры ударов пока доступны только в локальном режиме.");
+              return;
+            }
+            ParticipantStrikeHistoryDialog dialog(*journalApp_, original_,
+                                                   editable, this);
+            dialog.exec();
+          });
 
   auto* tabs = new QTabWidget(this);
   tabs->setObjectName("participantTabWidget");
@@ -304,6 +349,16 @@ ParticipantProfile ParticipantDialog::profile() const
                      trainingStartMonthCombo_->currentData().toInt()};
   }
   return result;
+}
+
+ParticipantCardUpdate ParticipantDialog::cardUpdate() const
+{
+  ParticipantCardUpdate update;
+  update.profile = profile();
+  update.emblemAction = emblemWidget_->action();
+  update.emblem = emblemWidget_->emblem();
+  update.expectedEmblemRevision = emblemWidget_->expectedRevision();
+  return update;
 }
 
 bool ParticipantDialog::targetArchived() const

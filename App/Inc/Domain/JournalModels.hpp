@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QByteArray>
 #include <QDate>
+#include <QDateTime>
 #include <QFlags>
 #include <QHash>
 #include <QHashFunctions>
@@ -115,6 +117,103 @@ struct ParticipantProfile
   bool archived = false;
 
   bool isValid() const;
+};
+
+constexpr int kMaxParticipantEmblemBytes = 5 * 1024 * 1024;
+constexpr int kMaxParticipantEmblemDimension = 1024;
+
+// Герб принадлежит участнику и заменяется целиком. Хеш позволяет storage
+// обнаружить повреждение и позднее идентифицировать content-addressed asset.
+struct ParticipantEmblem
+{
+  ParticipantId participantId;
+  QByteArray imageData;
+  QByteArray sha256;
+  QString originalFileName;
+  int pixelWidth = 0;
+  int pixelHeight = 0;
+  qint64 revision = 0;
+
+  bool isValid() const;
+};
+
+enum class ParticipantEmblemAction
+{
+  Keep,
+  Replace,
+  Remove,
+};
+
+// Профиль и его единственный герб сохраняются одной storage-транзакцией.
+// Для Replace revision=0 означает первую запись, иначе это expected revision.
+struct ParticipantCardUpdate
+{
+  ParticipantProfile profile;
+  ParticipantEmblemAction emblemAction{ParticipantEmblemAction::Keep};
+  std::optional<ParticipantEmblem> emblem;
+  qint64 expectedEmblemRevision = 0;
+
+  bool isValid() const;
+};
+
+struct TimedStrikeTestId
+{
+  QString value;
+
+  bool isValid() const
+  {
+    const QUuid parsed(value);
+    return !parsed.isNull() &&
+           parsed.toString(QUuid::WithoutBraces) == value;
+  }
+};
+
+inline bool operator==(const TimedStrikeTestId& lhs,
+                       const TimedStrikeTestId& rhs)
+{
+  return lhs.value == rhs.value;
+}
+
+TimedStrikeTestId CreateTimedStrikeTestId();
+
+enum class StrikeHand
+{
+  Right,
+  Left,
+};
+
+QString StrikeHandStorageValue(StrikeHand hand);
+QString StrikeHandDisplayName(StrikeHand hand);
+std::optional<StrikeHand> StrikeHandFromStorageValue(const QString& value);
+
+enum class StrikeWeapon
+{
+  Sword,
+  Tyambara,
+};
+
+QString StrikeWeaponStorageValue(StrikeWeapon weapon);
+QString StrikeWeaponDisplayName(StrikeWeapon weapon);
+std::optional<StrikeWeapon>
+StrikeWeaponFromStorageValue(const QString& value);
+
+constexpr int kMaxTimedStrikeTestNoteLength = 4096;
+
+struct TimedStrikeTest
+{
+  TimedStrikeTestId id;
+  ParticipantId participantId;
+  QDateTime performedAt;
+  StrikeHand hand{StrikeHand::Right};
+  int strikeCount = 0;
+  int durationSeconds = 0;
+  StrikeWeapon weapon{StrikeWeapon::Sword};
+  QString note;
+  qint64 revision = 0;
+
+  bool isValid() const;
+  double strikesPerSecond() const;
+  double strikesPerMinute() const;
 };
 
 constexpr int kMaxParticipantDisplayNameLength = 300;

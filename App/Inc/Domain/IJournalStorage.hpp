@@ -49,6 +49,17 @@ public:
   // а профиль без истории возвращает валидную статистику с пустым months.
   virtual std::optional<ParticipantJournalStatistics>
   participantStatistics(const ParticipantId& id) = 0;
+  // Герб загружается лениво и не входит в лёгкий ParticipantProfile или
+  // month snapshot. Missing возвращает nullopt с пустым lastError().
+  virtual std::optional<ParticipantEmblem>
+  getParticipantEmblem(const ParticipantId& id) = 0;
+  virtual bool updateParticipantCard(const ParticipantCardUpdate& update) = 0;
+  // Замеры — авторитетная история. Скорость и прогресс вычисляются из неё.
+  virtual std::optional<std::vector<TimedStrikeTest>>
+  timedStrikeTests(const ParticipantId& id) = 0;
+  virtual bool saveTimedStrikeTest(const TimedStrikeTest& test) = 0;
+  virtual bool removeTimedStrikeTest(const TimedStrikeTestId& id,
+                                     qint64 expectedRevision) = 0;
   virtual std::optional<std::vector<ParticipantProfile>>
   listParticipantProfiles(bool includeArchived) = 0;
   virtual bool updateParticipantProfile(const ParticipantProfile& profile) = 0;

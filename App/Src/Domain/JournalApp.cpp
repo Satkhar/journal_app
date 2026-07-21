@@ -19,6 +19,15 @@ ParticipantProfile makeParticipantProfile(const QString& fullName)
   return profile;
 }
 
+ParticipantProfile normalizedParticipantProfile(ParticipantProfile profile)
+{
+  profile.historicalName = profile.historicalName.trimmed();
+  profile.fullName = profile.fullName.trimmed();
+  profile.contact = profile.contact.trimmed();
+  profile.displayName = ParticipantDisplayName(profile);
+  return profile;
+}
+
 std::optional<QVector<int>> fullMonthDays(int year, int month)
 {
   const QDate firstDay(year, month, 1);
@@ -309,6 +318,40 @@ JournalApp::participantStatistics(const ParticipantId& id)
   return storage_->participantStatistics(id);
 }
 
+std::optional<ParticipantEmblem>
+JournalApp::participantEmblem(const ParticipantId& id)
+{
+  return id.isValid() ? storage_->getParticipantEmblem(id) : std::nullopt;
+}
+
+bool JournalApp::updateParticipantCard(const ParticipantCardUpdate& update)
+{
+  ParticipantCardUpdate normalized = update;
+  normalized.profile = normalizedParticipantProfile(update.profile);
+  return normalized.isValid() &&
+         IsTrainingStartMonthNotAfter(normalized.profile.trainingStartMonth,
+                                      QDate::currentDate()) &&
+         storage_->updateParticipantCard(normalized);
+}
+
+std::optional<std::vector<TimedStrikeTest>>
+JournalApp::timedStrikeTests(const ParticipantId& id)
+{
+  return id.isValid() ? storage_->timedStrikeTests(id) : std::nullopt;
+}
+
+bool JournalApp::saveTimedStrikeTest(const TimedStrikeTest& test)
+{
+  return test.isValid() && storage_->saveTimedStrikeTest(test);
+}
+
+bool JournalApp::removeTimedStrikeTest(const TimedStrikeTestId& id,
+                                       qint64 expectedRevision)
+{
+  return id.isValid() && expectedRevision >= 1 &&
+         storage_->removeTimedStrikeTest(id, expectedRevision);
+}
+
 std::optional<std::vector<ParticipantProfile>>
 JournalApp::participantProfiles(bool includeArchived)
 {
@@ -317,11 +360,7 @@ JournalApp::participantProfiles(bool includeArchived)
 
 bool JournalApp::updateParticipantProfile(const ParticipantProfile& profile)
 {
-  ParticipantProfile normalized = profile;
-  normalized.historicalName = normalized.historicalName.trimmed();
-  normalized.fullName = normalized.fullName.trimmed();
-  normalized.contact = normalized.contact.trimmed();
-  normalized.displayName = ParticipantDisplayName(normalized);
+  const ParticipantProfile normalized = normalizedParticipantProfile(profile);
   if ((normalized.historicalName.isEmpty() && normalized.fullName.isEmpty()) ||
       !normalized.isValid() ||
       !IsTrainingStartMonthNotAfter(normalized.trainingStartMonth,

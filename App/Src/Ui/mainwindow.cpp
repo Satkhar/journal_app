@@ -7,12 +7,12 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QColor>
+#include <QCollator>
 #include <QComboBox>
 #include <QDate>
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
-#include <QFont>
 #include <QFontMetrics>
 #include <QGridLayout>
 #include <QHeaderView>
@@ -643,20 +643,17 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   }
 
   std::vector<Participant> sortedParticipants = snapshot.participants;
+  QCollator collator;
+  collator.setCaseSensitivity(Qt::CaseInsensitive);
+  collator.setNumericMode(true);
   std::stable_sort(
       sortedParticipants.begin(), sortedParticipants.end(),
-      [&profilesById](const Participant& lhs, const Participant& rhs)
+      [&collator](const Participant& lhs, const Participant& rhs)
       {
-        const ParticipantRank lhsRank = profilesById.value(lhs.id.value).rank;
-        const ParticipantRank rhsRank = profilesById.value(rhs.id.value).rank;
-        const int lhsKey = ParticipantRankSortKey(lhsRank);
-        const int rhsKey = ParticipantRankSortKey(rhsRank);
-        return lhsKey != rhsKey ? lhsKey < rhsKey
-                                : QString::localeAwareCompare(
-                                      lhs.displayName, rhs.displayName) < 0;
+        const int byName = collator.compare(lhs.displayName, rhs.displayName);
+        return byName != 0 ? byName < 0 : lhs.id.value < rhs.id.value;
       });
 
-  std::optional<ParticipantRank> currentRank;
   for (const Participant& participant : sortedParticipants)
   {
     const ParticipantProfile profile = profilesById.value(participant.id.value);
@@ -664,22 +661,6 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     const QColor groupColor = ParticipantRankSortKey(rank) % 2 == 0
                                   ? QColor(245, 248, 252)
                                   : QColor(235, 241, 248);
-    if (!currentRank.has_value() || *currentRank != rank)
-    {
-      currentRank = rank;
-      const int groupRow = tableWidget->rowCount();
-      tableWidget->insertRow(groupRow);
-      tableWidget->setSpan(groupRow, kNameColumn, 1,
-                           tableWidget->columnCount());
-      auto* groupItem = new QTableWidgetItem(ParticipantRankDisplayName(rank));
-      QFont groupFont = groupItem->font();
-      groupFont.setBold(true);
-      groupItem->setFont(groupFont);
-      groupItem->setBackground(groupColor.darker(105));
-      groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
-      tableWidget->setItem(groupRow, kNameColumn, groupItem);
-    }
-
     const int row = tableWidget->rowCount();
     tableWidget->insertRow(row);
     auto* nameItem = new QTableWidgetItem(
@@ -2130,8 +2111,23 @@ void MainWindow::openParticipantProfile(const ParticipantId& id)
         "Статистика турниров доступна только в локальном режиме";
   }
 
+  std::optional<ParticipantEmblem> emblem;
+  if (activeStorageMode_ == "local")
+  {
+    emblem = journalApp_->participantEmblem(id);
+    if (!emblem.has_value() && !journalApp_->lastError().isEmpty())
+    {
+      QMessageBox::warning(
+          this, "Ошибка герба",
+          QString("Не удалось загрузить герб: %1")
+              .arg(journalApp_->lastError()));
+    }
+  }
+
   const bool editable = activeStorageMode_ == "local";
-  ParticipantDialog dialog(*loaded, statistics, editable, this);
+  ParticipantDialog dialog(*loaded, statistics, emblem,
+                           editable ? journalApp_.get() : nullptr, editable,
+                           this);
   if (dialog.exec() != QDialog::Accepted)
   {
     return;
@@ -2147,10 +2143,15 @@ void MainWindow::openParticipantProfile(const ParticipantId& id)
   }
   if (dialog.action() == ParticipantDialog::Action::Save)
   {
-    if (!journalApp_->updateParticipantProfile(dialog.profile()))
+    if (!journalApp_->updateParticipantCard(dialog.cardUpdate()))
     {
-      QMessageBox::warning(this, "Ошибка",
-                           "Не удалось сохранить карточку участника");
+      const QString details = journalApp_->lastError();
+      QMessageBox::warning(
+          this, "Ошибка",
+          details.isEmpty()
+              ? "Не удалось сохранить карточку участника"
+              : QString("Не удалось сохранить карточку участника: %1")
+                    .arg(details));
       return;
     }
     ui->statusbar->showMessage("Карточка сохранена");

@@ -5,16 +5,24 @@
 #include "MonthDaysDialog.hpp"
 #include "ParticipantDialog.hpp"
 #include "ParticipantDirectoryDialog.hpp"
+#include "ParticipantEmblemWidget.hpp"
+#include "ParticipantStrikeHistoryDialog.hpp"
 #include "ParticipantStatisticsWidget.hpp"
 
 #include <QApplication>
+#include <QBuffer>
 #include <QCalendarWidget>
 #include <QCheckBox>
+#include <QColor>
 #include <QComboBox>
 #include <QContextMenuEvent>
+#include <QCryptographicHash>
 #include <QDate>
 #include <QDateEdit>
+#include <QDateTimeEdit>
+#include <QFile>
 #include <QGridLayout>
+#include <QImage>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -24,8 +32,10 @@
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
+#include <QTextEdit>
 
 #include <iostream>
 
@@ -39,6 +49,28 @@ bool Check(bool condition, const char* message)
     std::cerr << message << '\n';
   }
   return condition;
+}
+
+ParticipantEmblem MakeParticipantEmblem(const ParticipantId& participantId,
+                                        qint64 revision)
+{
+  QImage image(2, 2, QImage::Format_ARGB32);
+  image.fill(QColor(30, 80, 160));
+  QByteArray imageData;
+  QBuffer buffer(&imageData);
+  buffer.open(QIODevice::WriteOnly);
+  image.save(&buffer, "PNG");
+
+  ParticipantEmblem emblem;
+  emblem.participantId = participantId;
+  emblem.imageData = imageData;
+  emblem.sha256 =
+      QCryptographicHash::hash(imageData, QCryptographicHash::Sha256);
+  emblem.originalFileName = "herb.png";
+  emblem.pixelWidth = image.width();
+  emblem.pixelHeight = image.height();
+  emblem.revision = revision;
+  return emblem;
 }
 
 bool WeekdayClickSelectsAndClearsGroup()
@@ -844,7 +876,231 @@ bool ParticipantEditorWarnsAboutStartAfterFirstRecordedVisit()
                "training-start contradiction was not explicitly warned");
 }
 
-bool ParticipantDirectoryHidesIdAndSortsByRank()
+bool EmblemNormalizerScalesAndCanonicalizesImage()
+{
+  QTemporaryDir directory;
+  const QString path = directory.filePath("large-heraldry.png");
+  QImage source(2048, 1536, QImage::Format_ARGB32);
+  source.fill(QColor(20, 70, 140));
+  if (!Check(directory.isValid() && source.save(path, "PNG"),
+             "large emblem fixture could not be written"))
+  {
+    return false;
+  }
+
+  const ParticipantId participantId{
+      "12345678-1234-1234-1234-123456789abc"};
+  QString error;
+  const auto normalized =
+      NormalizeParticipantEmblemImage(participantId, path, 9, &error);
+  QImage decoded;
+  if (normalized.has_value())
+  {
+    decoded.loadFromData(normalized->imageData, "PNG");
+  }
+  return Check(normalized.has_value() && normalized->isValid() &&
+                   normalized->participantId == participantId &&
+                   normalized->revision == 9 &&
+                   normalized->originalFileName == "large-heraldry.png" &&
+                   normalized->pixelWidth == 1024 &&
+                   normalized->pixelHeight == 768 && !decoded.isNull() &&
+                   decoded.size() == QSize(1024, 768),
+               "emblem normalization lost identity, revision, or bounds");
+}
+
+bool EmblemNormalizerRejectsCorruptData()
+{
+  QTemporaryDir directory;
+  const QString path = directory.filePath("corrupt.png");
+  QFile file(path);
+  if (!Check(directory.isValid() && file.open(QIODevice::WriteOnly) &&
+                 file.write("this is not an image") > 0,
+             "corrupt emblem fixture could not be written"))
+  {
+    return false;
+  }
+  file.close();
+
+  QString error;
+  const auto normalized = NormalizeParticipantEmblemImage(
+      {"12345678-1234-1234-1234-123456789abc"}, path, 0, &error);
+  return Check(!normalized.has_value() && !error.trimmed().isEmpty(),
+               "corrupt emblem data was accepted");
+}
+
+bool EmblemNormalizerRejectsOversizedSource()
+{
+  QTemporaryDir directory;
+  const QString path = directory.filePath("oversized.png");
+  QImage source(4097, 2, QImage::Format_ARGB32);
+  source.fill(Qt::red);
+  if (!Check(directory.isValid() && source.save(path, "PNG"),
+             "oversized emblem fixture could not be written"))
+  {
+    return false;
+  }
+
+  QString error;
+  const auto normalized = NormalizeParticipantEmblemImage(
+      {"12345678-1234-1234-1234-123456789abc"}, path, 0, &error);
+  return Check(!normalized.has_value() &&
+                   error.contains(QString::fromUtf8("размер"),
+                                  Qt::CaseInsensitive),
+               "emblem source above 4096 px was accepted");
+}
+
+bool ReadOnlyMissingEmblemIsExplicitlyUnavailable()
+{
+  ParticipantEmblemWidget widget(
+      {"12345678-1234-1234-1234-123456789abc"}, std::nullopt, false);
+  const auto* preview =
+      widget.findChild<QLabel*>("participantEmblemPreview");
+  const auto* details =
+      widget.findChild<QLabel*>("participantEmblemDetails");
+  const auto* choose =
+      widget.findChild<QPushButton*>("participantEmblemChooseButton");
+  const auto* remove =
+      widget.findChild<QPushButton*>("participantEmblemRemoveButton");
+  return Check(preview &&
+                   preview->text().contains(QString::fromUtf8("недоступен")) &&
+                   details &&
+                   details->text().contains(QString::fromUtf8("локальном")) &&
+                   choose && !choose->isEnabled() && remove &&
+                   !remove->isEnabled(),
+               "read-only missing emblem looks like an editable empty value");
+}
+
+bool ExistingParticipantEmblemCanBeDisplayedAndRemoved()
+{
+  const ParticipantId participantId{
+      "12345678-1234-1234-1234-123456789abc"};
+  const ParticipantEmblem emblem = MakeParticipantEmblem(participantId, 7);
+  if (!Check(emblem.isValid(), "emblem fixture is invalid"))
+  {
+    return false;
+  }
+
+  ParticipantEmblemWidget widget(participantId, emblem, true);
+  auto* details = widget.findChild<QLabel*>("participantEmblemDetails");
+  auto* choose =
+      widget.findChild<QPushButton*>("participantEmblemChooseButton");
+  auto* remove =
+      widget.findChild<QPushButton*>("participantEmblemRemoveButton");
+  bool changed = false;
+  QObject::connect(&widget, &ParticipantEmblemWidget::changed, &widget,
+                   [&changed]() { changed = true; });
+  if (!Check(details && details->text().contains(emblem.originalFileName) &&
+                 choose && choose->isEnabled() && remove && remove->isEnabled(),
+             "existing emblem is not exposed by the editor"))
+  {
+    return false;
+  }
+
+  remove->click();
+  return Check(changed &&
+                   widget.action() == ParticipantEmblemAction::Remove &&
+                   !widget.emblem().has_value() &&
+                   widget.expectedRevision() == emblem.revision,
+               "removing an emblem lost the staged CAS mutation");
+}
+
+bool TimedStrikeEditorBuildsValidUtcRecord()
+{
+  TimedStrikeTest source;
+  source.id = CreateTimedStrikeTestId();
+  source.participantId = {
+      "12345678-1234-1234-1234-123456789abc"};
+  source.performedAt =
+      QDateTime::fromString("2026-07-21T10:15:00Z", Qt::ISODate);
+  source.hand = StrikeHand::Right;
+  source.strikeCount = 100;
+  source.durationSeconds = 30;
+  source.weapon = StrikeWeapon::Sword;
+  source.revision = 3;
+  if (!Check(source.isValid(), "strike-test fixture is invalid"))
+  {
+    return false;
+  }
+
+  TimedStrikeTestDialog dialog(source);
+  auto* performedAt =
+      dialog.findChild<QDateTimeEdit*>("strikeTestPerformedAtEdit");
+  auto* hand = dialog.findChild<QComboBox*>("strikeTestHandCombo");
+  auto* count = dialog.findChild<QSpinBox*>("strikeTestCountSpin");
+  auto* duration = dialog.findChild<QSpinBox*>("strikeTestDurationSpin");
+  auto* weapon = dialog.findChild<QComboBox*>("strikeTestWeaponCombo");
+  auto* note = dialog.findChild<QTextEdit*>("strikeTestNoteEdit");
+  if (!Check(performedAt && hand && count && duration && weapon && note,
+             "strike-test editor controls are missing"))
+  {
+    return false;
+  }
+
+  const QDateTime expectedUtc =
+      QDateTime::fromString("2026-08-03T07:45:00Z", Qt::ISODate);
+  performedAt->setDateTime(expectedUtc.toLocalTime());
+  hand->setCurrentIndex(hand->findData(static_cast<int>(StrikeHand::Left)));
+  count->setValue(144);
+  duration->setValue(30);
+  weapon->setCurrentIndex(
+      weapon->findData(static_cast<int>(StrikeWeapon::Tyambara)));
+  note->setPlainText(QString::fromUtf8("Контрольный замер"));
+
+  const TimedStrikeTest result = dialog.test();
+  return Check(result.isValid() && result.id == source.id &&
+                   result.participantId == source.participantId &&
+                   result.revision == source.revision &&
+                   result.performedAt == expectedUtc &&
+                   result.hand == StrikeHand::Left &&
+                   result.strikeCount == 144 &&
+                   result.durationSeconds == 30 &&
+                   result.weapon == StrikeWeapon::Tyambara &&
+                   result.note == QString::fromUtf8("Контрольный замер") &&
+                   qAbs(result.strikesPerSecond() - 4.8) < 0.000001,
+               "strike-test editor lost fields, UTC, or derived rate");
+}
+
+bool ParticipantStatisticsRequestsStrikeHistory()
+{
+  ParticipantStatisticsData statistics;
+  ParticipantStatisticsWidget widget(statistics, std::nullopt);
+  auto* button = widget.findChild<QPushButton*>(
+      "participantStrikeHistoryButton");
+  bool requested = false;
+  QObject::connect(
+      &widget, &ParticipantStatisticsWidget::strikeHistoryRequested, &widget,
+      [&requested]() { requested = true; });
+  if (button)
+  {
+    button->click();
+  }
+  return Check(button && requested,
+               "strike-history button does not expose its request signal");
+}
+
+bool ParticipantCardKeepsUnchangedEmblem()
+{
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+  const ParticipantEmblem emblem = MakeParticipantEmblem(profile.id, 4);
+  ParticipantStatisticsData statistics;
+  ParticipantDialog dialog(profile, statistics, emblem, nullptr, true);
+
+  const ParticipantCardUpdate update = dialog.cardUpdate();
+  const auto* strikeHistoryButton = dialog.findChild<QPushButton*>(
+      "participantStrikeHistoryButton");
+  return Check(update.isValid() &&
+                   update.emblemAction == ParticipantEmblemAction::Keep &&
+                   !update.emblem.has_value() &&
+                   update.expectedEmblemRevision == 0 &&
+                   strikeHistoryButton && !strikeHistoryButton->isEnabled() &&
+                   !strikeHistoryButton->toolTip().isEmpty(),
+               "card without local storage exposes unavailable mutations");
+}
+
+bool ParticipantDirectoryHidesIdAndSortsByName()
 {
   ParticipantProfile knight;
   knight.id = {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"};
@@ -875,13 +1131,13 @@ bool ParticipantDirectoryHidesIdAndSortsByRank()
                    table->horizontalHeaderItem(4)->text() ==
                        QString::fromUtf8("Статус"),
                "participant directory exposes ID or misses rank") &&
-         Check(table->item(0, 0)->text() == "Page" &&
-                   table->item(1, 0)->text() == "Knight",
-               "participant directory is not sorted by rank") &&
-         Check(table->item(1, 1)->text() == "Knight Full Name",
+         Check(table->item(0, 0)->text() == "Knight" &&
+                   table->item(1, 0)->text() == "Page",
+               "participant directory is not sorted by display name") &&
+         Check(table->item(0, 1)->text() == "Knight Full Name",
                "participant directory lost full name") &&
          Check(table->item(0, 0)->data(Qt::UserRole).toString() ==
-                   page.id.value,
+                   knight.id.value,
                "participant directory lost hidden row identity");
 }
 
@@ -1136,7 +1392,15 @@ int main(int argc, char* argv[])
       !ParticipantEditorRejectsFutureTrainingStart() ||
       !ParticipantEditorPreservesStoredFutureTrainingStart() ||
       !ParticipantEditorWarnsAboutStartAfterFirstRecordedVisit() ||
-      !ParticipantDirectoryHidesIdAndSortsByRank() ||
+      !EmblemNormalizerScalesAndCanonicalizesImage() ||
+      !EmblemNormalizerRejectsCorruptData() ||
+      !EmblemNormalizerRejectsOversizedSource() ||
+      !ReadOnlyMissingEmblemIsExplicitlyUnavailable() ||
+      !ExistingParticipantEmblemCanBeDisplayedAndRemoved() ||
+      !TimedStrikeEditorBuildsValidUtcRecord() ||
+      !ParticipantStatisticsRequestsStrikeHistory() ||
+      !ParticipantCardKeepsUnchangedEmblem() ||
+      !ParticipantDirectoryHidesIdAndSortsByName() ||
       !EventEditorDoesNotDuplicateFullNameOnlyParticipant() ||
       !EventEditorSeparatesCompetitorsAndAttendees() ||
       !EventEditorRequiresExplicitCategory() ||

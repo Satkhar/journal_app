@@ -1,6 +1,7 @@
 #include "ParticipantDirectoryDialog.hpp"
 
 #include <QColor>
+#include <QCollator>
 #include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QPushButton>
@@ -22,17 +23,17 @@ ParticipantDirectoryDialog::ParticipantDirectoryDialog(
   table_->setSelectionMode(QAbstractItemView::SingleSelection);
   table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
   std::vector<ParticipantProfile> sortedProfiles = profiles;
+  QCollator collator;
+  collator.setCaseSensitivity(Qt::CaseInsensitive);
+  collator.setNumericMode(true);
   std::stable_sort(
       sortedProfiles.begin(), sortedProfiles.end(),
-      [](const ParticipantProfile& lhs, const ParticipantProfile& rhs)
+      [&collator](const ParticipantProfile& lhs,
+                  const ParticipantProfile& rhs)
       {
-        const int lhsRank = ParticipantRankSortKey(lhs.rank);
-        const int rhsRank = ParticipantRankSortKey(rhs.rank);
-        return lhsRank != rhsRank
-                   ? lhsRank < rhsRank
-                   : QString::localeAwareCompare(ParticipantDisplayName(lhs),
-                                                 ParticipantDisplayName(rhs)) <
-                         0;
+        const int byName = collator.compare(ParticipantDisplayName(lhs),
+                                            ParticipantDisplayName(rhs));
+        return byName != 0 ? byName < 0 : lhs.id.value < rhs.id.value;
       });
   table_->setRowCount(static_cast<int>(sortedProfiles.size()));
 

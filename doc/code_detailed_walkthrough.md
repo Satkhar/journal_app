@@ -1,5 +1,5 @@
 > **Статус:** документ описывает schema v1 и сохранён как historical reference.
-> Актуальная доменная модель и schema v10: `doc/arch.md`. Server boundary:
+> Актуальная доменная модель и schema v11: `doc/arch.md`. Server boundary:
 > `doc/server_sync_plan.md`.
 
 # Detailed Code Walkthrough

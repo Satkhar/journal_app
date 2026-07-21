@@ -1,5 +1,6 @@
 #include "JournalModels.hpp"
 
+#include <QCryptographicHash>
 #include <QDate>
 
 #include <algorithm>
@@ -190,6 +191,145 @@ bool ParticipantProfile::isValid() const
          notes.size() <= kMaxNotesLength &&
          (!birthday.has_value() || birthday->isValid()) &&
          isStructurallyValidTrainingStartMonth(trainingStartMonth);
+}
+
+bool ParticipantEmblem::isValid() const
+{
+  static const QByteArray pngSignature =
+      QByteArray::fromHex("89504e470d0a1a0a");
+  return participantId.isValid() && !imageData.isEmpty() &&
+         imageData.size() <= kMaxParticipantEmblemBytes &&
+         imageData.startsWith(pngSignature) && sha256.size() == 32 &&
+         QCryptographicHash::hash(imageData, QCryptographicHash::Sha256) ==
+             sha256 &&
+         !originalFileName.trimmed().isEmpty() &&
+         originalFileName.size() <= 255 && !originalFileName.contains('\n') &&
+         !originalFileName.contains('\r') && pixelWidth > 0 &&
+         pixelWidth <= kMaxParticipantEmblemDimension && pixelHeight > 0 &&
+         pixelHeight <= kMaxParticipantEmblemDimension && revision >= 0;
+}
+
+bool ParticipantCardUpdate::isValid() const
+{
+  if (!profile.isValid())
+  {
+    return false;
+  }
+  switch (emblemAction)
+  {
+  case ParticipantEmblemAction::Keep:
+    return !emblem.has_value() && expectedEmblemRevision == 0;
+  case ParticipantEmblemAction::Replace:
+    return emblem.has_value() && emblem->isValid() &&
+           emblem->participantId == profile.id &&
+           expectedEmblemRevision == emblem->revision;
+  case ParticipantEmblemAction::Remove:
+    return !emblem.has_value() && expectedEmblemRevision >= 1;
+  }
+  return false;
+}
+
+TimedStrikeTestId CreateTimedStrikeTestId()
+{
+  return {QUuid::createUuid().toString(QUuid::WithoutBraces)};
+}
+
+QString StrikeHandStorageValue(StrikeHand hand)
+{
+  switch (hand)
+  {
+  case StrikeHand::Right:
+    return "right";
+  case StrikeHand::Left:
+    return "left";
+  }
+  return {};
+}
+
+QString StrikeHandDisplayName(StrikeHand hand)
+{
+  switch (hand)
+  {
+  case StrikeHand::Right:
+    return "Правая";
+  case StrikeHand::Left:
+    return "Левая";
+  }
+  return {};
+}
+
+std::optional<StrikeHand> StrikeHandFromStorageValue(const QString& value)
+{
+  for (StrikeHand hand : {StrikeHand::Right, StrikeHand::Left})
+  {
+    if (StrikeHandStorageValue(hand) == value)
+    {
+      return hand;
+    }
+  }
+  return std::nullopt;
+}
+
+QString StrikeWeaponStorageValue(StrikeWeapon weapon)
+{
+  switch (weapon)
+  {
+  case StrikeWeapon::Sword:
+    return "sword";
+  case StrikeWeapon::Tyambara:
+    return "tyambara";
+  }
+  return {};
+}
+
+QString StrikeWeaponDisplayName(StrikeWeapon weapon)
+{
+  switch (weapon)
+  {
+  case StrikeWeapon::Sword:
+    return "Меч";
+  case StrikeWeapon::Tyambara:
+    return "Тямбара";
+  }
+  return {};
+}
+
+std::optional<StrikeWeapon>
+StrikeWeaponFromStorageValue(const QString& value)
+{
+  for (StrikeWeapon weapon : {StrikeWeapon::Sword, StrikeWeapon::Tyambara})
+  {
+    if (StrikeWeaponStorageValue(weapon) == value)
+    {
+      return weapon;
+    }
+  }
+  return std::nullopt;
+}
+
+bool TimedStrikeTest::isValid() const
+{
+  const QString canonicalUtc =
+      performedAt.toUTC().toString(Qt::ISODateWithMs);
+  return id.isValid() && participantId.isValid() && performedAt.isValid() &&
+         canonicalUtc.size() == 24 && canonicalUtc.endsWith('Z') &&
+         !StrikeHandStorageValue(hand).isEmpty() && strikeCount >= 1 &&
+         strikeCount <= 100000 && durationSeconds >= 1 &&
+         durationSeconds <= 3600 &&
+         !StrikeWeaponStorageValue(weapon).isEmpty() &&
+         note.size() <= kMaxTimedStrikeTestNoteLength && revision >= 0;
+}
+
+double TimedStrikeTest::strikesPerSecond() const
+{
+  return durationSeconds > 0
+             ? static_cast<double>(strikeCount) / durationSeconds
+             : 0.0;
+}
+
+double TimedStrikeTest::strikesPerMinute() const
+{
+  return strikesPerSecond() * 60.0;
 }
 
 QString ParticipantDisplayName(const ParticipantProfile& profile)

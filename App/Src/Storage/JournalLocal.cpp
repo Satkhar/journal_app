@@ -101,6 +101,34 @@ JournalLocal::participantStatistics(const ParticipantId& id)
   return sqlite_->participantStatistics(id);
 }
 
+std::optional<ParticipantEmblem>
+JournalLocal::getParticipantEmblem(const ParticipantId& id)
+{
+  return sqlite_->getParticipantEmblem(id);
+}
+
+bool JournalLocal::updateParticipantCard(const ParticipantCardUpdate& update)
+{
+  return sqlite_->updateParticipantCard(update);
+}
+
+std::optional<std::vector<TimedStrikeTest>>
+JournalLocal::timedStrikeTests(const ParticipantId& id)
+{
+  return sqlite_->timedStrikeTests(id);
+}
+
+bool JournalLocal::saveTimedStrikeTest(const TimedStrikeTest& test)
+{
+  return sqlite_->saveTimedStrikeTest(test);
+}
+
+bool JournalLocal::removeTimedStrikeTest(const TimedStrikeTestId& id,
+                                         qint64 expectedRevision)
+{
+  return sqlite_->removeTimedStrikeTest(id, expectedRevision);
+}
+
 std::optional<std::vector<ParticipantProfile>>
 JournalLocal::listParticipantProfiles(bool includeArchived)
 {

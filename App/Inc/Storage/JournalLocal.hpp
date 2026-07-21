@@ -37,6 +37,14 @@ public:
   getParticipantProfile(const ParticipantId& id) override;
   std::optional<ParticipantJournalStatistics>
   participantStatistics(const ParticipantId& id) override;
+  std::optional<ParticipantEmblem>
+  getParticipantEmblem(const ParticipantId& id) override;
+  bool updateParticipantCard(const ParticipantCardUpdate& update) override;
+  std::optional<std::vector<TimedStrikeTest>>
+  timedStrikeTests(const ParticipantId& id) override;
+  bool saveTimedStrikeTest(const TimedStrikeTest& test) override;
+  bool removeTimedStrikeTest(const TimedStrikeTestId& id,
+                             qint64 expectedRevision) override;
   std::optional<std::vector<ParticipantProfile>>
   listParticipantProfiles(bool includeArchived) override;
   bool updateParticipantProfile(const ParticipantProfile& profile) override;

@@ -7,6 +7,7 @@
 #include <QLocale>
 #include <QScrollArea>
 #include <QToolButton>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -302,6 +303,21 @@ ParticipantStatisticsWidget::ParticipantStatisticsWidget(
     eventLayout->addWidget(unavailable, 0, 0);
   }
   rootLayout->addWidget(eventGroup);
+
+  auto* strikeGroup = new QGroupBox("Удары на время", this);
+  auto* strikeLayout = new QVBoxLayout(strikeGroup);
+  auto* strikeHint = new QLabel(
+      "История замеров хранит руку, оружие, число ударов и длительность. "
+      "Прогресс сравнивается только при одинаковых условиях.",
+      strikeGroup);
+  strikeHint->setWordWrap(true);
+  auto* strikeButton = new QPushButton("Открыть историю замеров…", strikeGroup);
+  strikeButton->setObjectName("participantStrikeHistoryButton");
+  connect(strikeButton, &QPushButton::clicked, this,
+          [this]() { emit strikeHistoryRequested(); });
+  strikeLayout->addWidget(strikeHint);
+  strikeLayout->addWidget(strikeButton, 0, Qt::AlignLeft);
+  rootLayout->addWidget(strikeGroup);
 
   auto* timelineGroup = new QGroupBox("Активность по месяцам", this);
   auto* timelineLayout = new QVBoxLayout(timelineGroup);

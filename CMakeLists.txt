@@ -47,6 +47,8 @@ add_executable(journal_app
     ./App/Src/Ui/ParticipantDialog.cpp
     ./App/Src/Ui/ParticipantDirectoryDialog.cpp
     ./App/Src/Ui/ParticipantStatisticsWidget.cpp
+    ./App/Src/Ui/ParticipantEmblemWidget.cpp
+    ./App/Src/Ui/ParticipantStrikeHistoryDialog.cpp
 
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Domain/EventApp.hpp
@@ -71,6 +73,8 @@ add_executable(journal_app
     ./App/Inc/Ui/ParticipantDialog.hpp
     ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
     ./App/Inc/Ui/ParticipantStatisticsWidget.hpp
+    ./App/Inc/Ui/ParticipantEmblemWidget.hpp
+    ./App/Inc/Ui/ParticipantStrikeHistoryDialog.hpp
 
     ./journal_app.ui
     )
@@ -175,6 +179,7 @@ add_test(NAME journal_sync_tests COMMAND journal_sync_tests)
 
 add_executable(journal_ui_tests
     ./Test/ui_dialog_tests.cpp
+    ./App/Src/Domain/JournalApp.cpp
     ./App/Src/Domain/EventModels.cpp
     ./App/Src/Domain/JournalModels.cpp
     ./App/Src/Ui/AttendanceCellWidget.cpp
@@ -185,6 +190,8 @@ add_executable(journal_ui_tests
     ./App/Src/Ui/ParticipantDialog.cpp
     ./App/Src/Ui/ParticipantDirectoryDialog.cpp
     ./App/Src/Ui/ParticipantStatisticsWidget.cpp
+    ./App/Src/Ui/ParticipantEmblemWidget.cpp
+    ./App/Src/Ui/ParticipantStrikeHistoryDialog.cpp
     ./App/Inc/Domain/JournalModels.hpp
     ./App/Inc/Domain/EventModels.hpp
     ./App/Inc/Ui/AttendanceCellWidget.hpp
@@ -194,7 +201,9 @@ add_executable(journal_ui_tests
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
     ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
-    ./App/Inc/Ui/ParticipantStatisticsWidget.hpp)
+    ./App/Inc/Ui/ParticipantStatisticsWidget.hpp
+    ./App/Inc/Ui/ParticipantEmblemWidget.hpp
+    ./App/Inc/Ui/ParticipantStrikeHistoryDialog.hpp)
 target_link_libraries(journal_ui_tests PRIVATE
     Qt6::Core
     Qt6::Gui

@@ -31,6 +31,7 @@ public:
 
 signals:
   void monthActivated(int year, int month);
+  void strikeHistoryRequested();
 
 private:
   QLabel* trainingStartLabel_;

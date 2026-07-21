@@ -1,9 +1,12 @@
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QTimeZone>
 #include <QUuid>
 
 #include <algorithm>
@@ -37,6 +40,24 @@ ParticipantProfile participantProfile(const QString& fullName)
   profile.displayName = fullName;
   profile.fullName = fullName;
   return profile;
+}
+
+ParticipantEmblem participantEmblem(const ParticipantId& participantId,
+                                     const QString& fileName,
+                                     qint64 revision = 0)
+{
+  ParticipantEmblem emblem;
+  emblem.participantId = participantId;
+  emblem.imageData = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+      "+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  emblem.sha256 = QCryptographicHash::hash(
+      emblem.imageData, QCryptographicHash::Sha256);
+  emblem.originalFileName = fileName;
+  emblem.pixelWidth = 1;
+  emblem.pixelHeight = 1;
+  emblem.revision = revision;
+  return emblem;
 }
 
 bool invalidMarkerMaskIsRejected(const QString& path,
@@ -106,6 +127,52 @@ bool partialTrainingStartIsRejected(const QString& path,
   return rejected;
 }
 
+bool strikeIdWithExtraHyphenIsRejected(
+    const QString& path, const ParticipantId& participantId)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  bool rejected = false;
+  if (db.open())
+  {
+    QSqlQuery query(db);
+    query.prepare(
+        "INSERT INTO participant_strike_tests(id, participant_id, "
+        "measured_at_utc, hand, strike_count, duration_seconds, weapon, "
+        "note, revision) VALUES("
+        "'12345678-1234-1234-1234-123456789ab-', :participant_id, "
+        "'2026-07-21T18:00:00.000Z', 'right', 1, 1, 'sword', '', 1)");
+    query.bindValue(":participant_id", participantId.value);
+    rejected = !query.exec();
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return rejected;
+}
+
+bool downgradeMeasurementsSchemaToV10(const QString& path)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  bool downgraded = false;
+  if (db.open())
+  {
+    QSqlQuery query(db);
+    downgraded =
+        query.exec("DROP INDEX idx_strike_tests_progress") &&
+        query.exec("DROP TABLE participant_strike_tests") &&
+        query.exec("DROP TABLE participant_emblems") &&
+        query.exec("PRAGMA user_version = 10");
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return downgraded;
+}
+
 bool setStoredTrainingStartMonth(const QString& path,
                                  const ParticipantId& participantId,
                                  const JournalMonth& month)
@@ -130,7 +197,7 @@ bool setStoredTrainingStartMonth(const QString& path,
   return updated;
 }
 
-bool isNormalizedSchemaV10(const QString& path, bool expectsTrainerBackup)
+bool isNormalizedSchemaV11(const QString& path, bool expectsTrainerBackup)
 {
   const QString connection = QUuid::createUuid().toString();
   QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
@@ -141,12 +208,15 @@ bool isNormalizedSchemaV10(const QString& path, bool expectsTrainerBackup)
   bool hasCombatHandColumn = false;
   bool hasTrainingStartYearColumn = false;
   bool hasTrainingStartMonthColumn = false;
+  bool hasEmblemsTable = false;
+  bool hasStrikeTestsTable = false;
+  bool hasStrikeProgressIndex = false;
   bool backupOk = !expectsTrainerBackup;
   if (db.open())
   {
     QSqlQuery query(db);
     versionOk = query.exec("PRAGMA user_version") && query.next() &&
-                query.value(0).toInt() == 10;
+                query.value(0).toInt() == 11;
     if (query.exec("PRAGMA table_info(participants)"))
     {
       while (query.next())
@@ -170,6 +240,28 @@ bool isNormalizedSchemaV10(const QString& path, bool expectsTrainerBackup)
     {
       versionOk = false;
     }
+    if (query.exec("SELECT type, name FROM sqlite_master WHERE name IN ("
+                   "'participant_emblems', 'participant_strike_tests', "
+                   "'idx_strike_tests_progress')"))
+    {
+      while (query.next())
+      {
+        const QString type = query.value(0).toString();
+        const QString name = query.value(1).toString();
+        hasEmblemsTable = hasEmblemsTable ||
+                          (type == "table" && name == "participant_emblems");
+        hasStrikeTestsTable =
+            hasStrikeTestsTable ||
+            (type == "table" && name == "participant_strike_tests");
+        hasStrikeProgressIndex =
+            hasStrikeProgressIndex ||
+            (type == "index" && name == "idx_strike_tests_progress");
+      }
+    }
+    else
+    {
+      versionOk = false;
+    }
     if (expectsTrainerBackup)
     {
       backupOk = query.exec("SELECT count(*) FROM "
@@ -183,7 +275,8 @@ bool isNormalizedSchemaV10(const QString& path, bool expectsTrainerBackup)
   QSqlDatabase::removeDatabase(connection);
   return versionOk && !hasTrainerColumn && hasHistoricalNameColumn &&
          hasCombatHandColumn && hasTrainingStartYearColumn &&
-         hasTrainingStartMonthColumn && backupOk;
+         hasTrainingStartMonthColumn && hasEmblemsTable &&
+         hasStrikeTestsTable && hasStrikeProgressIndex && backupOk;
 }
 
 bool createSchemaV5Database(const QString& path, const Participant& person)
@@ -663,6 +756,291 @@ bool freshDatabaseTest(const QString& path)
                "database accepted cached name without a source name");
 }
 
+bool participantEmblemTest(const QString& path)
+{
+  SqliteConnect storage;
+  if (!check(storage.open(path), "emblem database open failed"))
+  {
+    return false;
+  }
+  const ParticipantProfile alice = participantProfile("Emblem Alice");
+  if (!check(storage.addParticipantToMonth(2025, 7, alice),
+             "emblem participant insert failed") ||
+      !check(!storage.getParticipantEmblem(alice.id).has_value() &&
+                 storage.lastError().isEmpty(),
+             "missing emblem was reported as a storage error"))
+  {
+    return false;
+  }
+
+  ParticipantProfile createdProfile = alice;
+  createdProfile.contact = "@alice";
+  const ParticipantEmblem createdEmblem =
+      participantEmblem(alice.id, "first.png");
+  const ParticipantCardUpdate createUpdate{
+      createdProfile, ParticipantEmblemAction::Replace, createdEmblem, 0};
+  if (!check(storage.updateParticipantCard(createUpdate),
+             "atomic profile and emblem insert failed"))
+  {
+    return false;
+  }
+  auto profile = storage.getParticipantProfile(alice.id);
+  auto emblem = storage.getParticipantEmblem(alice.id);
+  if (!check(profile.has_value() && profile->contact == "@alice",
+             "atomic emblem insert lost profile changes") ||
+      !check(emblem.has_value() && emblem->revision == 1 &&
+                 emblem->originalFileName == "first.png" &&
+                 emblem->imageData == createdEmblem.imageData &&
+                 emblem->sha256 == createdEmblem.sha256,
+             "emblem insert round-trip failed"))
+  {
+    return false;
+  }
+
+  ParticipantProfile replacementProfile = *profile;
+  replacementProfile.notes = "second emblem";
+  ParticipantEmblem replacementEmblem =
+      participantEmblem(alice.id, "second.png", emblem->revision);
+  const ParticipantCardUpdate replacement{
+      replacementProfile, ParticipantEmblemAction::Replace,
+      replacementEmblem, emblem->revision};
+  if (!check(storage.updateParticipantCard(replacement),
+             "atomic profile and emblem replacement failed"))
+  {
+    return false;
+  }
+  profile = storage.getParticipantProfile(alice.id);
+  emblem = storage.getParticipantEmblem(alice.id);
+  if (!check(profile.has_value() && profile->notes == "second emblem",
+             "emblem replacement lost profile changes") ||
+      !check(emblem.has_value() && emblem->revision == 2 &&
+                 emblem->originalFileName == "second.png",
+             "emblem replacement did not increment revision"))
+  {
+    return false;
+  }
+
+  ParticipantProfile staleProfile = *profile;
+  staleProfile.notes = "must roll back";
+  ParticipantEmblem staleEmblem =
+      participantEmblem(alice.id, "stale.png", 1);
+  const ParticipantCardUpdate staleReplacement{
+      staleProfile, ParticipantEmblemAction::Replace, staleEmblem, 1};
+  if (!check(!storage.updateParticipantCard(staleReplacement),
+             "stale emblem replacement was accepted") ||
+      !check(storage.lastError().contains("revision conflict"),
+             "stale emblem replacement did not report a conflict"))
+  {
+    return false;
+  }
+  profile = storage.getParticipantProfile(alice.id);
+  emblem = storage.getParticipantEmblem(alice.id);
+  if (!check(profile.has_value() && profile->notes == "second emblem",
+             "stale emblem conflict did not roll profile back") ||
+      !check(emblem.has_value() && emblem->revision == 2 &&
+                 emblem->originalFileName == "second.png",
+             "stale emblem conflict changed stored emblem"))
+  {
+    return false;
+  }
+
+  ParticipantProfile staleRemoveProfile = *profile;
+  staleRemoveProfile.notes = "must also roll back";
+  const ParticipantCardUpdate staleRemove{
+      staleRemoveProfile, ParticipantEmblemAction::Remove, std::nullopt, 1};
+  if (!check(!storage.updateParticipantCard(staleRemove),
+             "stale emblem removal was accepted"))
+  {
+    return false;
+  }
+  profile = storage.getParticipantProfile(alice.id);
+  emblem = storage.getParticipantEmblem(alice.id);
+  if (!check(profile.has_value() && profile->notes == "second emblem",
+             "stale emblem removal did not roll profile back") ||
+      !check(emblem.has_value() && emblem->revision == 2,
+             "stale emblem removal deleted current emblem"))
+  {
+    return false;
+  }
+
+  ParticipantProfile removedProfile = *profile;
+  removedProfile.notes = "emblem removed";
+  const ParticipantCardUpdate removeUpdate{
+      removedProfile, ParticipantEmblemAction::Remove, std::nullopt,
+      emblem->revision};
+  if (!check(storage.updateParticipantCard(removeUpdate),
+             "atomic profile and emblem removal failed"))
+  {
+    return false;
+  }
+  profile = storage.getParticipantProfile(alice.id);
+  emblem = storage.getParticipantEmblem(alice.id);
+  if (!check(profile.has_value() && profile->notes == "emblem removed",
+             "emblem removal lost profile changes") ||
+      !check(!emblem.has_value() && storage.lastError().isEmpty(),
+             "emblem removal left data or reported a read error"))
+  {
+    return false;
+  }
+
+  const ParticipantId missing{
+      QUuid::createUuid().toString(QUuid::WithoutBraces)};
+  return check(!storage.saveParticipantEmblem(
+                   participantEmblem(missing, "orphan.png")),
+               "emblem without participant passed foreign key validation");
+}
+
+bool timedStrikeTestsTest(const QString& path)
+{
+  SqliteConnect storage;
+  if (!check(storage.open(path), "timed strikes database open failed"))
+  {
+    return false;
+  }
+  const ParticipantProfile alice = participantProfile("Strike Alice");
+  const ParticipantProfile bob = participantProfile("Strike Bob");
+  if (!check(storage.addParticipantToMonth(2025, 7, alice),
+             "first strike participant insert failed") ||
+      !check(storage.addParticipantToMonth(2025, 7, bob),
+             "second strike participant insert failed") ||
+      !check(strikeIdWithExtraHyphenIsRejected(path, alice.id),
+             "strike table accepted UUID with an extra hyphen"))
+  {
+    return false;
+  }
+
+  TimedStrikeTest earlier{CreateTimedStrikeTestId(),
+                          alice.id,
+                          QDateTime::fromString(
+                              "2026-07-18T18:00:00.000Z",
+                              Qt::ISODateWithMs),
+                          StrikeHand::Right,
+                          90,
+                          30,
+                          StrikeWeapon::Sword,
+                          "first measurement",
+                          0};
+  TimedStrikeTest latest{CreateTimedStrikeTestId(),
+                         alice.id,
+                         QDateTime::fromString(
+                             "2026-07-20T18:00:00.000Z",
+                             Qt::ISODateWithMs),
+                         StrikeHand::Left,
+                         60,
+                         15,
+                         StrikeWeapon::Tyambara,
+                         "latest measurement",
+                         0};
+  TimedStrikeTest bobRecord{CreateTimedStrikeTestId(),
+                            bob.id,
+                            QDateTime::fromString(
+                                "2026-07-19T18:00:00.000Z",
+                                Qt::ISODateWithMs),
+                            StrikeHand::Right,
+                            40,
+                            20,
+                            StrikeWeapon::Sword,
+                            "Bob only",
+                            0};
+  TimedStrikeTest extremeDate = earlier;
+  extremeDate.id = CreateTimedStrikeTestId();
+  extremeDate.performedAt =
+      QDateTime(QDate(10000, 1, 1), QTime(0, 0), QTimeZone::UTC);
+  if (!check(extremeDate.performedAt.isValid() && !extremeDate.isValid() &&
+                 !storage.saveTimedStrikeTest(extremeDate),
+             "non-canonical extreme timestamp was accepted"))
+  {
+    return false;
+  }
+  if (!check(storage.saveTimedStrikeTest(earlier),
+             "earlier timed strike insert failed") ||
+      !check(storage.saveTimedStrikeTest(latest),
+             "latest timed strike insert failed") ||
+      !check(storage.saveTimedStrikeTest(bobRecord),
+             "second participant timed strike insert failed"))
+  {
+    return false;
+  }
+
+  auto aliceTests = storage.timedStrikeTests(alice.id);
+  const auto bobTests = storage.timedStrikeTests(bob.id);
+  if (!check(aliceTests.has_value() && aliceTests->size() == 2,
+             "timed strike history lost Alice records") ||
+      !check(aliceTests->at(0).id == latest.id &&
+                 aliceTests->at(1).id == earlier.id,
+             "timed strike history is not newest first") ||
+      !check(aliceTests->at(0).revision == 1 &&
+                 aliceTests->at(0).hand == StrikeHand::Left &&
+                 aliceTests->at(0).weapon == StrikeWeapon::Tyambara &&
+                 aliceTests->at(0).strikesPerSecond() == 4.0 &&
+                 aliceTests->at(0).strikesPerMinute() == 240.0,
+             "timed strike round-trip or derived rate failed") ||
+      !check(bobTests.has_value() && bobTests->size() == 1 &&
+                 bobTests->front().id == bobRecord.id,
+             "timed strike histories are not isolated by participant"))
+  {
+    return false;
+  }
+
+  TimedStrikeTest stale = aliceTests->front();
+  TimedStrikeTest updated = stale;
+  updated.strikeCount = 75;
+  updated.note = "corrected";
+  if (!check(storage.saveTimedStrikeTest(updated),
+             "timed strike update failed"))
+  {
+    return false;
+  }
+  aliceTests = storage.timedStrikeTests(alice.id);
+  if (!check(aliceTests.has_value() && aliceTests->front().revision == 2 &&
+                 aliceTests->front().strikeCount == 75 &&
+                 aliceTests->front().note == "corrected" &&
+                 aliceTests->front().strikesPerSecond() == 5.0,
+             "timed strike update did not round-trip or increment revision"))
+  {
+    return false;
+  }
+
+  stale.strikeCount = 70;
+  if (!check(!storage.saveTimedStrikeTest(stale),
+             "stale timed strike update was accepted") ||
+      !check(storage.lastError().contains("revision conflict"),
+             "stale timed strike update did not report a conflict") ||
+      !check(!storage.removeTimedStrikeTest(latest.id, 1),
+             "stale timed strike removal was accepted"))
+  {
+    return false;
+  }
+  aliceTests = storage.timedStrikeTests(alice.id);
+  if (!check(aliceTests.has_value() && aliceTests->size() == 2 &&
+                 aliceTests->front().revision == 2 &&
+                 aliceTests->front().strikeCount == 75,
+             "stale timed strike operation changed history") ||
+      !check(storage.removeTimedStrikeTest(latest.id, 2),
+             "current timed strike removal failed"))
+  {
+    return false;
+  }
+  aliceTests = storage.timedStrikeTests(alice.id);
+  if (!check(aliceTests.has_value() && aliceTests->size() == 1 &&
+                 aliceTests->front().id == earlier.id,
+             "timed strike removal deleted wrong record"))
+  {
+    return false;
+  }
+
+  TimedStrikeTest orphan = earlier;
+  orphan.id = CreateTimedStrikeTestId();
+  orphan.participantId = {
+      QUuid::createUuid().toString(QUuid::WithoutBraces)};
+  orphan.revision = 0;
+  return check(!storage.saveTimedStrikeTest(orphan),
+               "timed strike without participant passed foreign key check") &&
+         check(!storage.timedStrikeTests({"invalid"}).has_value() &&
+                   !storage.lastError().isEmpty(),
+               "invalid participant ID returned timed strike history");
+}
+
 bool participantStatisticsTest(const QString& path)
 {
   SqliteConnect storage;
@@ -863,7 +1241,48 @@ bool snapshotNameSourcesRoundTrip(const QString& sourcePath,
                "snapshot import lost ordinary or historical name source");
 }
 
-bool migrationV5ToV10Test(const QString& path)
+bool migrationV10ToV11Test(const QString& path)
+{
+  ParticipantProfile before = participantProfile("V10 Alice");
+  before.contact = "@v10";
+  before.rank = ParticipantRank::Squire;
+  before.combatHand = CombatHand::Left;
+  before.trainingStartMonth = JournalMonth{2019, 9};
+  {
+    SqliteConnect storage;
+    if (!check(storage.open(path), "v10 migration setup open failed") ||
+        !check(storage.addParticipantToMonth(2025, 7, before),
+               "v10 migration participant setup failed"))
+    {
+      return false;
+    }
+  }
+  if (!check(downgradeMeasurementsSchemaToV10(path),
+             "v10 migration schema setup failed"))
+  {
+    return false;
+  }
+
+  SqliteConnect storage;
+  if (!check(storage.open(path), "schema v10 to v11 migration failed"))
+  {
+    return false;
+  }
+  const auto after = storage.getParticipantProfile(before.id);
+  const auto roster = storage.getParticipantsForMonth(2025, 7);
+  return check(after.has_value() && after->fullName == "V10 Alice" &&
+                   after->contact == "@v10" &&
+                   after->rank == ParticipantRank::Squire &&
+                   after->combatHand == CombatHand::Left &&
+                   after->trainingStartMonth == JournalMonth{2019, 9},
+               "v10 to v11 migration changed participant profile") &&
+         check(roster.size() == 1 && roster.front().id == before.id,
+               "v10 to v11 migration lost month membership") &&
+         check(isNormalizedSchemaV11(path, false),
+               "v10 migration did not produce clean schema v11");
+}
+
+bool migrationV5ToV11Test(const QString& path)
 {
   const Participant alice = participant("V5 Alice");
   if (!createSchemaV5Database(path, alice))
@@ -871,7 +1290,7 @@ bool migrationV5ToV10Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v5 to v10 migration failed"))
+  if (!check(storage.open(path), "schema v5 to v11 migration failed"))
   {
     return false;
   }
@@ -890,13 +1309,13 @@ bool migrationV5ToV10Test(const QString& path)
                    migratedMarkers.front().kinds == DayMarkerKind::Payment,
                "v5 migration lost old day marker") &&
          check(storage.saveDayMarker(2025, 7, trainerMarker),
-               "v10 schema rejected trainer day marker") &&
-         check(storage.open(path), "migrated v10 reopen is not idempotent") &&
-         check(isNormalizedSchemaV10(path, false),
-               "v5 migration did not produce clean schema v10");
+               "v11 schema rejected trainer day marker") &&
+         check(storage.open(path), "migrated v11 reopen is not idempotent") &&
+         check(isNormalizedSchemaV11(path, false),
+               "v5 migration did not produce clean schema v11");
 }
 
-bool migrationV7ToV10Test(const QString& path)
+bool migrationV7ToV11Test(const QString& path)
 {
   const Participant alice = participant("V7 Alice");
   const QString fullName(kMaxParticipantFullNameLength, QLatin1Char('f'));
@@ -905,7 +1324,7 @@ bool migrationV7ToV10Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v7 to v10 migration failed"))
+  if (!check(storage.open(path), "schema v7 to v11 migration failed"))
   {
     return false;
   }
@@ -923,8 +1342,8 @@ bool migrationV7ToV10Test(const QString& path)
                "migrated schema rejected 300-character ordinary name") &&
          check(storage.getParticipantProfile(alice.id)->displayName == fullName,
                "ordinary-name fallback failed after v7 migration") &&
-         check(isNormalizedSchemaV10(path, false),
-               "v7 migration did not produce clean schema v10");
+         check(isNormalizedSchemaV11(path, false),
+               "v7 migration did not produce clean schema v11");
 }
 
 bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
@@ -945,8 +1364,8 @@ bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
                "repaired schema v6 rejected trainer marker") &&
          check(storage.open(path),
                "repaired development schema v6 reopen failed") &&
-      check(isNormalizedSchemaV10(path, withTrainerColumn),
-            "development schema v6 was not normalized to v10");
+      check(isNormalizedSchemaV11(path, withTrainerColumn),
+            "development schema v6 was not normalized to v11");
 }
 
 } // namespace
@@ -962,11 +1381,14 @@ int main(int argc, char* argv[])
   const bool ok =
       birthdayValidationTest() && trainingStartValidationTest() &&
       freshDatabaseTest(directory.filePath("fresh.db")) &&
+      participantEmblemTest(directory.filePath("emblem.db")) &&
+      timedStrikeTestsTest(directory.filePath("timed-strikes.db")) &&
       participantStatisticsTest(directory.filePath("statistics.db")) &&
       snapshotNameSourcesRoundTrip(directory.filePath("snapshot-source.db"),
                                    directory.filePath("snapshot-target.db")) &&
-      migrationV5ToV10Test(directory.filePath("v5.db")) &&
-      migrationV7ToV10Test(directory.filePath("v7.db")) &&
+      migrationV10ToV11Test(directory.filePath("v10.db")) &&
+      migrationV5ToV11Test(directory.filePath("v5.db")) &&
+      migrationV7ToV11Test(directory.filePath("v7.db")) &&
       developmentV6IsRepaired(directory.filePath("old-v6-trainer.db"), true) &&
       developmentV6IsRepaired(directory.filePath("old-v6-marker.db"), false);
   return ok ? 0 : 1;

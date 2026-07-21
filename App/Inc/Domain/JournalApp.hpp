@@ -49,6 +49,13 @@ public:
   std::optional<ParticipantProfile> participantProfile(const ParticipantId& id);
   std::optional<ParticipantJournalStatistics>
   participantStatistics(const ParticipantId& id);
+  std::optional<ParticipantEmblem> participantEmblem(const ParticipantId& id);
+  bool updateParticipantCard(const ParticipantCardUpdate& update);
+  std::optional<std::vector<TimedStrikeTest>>
+  timedStrikeTests(const ParticipantId& id);
+  bool saveTimedStrikeTest(const TimedStrikeTest& test);
+  bool removeTimedStrikeTest(const TimedStrikeTestId& id,
+                             qint64 expectedRevision);
   std::optional<std::vector<ParticipantProfile>>
   participantProfiles(bool includeArchived);
   bool updateParticipantProfile(const ParticipantProfile& profile);

@@ -2465,6 +2465,40 @@ JournalRemote::participantStatistics(const ParticipantId& id)
   return result;
 }
 
+std::optional<ParticipantEmblem>
+JournalRemote::getParticipantEmblem(const ParticipantId&)
+{
+  lastError_ =
+      "Remote participant emblems are unavailable without asset transport";
+  return std::nullopt;
+}
+
+bool JournalRemote::updateParticipantCard(const ParticipantCardUpdate&)
+{
+  lastError_ =
+      "Remote participant emblems are unavailable without asset transport";
+  return false;
+}
+
+std::optional<std::vector<TimedStrikeTest>>
+JournalRemote::timedStrikeTests(const ParticipantId&)
+{
+  lastError_ = "Remote timed strike tests are not implemented";
+  return std::nullopt;
+}
+
+bool JournalRemote::saveTimedStrikeTest(const TimedStrikeTest&)
+{
+  lastError_ = "Remote timed strike tests are not implemented";
+  return false;
+}
+
+bool JournalRemote::removeTimedStrikeTest(const TimedStrikeTestId&, qint64)
+{
+  lastError_ = "Remote timed strike tests are not implemented";
+  return false;
+}
+
 std::optional<std::vector<ParticipantProfile>>
 JournalRemote::listParticipantProfiles(bool includeArchived)
 {

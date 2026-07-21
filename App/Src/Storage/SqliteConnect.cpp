@@ -21,7 +21,8 @@ constexpr int kDevelopmentSchemaVersion = 6;
 constexpr int kParticipantDetailsSchemaVersion = 7;
 constexpr int kParticipantNameSchemaVersion = 8;
 constexpr int kCombatHandSchemaVersion = 9;
-constexpr int kSchemaVersion = 10;
+constexpr int kTrainingStartSchemaVersion = 10;
+constexpr int kSchemaVersion = 11;
 constexpr int kSqliteBusyTimeoutMs = 5000;
 
 bool tableHasColumns(QSqlDatabase& db, const QString& table,
@@ -259,53 +260,61 @@ bool SqliteConnect::ensureSchema()
   }
   if (version == kSchemaVersion)
   {
-    return verifySchemaV10();
+    return verifySchemaV11();
+  }
+  if (version == kTrainingStartSchemaVersion)
+  {
+    return migrateSchemaV10ToV11() && verifySchemaV11();
   }
   if (version == kCombatHandSchemaVersion)
   {
-    return migrateSchemaV9ToV10() && verifySchemaV10();
+    return migrateSchemaV9ToV10() && migrateSchemaV10ToV11() &&
+           verifySchemaV11();
   }
   if (version == kParticipantNameSchemaVersion)
   {
     return migrateSchemaV8ToV9() && migrateSchemaV9ToV10() &&
-           verifySchemaV10();
+           migrateSchemaV10ToV11() && verifySchemaV11();
   }
   if (version == kParticipantDetailsSchemaVersion)
   {
     return migrateSchemaV7ToV8() && migrateSchemaV8ToV9() &&
-           migrateSchemaV9ToV10() && verifySchemaV10();
+           migrateSchemaV9ToV10() && migrateSchemaV10ToV11() &&
+           verifySchemaV11();
   }
   if (version == kDevelopmentSchemaVersion)
   {
     return migrateSchemaV6ToV7() && migrateSchemaV7ToV8() &&
            migrateSchemaV8ToV9() && migrateSchemaV9ToV10() &&
-           verifySchemaV10();
+           migrateSchemaV10ToV11() && verifySchemaV11();
   }
   if (version == kRankSchemaVersion)
   {
     return migrateSchemaV5ToV7() && migrateSchemaV7ToV8() &&
            migrateSchemaV8ToV9() && migrateSchemaV9ToV10() &&
-           verifySchemaV10();
+           migrateSchemaV10ToV11() && verifySchemaV11();
   }
   if (version == kDayMarkerSchemaVersion)
   {
     return migrateSchemaV4ToV5() && migrateSchemaV5ToV7() &&
            migrateSchemaV7ToV8() && migrateSchemaV8ToV9() &&
-           migrateSchemaV9ToV10() && verifySchemaV10();
+           migrateSchemaV9ToV10() && migrateSchemaV10ToV11() &&
+           verifySchemaV11();
   }
   if (version == kProfileSchemaVersion)
   {
     return migrateSchemaV3ToV4() && migrateSchemaV4ToV5() &&
            migrateSchemaV5ToV7() && migrateSchemaV7ToV8() &&
            migrateSchemaV8ToV9() && migrateSchemaV9ToV10() &&
-           verifySchemaV10();
+           migrateSchemaV10ToV11() && verifySchemaV11();
   }
   if (version == 2)
   {
     return migrateSchemaV2ToV3() && migrateSchemaV3ToV4() &&
            migrateSchemaV4ToV5() && migrateSchemaV5ToV7() &&
            migrateSchemaV7ToV8() && migrateSchemaV8ToV9() &&
-           migrateSchemaV9ToV10() && verifySchemaV10();
+           migrateSchemaV9ToV10() && migrateSchemaV10ToV11() &&
+           verifySchemaV11();
   }
   if (version != 0)
   {
@@ -318,7 +327,8 @@ bool SqliteConnect::ensureSchema()
     return migrateLegacyUsersToV3() && migrateSchemaV3ToV4() &&
            migrateSchemaV4ToV5() && migrateSchemaV5ToV7() &&
            migrateSchemaV7ToV8() && migrateSchemaV8ToV9() &&
-           migrateSchemaV9ToV10() && verifySchemaV10();
+           migrateSchemaV9ToV10() && migrateSchemaV10ToV11() &&
+           verifySchemaV11();
   }
 
   const QStringList incompatible = {"participants", "month_participants",
@@ -337,14 +347,14 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  if (!createSchemaV10() ||
+  if (!createSchemaV11() ||
       !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
     db_.rollback();
     if (lastError_.isEmpty())
     {
-      setError("Schema v10 creation verification failed");
+      setError("Schema v11 creation verification failed");
     }
     return false;
   }
@@ -353,7 +363,7 @@ bool SqliteConnect::ensureSchema()
     setError(db_.lastError().text());
     return false;
   }
-  return verifySchemaV10();
+  return verifySchemaV11();
 }
 
 bool SqliteConnect::createSchemaV3()
@@ -619,6 +629,82 @@ bool SqliteConnect::createTrainingStartSchema()
 bool SqliteConnect::createSchemaV10()
 {
   return createSchemaV9() && createTrainingStartSchema();
+}
+
+bool SqliteConnect::createParticipantMeasurementsSchema()
+{
+  QSqlQuery query(db_);
+  const QStringList statements = {
+      "CREATE TABLE participant_emblems ("
+      "participant_id TEXT PRIMARY KEY NOT NULL, "
+      "image_data BLOB NOT NULL CHECK(typeof(image_data) = 'blob' AND "
+      "length(image_data) BETWEEN 1 AND 5242880), "
+      "mime_type TEXT NOT NULL CHECK(mime_type = 'image/png'), "
+      "sha256 BLOB NOT NULL CHECK(typeof(sha256) = 'blob' AND "
+      "length(sha256) = 32), "
+      "original_file_name TEXT NOT NULL "
+      "CHECK(typeof(original_file_name) = 'text' AND "
+      "length(original_file_name) BETWEEN 1 AND 255 AND "
+      "instr(original_file_name, char(10)) = 0 AND "
+      "instr(original_file_name, char(13)) = 0), "
+      "pixel_width INTEGER NOT NULL CHECK(typeof(pixel_width) = 'integer' "
+      "AND pixel_width BETWEEN 1 AND 1024), "
+      "pixel_height INTEGER NOT NULL CHECK(typeof(pixel_height) = 'integer' "
+      "AND pixel_height BETWEEN 1 AND 1024), "
+      "revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND "
+      "revision >= 1), "
+      "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+      "FOREIGN KEY(participant_id) REFERENCES participants(id) "
+      "ON DELETE CASCADE)",
+      "CREATE TABLE participant_strike_tests ("
+      "id TEXT PRIMARY KEY NOT NULL CHECK(length(id) = 36 AND "
+      "length(replace(id, '-', '')) = 32 AND "
+      "id = lower(id) AND substr(id, 9, 1) = '-' AND "
+      "substr(id, 14, 1) = '-' AND substr(id, 19, 1) = '-' AND "
+      "substr(id, 24, 1) = '-' AND id NOT GLOB '*[^0-9a-f-]*' AND "
+      "id != '00000000-0000-0000-0000-000000000000'), "
+      "participant_id TEXT NOT NULL, "
+      "measured_at_utc TEXT NOT NULL CHECK(length(measured_at_utc) = 24 AND "
+      "substr(measured_at_utc, 5, 1) = '-' AND "
+      "substr(measured_at_utc, 8, 1) = '-' AND "
+      "substr(measured_at_utc, 11, 1) = 'T' AND "
+      "substr(measured_at_utc, 14, 1) = ':' AND "
+      "substr(measured_at_utc, 17, 1) = ':' AND "
+      "substr(measured_at_utc, 20, 1) = '.' AND "
+      "substr(measured_at_utc, 24, 1) = 'Z' AND "
+      "julianday(measured_at_utc) IS NOT NULL), "
+      "hand TEXT NOT NULL CHECK(hand IN ('right', 'left')), "
+      "strike_count INTEGER NOT NULL CHECK(typeof(strike_count) = 'integer' "
+      "AND strike_count BETWEEN 1 AND 100000), "
+      "duration_seconds INTEGER NOT NULL "
+      "CHECK(typeof(duration_seconds) = 'integer' AND "
+      "duration_seconds BETWEEN 1 AND 3600), "
+      "weapon TEXT NOT NULL CHECK(weapon IN ('sword', 'tyambara')), "
+      "note TEXT NOT NULL DEFAULT '' "
+      "CHECK(typeof(note) = 'text' AND length(note) <= 4096), "
+      "revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND "
+      "revision >= 1), "
+      "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+      "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+      "FOREIGN KEY(participant_id) REFERENCES participants(id) "
+      "ON DELETE CASCADE)",
+      "CREATE INDEX idx_strike_tests_progress ON participant_strike_tests("
+      "participant_id, weapon, hand, duration_seconds, measured_at_utc, id)"};
+  for (const QString& statement : statements)
+  {
+    if (!query.exec(statement))
+    {
+      setError(QString("Participant measurements schema failed: %1; SQL: %2")
+                   .arg(query.lastError().text(), statement));
+      return false;
+    }
+  }
+  return true;
+}
+
+bool SqliteConnect::createSchemaV11()
+{
+  return createSchemaV10() && createParticipantMeasurementsSchema();
 }
 
 bool SqliteConnect::migrateLegacyUsersToV3()
@@ -1374,13 +1460,47 @@ bool SqliteConnect::migrateSchemaV9ToV10()
   }
   QSqlQuery query(db_);
   if (!createTrainingStartSchema() ||
-      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec(QString("PRAGMA user_version = %1")
+                      .arg(kTrainingStartSchemaVersion)) ||
       !query.exec("PRAGMA foreign_key_check") || query.next())
   {
     db_.rollback();
     if (lastError_.isEmpty())
     {
       setError("Cannot finish schema v9 to v10 migration");
+    }
+    return false;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::migrateSchemaV10ToV11()
+{
+  if (!verifySchemaV10())
+  {
+    return false;
+  }
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (!createParticipantMeasurementsSchema() ||
+      !query.exec(QString("PRAGMA user_version = %1").arg(kSchemaVersion)) ||
+      !query.exec("PRAGMA foreign_key_check") || query.next())
+  {
+    db_.rollback();
+    if (lastError_.isEmpty())
+    {
+      setError("Cannot finish schema v10 to v11 migration");
     }
     return false;
   }
@@ -1753,6 +1873,158 @@ bool SqliteConnect::verifySchemaV10()
   if (triggerCount != 2)
   {
     setError("Schema v10 profile validation triggers are incomplete");
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::verifySchemaV11()
+{
+  if (!verifySchemaV10())
+  {
+    return false;
+  }
+  const QList<QPair<QString, QSet<QString>>> schema = {
+      {"participant_emblems",
+       {"participant_id", "image_data", "mime_type", "sha256",
+        "original_file_name", "pixel_width", "pixel_height", "revision",
+        "updated_at"}},
+      {"participant_strike_tests",
+       {"id", "participant_id", "measured_at_utc", "hand", "strike_count",
+        "duration_seconds", "weapon", "note", "revision", "created_at",
+        "updated_at"}}};
+  for (const auto& entry : schema)
+  {
+    if (!tableExists(entry.first) ||
+        !tableHasColumns(db_, entry.first, entry.second))
+    {
+      setError(QString("Schema v11 misses table or columns: %1")
+                   .arg(entry.first));
+      return false;
+    }
+  }
+
+  QSqlQuery query(db_);
+  auto schemaSql = [this, &query](const QString& type, const QString& name)
+      -> std::optional<QString>
+  {
+    query.prepare("SELECT sql FROM sqlite_master WHERE type = :type AND "
+                  "name = :name");
+    query.bindValue(":type", type);
+    query.bindValue(":name", name);
+    if (!query.exec() || !query.next() || query.value(0).isNull())
+    {
+      setError(QString("Schema v11 definition is missing: %1").arg(name));
+      return std::nullopt;
+    }
+    const QString result = query.value(0).toString().simplified();
+    query.finish();
+    return result;
+  };
+  const auto emblemSql = schemaSql("table", "participant_emblems");
+  if (!emblemSql.has_value() ||
+      !emblemSql->contains("length(image_data) BETWEEN 1 AND 5242880",
+                           Qt::CaseInsensitive) ||
+      !emblemSql->contains("mime_type = 'image/png'", Qt::CaseInsensitive) ||
+      !emblemSql->contains("length(sha256) = 32", Qt::CaseInsensitive) ||
+      !emblemSql->contains("length(original_file_name) BETWEEN 1 AND 255",
+                           Qt::CaseInsensitive) ||
+      !emblemSql->contains("pixel_width BETWEEN 1 AND 1024",
+                           Qt::CaseInsensitive) ||
+      !emblemSql->contains("pixel_height BETWEEN 1 AND 1024",
+                           Qt::CaseInsensitive) ||
+      !emblemSql->contains("revision >= 1", Qt::CaseInsensitive) ||
+      !emblemSql->contains("REFERENCES participants(id) ON DELETE CASCADE",
+                           Qt::CaseInsensitive))
+  {
+    if (lastError_.isEmpty())
+    {
+      setError("Schema v11 participant-emblem constraints are incomplete");
+    }
+    return false;
+  }
+  const auto strikeSql = schemaSql("table", "participant_strike_tests");
+  if (!strikeSql.has_value() ||
+      !strikeSql->contains("length(replace(id, '-', '')) = 32",
+                           Qt::CaseInsensitive) ||
+      !strikeSql->contains("strike_count BETWEEN 1 AND 100000",
+                           Qt::CaseInsensitive) ||
+      !strikeSql->contains("duration_seconds BETWEEN 1 AND 3600",
+                           Qt::CaseInsensitive) ||
+      !strikeSql->contains("hand IN ('right', 'left')",
+                           Qt::CaseInsensitive) ||
+      !strikeSql->contains("weapon IN ('sword', 'tyambara')",
+                           Qt::CaseInsensitive) ||
+      !strikeSql->contains("length(note) <= 4096", Qt::CaseInsensitive) ||
+      !strikeSql->contains("revision >= 1", Qt::CaseInsensitive) ||
+      !strikeSql->contains("REFERENCES participants(id) ON DELETE CASCADE",
+                           Qt::CaseInsensitive))
+  {
+    if (lastError_.isEmpty())
+    {
+      setError("Schema v11 strike-test constraints are incomplete");
+    }
+    return false;
+  }
+  if (!query.exec(
+          "SELECT 1 FROM participant_emblems WHERE "
+          "typeof(image_data) != 'blob' OR "
+          "length(image_data) NOT BETWEEN 1 AND 5242880 OR "
+          "mime_type != 'image/png' OR typeof(sha256) != 'blob' OR "
+          "length(sha256) != 32 OR typeof(original_file_name) != 'text' OR "
+          "length(original_file_name) NOT BETWEEN 1 AND 255 OR "
+          "instr(original_file_name, char(10)) != 0 OR "
+          "instr(original_file_name, char(13)) != 0 OR "
+          "typeof(pixel_width) != 'integer' OR "
+          "pixel_width NOT BETWEEN 1 AND 1024 OR "
+          "typeof(pixel_height) != 'integer' OR "
+          "pixel_height NOT BETWEEN 1 AND 1024 OR "
+          "typeof(revision) != 'integer' OR revision < 1 LIMIT 1") ||
+      query.next())
+  {
+    setError("Schema v11 contains invalid participant emblems");
+    return false;
+  }
+  if (!query.exec(
+          "SELECT 1 FROM participant_strike_tests WHERE length(id) != 36 OR "
+          "length(replace(id, '-', '')) != 32 OR "
+          "id != lower(id) OR substr(id, 9, 1) != '-' OR "
+          "substr(id, 14, 1) != '-' OR substr(id, 19, 1) != '-' OR "
+          "substr(id, 24, 1) != '-' OR id GLOB '*[^0-9a-f-]*' OR "
+          "id = '00000000-0000-0000-0000-000000000000' OR "
+          "length(measured_at_utc) != 24 OR "
+          "substr(measured_at_utc, 5, 1) != '-' OR "
+          "substr(measured_at_utc, 8, 1) != '-' OR "
+          "substr(measured_at_utc, 11, 1) != 'T' OR "
+          "substr(measured_at_utc, 14, 1) != ':' OR "
+          "substr(measured_at_utc, 17, 1) != ':' OR "
+          "substr(measured_at_utc, 20, 1) != '.' OR "
+          "substr(measured_at_utc, 24, 1) != 'Z' OR "
+          "julianday(measured_at_utc) IS NULL OR "
+          "hand NOT IN ('right', 'left') OR "
+          "typeof(strike_count) != 'integer' OR "
+          "strike_count NOT BETWEEN 1 AND 100000 OR "
+          "typeof(duration_seconds) != 'integer' OR "
+          "duration_seconds NOT BETWEEN 1 AND 3600 OR "
+          "weapon NOT IN ('sword', 'tyambara') OR typeof(note) != 'text' OR "
+          "length(note) > 4096 OR typeof(revision) != 'integer' OR "
+          "revision < 1 LIMIT 1") ||
+      query.next())
+  {
+    setError("Schema v11 contains invalid timed strike tests");
+    return false;
+  }
+  const auto indexSql = schemaSql("index", "idx_strike_tests_progress");
+  if (!indexSql.has_value() ||
+      !indexSql->contains(
+          "participant_id, weapon, hand, duration_seconds, measured_at_utc, "
+          "id",
+          Qt::CaseInsensitive))
+  {
+    if (lastError_.isEmpty())
+    {
+      setError("Schema v11 strike progress index is incomplete");
+    }
     return false;
   }
   return true;
@@ -2849,6 +3121,397 @@ bool SqliteConnect::updateParticipantProfile(const ParticipantProfile& profile)
     return false;
   }
   return query.numRowsAffected() == 1;
+}
+
+std::optional<ParticipantEmblem>
+SqliteConnect::getParticipantEmblem(const ParticipantId& id)
+{
+  lastError_.clear();
+  if (!id.isValid())
+  {
+    setError("Invalid participant ID");
+    return std::nullopt;
+  }
+  QSqlQuery query(db_);
+  query.prepare(
+      "SELECT image_data, mime_type, sha256, original_file_name, "
+      "pixel_width, pixel_height, revision FROM participant_emblems "
+      "WHERE participant_id = :id");
+  query.bindValue(":id", id.value);
+  if (!query.exec())
+  {
+    setError(query.lastError().text());
+    return std::nullopt;
+  }
+  if (!query.next())
+  {
+    return std::nullopt;
+  }
+
+  ParticipantEmblem result;
+  result.participantId = id;
+  result.imageData = query.value(0).toByteArray();
+  const QString mimeType = query.value(1).toString();
+  result.sha256 = query.value(2).toByteArray();
+  result.originalFileName = query.value(3).toString();
+  result.pixelWidth = query.value(4).toInt();
+  result.pixelHeight = query.value(5).toInt();
+  result.revision = query.value(6).toLongLong();
+  if (mimeType != "image/png" || result.revision < 1 || !result.isValid() ||
+      result.originalFileName.size() > 255 ||
+      result.originalFileName.contains('\n') ||
+      result.originalFileName.contains('\r'))
+  {
+    setError("Stored participant emblem is invalid");
+    return std::nullopt;
+  }
+  return result;
+}
+
+bool SqliteConnect::saveParticipantEmblemRecord(
+    const ParticipantEmblem& emblem)
+{
+  if (!emblem.isValid() || emblem.originalFileName.size() > 255 ||
+      emblem.originalFileName.contains('\n') ||
+      emblem.originalFileName.contains('\r'))
+  {
+    setError("Invalid participant emblem");
+    return false;
+  }
+
+  QSqlQuery query(db_);
+  if (emblem.revision == 0)
+  {
+    query.prepare(
+        "INSERT INTO participant_emblems(participant_id, image_data, "
+        "mime_type, sha256, original_file_name, pixel_width, pixel_height, "
+        "revision) VALUES(:id, :image_data, 'image/png', :sha256, "
+        ":file_name, :width, :height, 1)");
+  }
+  else
+  {
+    query.prepare(
+        "UPDATE participant_emblems SET image_data = :image_data, "
+        "mime_type = 'image/png', sha256 = :sha256, "
+        "original_file_name = :file_name, pixel_width = :width, "
+        "pixel_height = :height, revision = revision + 1, "
+        "updated_at = CURRENT_TIMESTAMP WHERE participant_id = :id AND "
+        "revision = :expected_revision");
+    query.bindValue(":expected_revision", emblem.revision);
+  }
+  query.bindValue(":id", emblem.participantId.value);
+  query.bindValue(":image_data", emblem.imageData);
+  query.bindValue(":sha256", emblem.sha256);
+  query.bindValue(":file_name", emblem.originalFileName);
+  query.bindValue(":width", emblem.pixelWidth);
+  query.bindValue(":height", emblem.pixelHeight);
+  if (!query.exec())
+  {
+    setError(query.lastError().text());
+    return false;
+  }
+  if (query.numRowsAffected() != 1)
+  {
+    setError("Participant emblem revision conflict");
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::saveParticipantEmblem(const ParticipantEmblem& emblem)
+{
+  lastError_.clear();
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  if (!saveParticipantEmblemRecord(emblem))
+  {
+    db_.rollback();
+    return false;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::removeParticipantEmblemRecord(
+    const ParticipantId& id, qint64 expectedRevision)
+{
+  if (!id.isValid() || expectedRevision < 1)
+  {
+    setError("Invalid participant emblem removal request");
+    return false;
+  }
+  QSqlQuery query(db_);
+  query.prepare("DELETE FROM participant_emblems WHERE participant_id = :id "
+                "AND revision = :expected_revision");
+  query.bindValue(":id", id.value);
+  query.bindValue(":expected_revision", expectedRevision);
+  if (!query.exec())
+  {
+    setError(query.lastError().text());
+    return false;
+  }
+  if (query.numRowsAffected() != 1)
+  {
+    setError("Participant emblem revision conflict");
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::removeParticipantEmblem(const ParticipantId& id,
+                                            qint64 expectedRevision)
+{
+  lastError_.clear();
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  if (!removeParticipantEmblemRecord(id, expectedRevision))
+  {
+    db_.rollback();
+    return false;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::updateParticipantCard(const ParticipantCardUpdate& update)
+{
+  lastError_.clear();
+  if (!update.isValid())
+  {
+    setError("Invalid participant card update");
+    return false;
+  }
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  auto fail = [this](const QString& fallback)
+  {
+    db_.rollback();
+    if (lastError_.isEmpty())
+    {
+      setError(fallback);
+    }
+    return false;
+  };
+  if (!updateParticipantProfile(update.profile))
+  {
+    return fail("Participant not found");
+  }
+  switch (update.emblemAction)
+  {
+  case ParticipantEmblemAction::Keep:
+    break;
+  case ParticipantEmblemAction::Replace:
+    if (!saveParticipantEmblemRecord(*update.emblem))
+    {
+      return fail("Cannot save participant emblem");
+    }
+    break;
+  case ParticipantEmblemAction::Remove:
+    if (!removeParticipantEmblemRecord(update.profile.id,
+                                       update.expectedEmblemRevision))
+    {
+      return fail("Cannot remove participant emblem");
+    }
+    break;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+std::optional<std::vector<TimedStrikeTest>>
+SqliteConnect::timedStrikeTests(const ParticipantId& id)
+{
+  lastError_.clear();
+  if (!id.isValid())
+  {
+    setError("Invalid participant ID");
+    return std::nullopt;
+  }
+  QSqlQuery query(db_);
+  query.prepare(
+      "SELECT id, measured_at_utc, hand, strike_count, duration_seconds, "
+      "weapon, note, revision FROM participant_strike_tests "
+      "WHERE participant_id = :participant_id "
+      "ORDER BY measured_at_utc DESC, id DESC");
+  query.bindValue(":participant_id", id.value);
+  if (!query.exec())
+  {
+    setError(query.lastError().text());
+    return std::nullopt;
+  }
+
+  std::vector<TimedStrikeTest> result;
+  while (query.next())
+  {
+    TimedStrikeTest record;
+    record.id = {query.value(0).toString()};
+    record.participantId = id;
+    const QString measuredAt = query.value(1).toString();
+    record.performedAt =
+        QDateTime::fromString(measuredAt, Qt::ISODateWithMs).toUTC();
+    const auto hand = StrikeHandFromStorageValue(query.value(2).toString());
+    record.strikeCount = query.value(3).toInt();
+    record.durationSeconds = query.value(4).toInt();
+    const auto weapon =
+        StrikeWeaponFromStorageValue(query.value(5).toString());
+    record.note = query.value(6).toString();
+    record.revision = query.value(7).toLongLong();
+    if (!hand.has_value() || !weapon.has_value() || record.revision < 1 ||
+        measuredAt != record.performedAt.toString(Qt::ISODateWithMs))
+    {
+      setError("Stored timed strike test is invalid");
+      return std::nullopt;
+    }
+    record.hand = *hand;
+    record.weapon = *weapon;
+    if (!record.isValid())
+    {
+      setError("Stored timed strike test is invalid");
+      return std::nullopt;
+    }
+    result.push_back(record);
+  }
+  return result;
+}
+
+bool SqliteConnect::saveTimedStrikeTest(const TimedStrikeTest& value)
+{
+  lastError_.clear();
+  TimedStrikeTest record = value;
+  if (record.note.isNull())
+  {
+    record.note = QStringLiteral("");
+  }
+  if (!record.isValid())
+  {
+    setError("Invalid timed strike test");
+    return false;
+  }
+  const QString measuredAt =
+      record.performedAt.toUTC().toString(Qt::ISODateWithMs);
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  QSqlQuery query(db_);
+  if (record.revision == 0)
+  {
+    query.prepare(
+        "INSERT INTO participant_strike_tests(id, participant_id, "
+        "measured_at_utc, hand, strike_count, duration_seconds, weapon, "
+        "note, revision) VALUES(:id, :participant_id, :measured_at, :hand, "
+        ":strike_count, :duration, :weapon, :note, 1)");
+  }
+  else
+  {
+    query.prepare(
+        "UPDATE participant_strike_tests SET measured_at_utc = :measured_at, "
+        "hand = :hand, strike_count = :strike_count, "
+        "duration_seconds = :duration, weapon = :weapon, note = :note, "
+        "revision = revision + 1, updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = :id AND participant_id = :participant_id AND "
+        "revision = :expected_revision");
+    query.bindValue(":expected_revision", record.revision);
+  }
+  query.bindValue(":id", record.id.value);
+  query.bindValue(":participant_id", record.participantId.value);
+  query.bindValue(":measured_at", measuredAt);
+  query.bindValue(":hand", StrikeHandStorageValue(record.hand));
+  query.bindValue(":strike_count", record.strikeCount);
+  query.bindValue(":duration", record.durationSeconds);
+  query.bindValue(":weapon", StrikeWeaponStorageValue(record.weapon));
+  query.bindValue(":note", record.note);
+  if (!query.exec())
+  {
+    const QString error = query.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  if (query.numRowsAffected() != 1)
+  {
+    db_.rollback();
+    setError("Timed strike test revision conflict");
+    return false;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
+}
+
+bool SqliteConnect::removeTimedStrikeTest(const TimedStrikeTestId& id,
+                                          qint64 expectedRevision)
+{
+  lastError_.clear();
+  if (!id.isValid() || expectedRevision < 1)
+  {
+    setError("Invalid timed strike test removal request");
+    return false;
+  }
+  if (!db_.transaction())
+  {
+    setError(db_.lastError().text());
+    return false;
+  }
+  QSqlQuery query(db_);
+  query.prepare("DELETE FROM participant_strike_tests WHERE id = :id AND "
+                "revision = :expected_revision");
+  query.bindValue(":id", id.value);
+  query.bindValue(":expected_revision", expectedRevision);
+  if (!query.exec())
+  {
+    const QString error = query.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  if (query.numRowsAffected() != 1)
+  {
+    db_.rollback();
+    setError("Timed strike test revision conflict");
+    return false;
+  }
+  if (!db_.commit())
+  {
+    const QString error = db_.lastError().text();
+    db_.rollback();
+    setError(error);
+    return false;
+  }
+  return true;
 }
 
 bool SqliteConnect::setParticipantArchived(const ParticipantId& id,

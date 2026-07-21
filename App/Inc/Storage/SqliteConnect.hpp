@@ -45,6 +45,17 @@ public:
   std::optional<std::vector<ParticipantProfile>>
   listParticipantProfiles(bool includeArchived);
   bool updateParticipantProfile(const ParticipantProfile& profile);
+  bool updateParticipantCard(const ParticipantCardUpdate& update);
+  std::optional<ParticipantEmblem>
+  getParticipantEmblem(const ParticipantId& id);
+  bool saveParticipantEmblem(const ParticipantEmblem& emblem);
+  bool removeParticipantEmblem(const ParticipantId& id,
+                               qint64 expectedRevision);
+  std::optional<std::vector<TimedStrikeTest>>
+  timedStrikeTests(const ParticipantId& id);
+  bool saveTimedStrikeTest(const TimedStrikeTest& record);
+  bool removeTimedStrikeTest(const TimedStrikeTestId& id,
+                             qint64 expectedRevision);
   bool setParticipantArchived(const ParticipantId& id, bool archived);
 
 private:
@@ -60,12 +71,14 @@ private:
   bool createSchemaV8();
   bool createSchemaV9();
   bool createSchemaV10();
+  bool createSchemaV11();
   bool createDayMarkerSchema();
   bool createRankSchema();
   bool createParticipantDetailsSchema();
   bool createParticipantNameSchema();
   bool createCombatHandSchema();
   bool createTrainingStartSchema();
+  bool createParticipantMeasurementsSchema();
   bool upgradeDayMarkerKindsSchema();
   bool migrateLegacyUsersToV3();
   bool cleanupLegacyTables();
@@ -77,6 +90,7 @@ private:
   bool migrateSchemaV7ToV8();
   bool migrateSchemaV8ToV9();
   bool migrateSchemaV9ToV10();
+  bool migrateSchemaV10ToV11();
   bool createProfileValidationTriggers();
   bool verifySchemaV3();
   bool verifySchemaV4();
@@ -85,6 +99,7 @@ private:
   bool verifySchemaV8();
   bool verifySchemaV9();
   bool verifySchemaV10();
+  bool verifySchemaV11();
   bool tableExists(const QString& tableName) const;
   bool enableForeignKeys();
   bool validateYearMonth(int year, int month) const;
@@ -93,5 +108,8 @@ private:
   QVector<int> normalizeDays(int year, int month,
                              const QVector<int>& days) const;
   int daysInMonth(int year, int month) const;
+  bool saveParticipantEmblemRecord(const ParticipantEmblem& emblem);
+  bool removeParticipantEmblemRecord(const ParticipantId& id,
+                                     qint64 expectedRevision);
   void setError(const QString& error);
 };
