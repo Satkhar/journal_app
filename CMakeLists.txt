@@ -135,6 +135,16 @@ target_include_directories(journal_legacy_importer PRIVATE
     ${CMAKE_SOURCE_DIR}/App/Inc/Domain
     ${CMAKE_SOURCE_DIR}/App/Inc/Storage)
 
+add_executable(journal_legacy_importer_tests
+    ./Test/LegacyImporterCliTests.cpp)
+target_link_libraries(journal_legacy_importer_tests PRIVATE
+    Qt6::Core
+    Qt6::Sql)
+add_dependencies(journal_legacy_importer_tests journal_legacy_importer)
+add_test(NAME journal_legacy_importer_tests
+    COMMAND journal_legacy_importer_tests
+        $<TARGET_FILE:journal_legacy_importer>)
+
 add_executable(journal_event_storage_tests
     ./Test/EventStorageTests.cpp
     ./App/Src/Domain/EventApp.cpp
