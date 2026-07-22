@@ -3,8 +3,10 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDate>
+#include <QDateEdit>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -55,6 +57,8 @@ ParticipantDialog::ParticipantDialog(
           new QCheckBox("Начало тренировок известно", this)),
       trainingStartMonthCombo_(new QComboBox(this)),
       trainingStartYearSpin_(new QSpinBox(this)),
+      joinedClubCheck_(new QCheckBox("Дата вступления известна", this)),
+      joinedClubDateEdit_(new QDateEdit(this)),
       rankCombo_(new QComboBox(this)),
       combatHandCombo_(new QComboBox(this)),
       emblemWidget_(new ParticipantEmblemWidget(profile.id, emblem, editable,
@@ -108,6 +112,17 @@ ParticipantDialog::ParticipantDialog(
   trainingStartYearSpin_->setRange(
       1900, std::max(QDate::currentDate().year(), storedTrainingStartYear));
   trainingStartYearSpin_->setValue(QDate::currentDate().year());
+  joinedClubCheck_->setObjectName("participantJoinedClubCheckBox");
+  joinedClubDateEdit_->setObjectName("participantJoinedClubDateEdit");
+  joinedClubDateEdit_->setCalendarPopup(true);
+  joinedClubDateEdit_->setDisplayFormat("dd.MM.yyyy");
+  joinedClubDateEdit_->setMinimumDate(QDate(1900, 1, 1));
+  joinedClubDateEdit_->setMaximumDate(
+      std::max(QDate::currentDate(),
+               profile.joinedClubOn.value_or(QDate::currentDate())));
+  joinedClubDateEdit_->setDate(
+      profile.joinedClubOn.value_or(QDate::currentDate()));
+  joinedClubCheck_->setChecked(profile.joinedClubOn.has_value());
   rankCombo_->setObjectName("participantRankComboBox");
   for (ParticipantRank rank : ParticipantRanksInDisplayOrder())
   {
@@ -158,6 +173,46 @@ ParticipantDialog::ParticipantDialog(
   trainingStartLayout->addWidget(new QLabel("Год", this));
   trainingStartLayout->addWidget(trainingStartYearSpin_);
 
+  auto* rankHistoryGroup = new QGroupBox("История званий", this);
+  auto* rankHistoryForm = new QFormLayout(rankHistoryGroup);
+  for (ParticipantRank historyRank : ParticipantRanksWithHistory())
+  {
+    const auto found = std::find_if(
+        profile.rankHistory.cbegin(), profile.rankHistory.cend(),
+        [historyRank](const ParticipantRankHistoryEntry& entry)
+        { return entry.rank == historyRank; });
+    auto* received = new QCheckBox("Получал", rankHistoryGroup);
+    auto* dateKnown =
+        new QCheckBox("Дата известна", rankHistoryGroup);
+    auto* dateEdit = new QDateEdit(rankHistoryGroup);
+    const QString key = ParticipantRankStorageValue(historyRank);
+    received->setObjectName(
+        QString("participantRankHistory_%1ReceivedCheckBox").arg(key));
+    dateKnown->setObjectName(
+        QString("participantRankHistory_%1DateKnownCheckBox").arg(key));
+    dateEdit->setObjectName(
+        QString("participantRankHistory_%1DateEdit").arg(key));
+    dateEdit->setCalendarPopup(true);
+    dateEdit->setDisplayFormat("dd.MM.yyyy");
+    dateEdit->setMinimumDate(QDate(1900, 1, 1));
+    const bool receivedRank = found != profile.rankHistory.cend();
+    const bool knownDate = receivedRank && found->obtainedOn.has_value();
+    dateEdit->setMaximumDate(
+        std::max(QDate::currentDate(),
+                 knownDate ? *found->obtainedOn : QDate::currentDate()));
+    received->setChecked(receivedRank);
+    dateKnown->setChecked(knownDate);
+    dateEdit->setDate(knownDate ? *found->obtainedOn
+                                : QDate::currentDate());
+    auto* row = new QHBoxLayout();
+    row->addWidget(received);
+    row->addWidget(dateKnown);
+    row->addWidget(dateEdit);
+    rankHistoryForm->addRow(ParticipantRankDisplayName(historyRank), row);
+    rankHistoryControls_.push_back(
+        {historyRank, received, dateKnown, dateEdit});
+  }
+
   auto* form = new QFormLayout();
   auto* idLabel = new QLabel(profile.id.value, this);
   idLabel->setObjectName("participantIdLabel");
@@ -173,6 +228,9 @@ ParticipantDialog::ParticipantDialog(
   form->addRow("Дата рождения", birthdayLayout);
   form->addRow(QString(), trainingStartCheck_);
   form->addRow("Начало тренировок", trainingStartLayout);
+  form->addRow(QString(), joinedClubCheck_);
+  form->addRow("Вступление в клуб", joinedClubDateEdit_);
+  form->addRow(rankHistoryGroup);
   form->addRow("Заметка", notesEdit_);
   form->addRow("Статус",
                new QLabel(profile.archived ? "Архив" : "Активен", this));
@@ -209,6 +267,12 @@ ParticipantDialog::ParticipantDialog(
     combatHandCombo_->setEnabled(false);
     birthdayCheck_->setEnabled(false);
     trainingStartCheck_->setEnabled(false);
+    joinedClubCheck_->setEnabled(false);
+    for (const RankHistoryControls& controls : rankHistoryControls_)
+    {
+      controls.receivedCheck->setEnabled(false);
+      controls.dateKnownCheck->setEnabled(false);
+    }
     notesEdit_->setReadOnly(true);
   }
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -239,6 +303,31 @@ ParticipantDialog::ParticipantDialog(
           [this]() { dirty_ = true; });
   connect(trainingStartYearSpin_, &QSpinBox::valueChanged, this,
           [this]() { dirty_ = true; });
+  connect(joinedClubCheck_, &QCheckBox::toggled, this,
+          [this]()
+          {
+            dirty_ = true;
+            updateMembershipControls();
+          });
+  connect(joinedClubDateEdit_, &QDateEdit::dateChanged, this,
+          [this]() { dirty_ = true; });
+  for (const RankHistoryControls& controls : rankHistoryControls_)
+  {
+    connect(controls.receivedCheck, &QCheckBox::toggled, this,
+            [this]()
+            {
+              dirty_ = true;
+              updateMembershipControls();
+            });
+    connect(controls.dateKnownCheck, &QCheckBox::toggled, this,
+            [this]()
+            {
+              dirty_ = true;
+              updateMembershipControls();
+            });
+    connect(controls.dateEdit, &QDateEdit::dateChanged, this,
+            [this]() { dirty_ = true; });
+  }
   connect(rankCombo_, &QComboBox::currentIndexChanged, this,
           [this]() { dirty_ = true; });
   connect(combatHandCombo_, &QComboBox::currentIndexChanged, this,
@@ -313,6 +402,7 @@ ParticipantDialog::ParticipantDialog(
   layout->addWidget(buttons);
   updateBirthdayControls();
   updateTrainingStartControls();
+  updateMembershipControls();
 }
 
 ParticipantDialog::Action ParticipantDialog::action() const
@@ -347,6 +437,24 @@ ParticipantProfile ParticipantDialog::profile() const
     result.trainingStartMonth =
         JournalMonth{trainingStartYearSpin_->value(),
                      trainingStartMonthCombo_->currentData().toInt()};
+  }
+  result.joinedClubOn = std::nullopt;
+  if (joinedClubCheck_->isChecked())
+  {
+    result.joinedClubOn = joinedClubDateEdit_->date();
+  }
+  result.rankHistory.clear();
+  for (const RankHistoryControls& controls : rankHistoryControls_)
+  {
+    if (!controls.receivedCheck->isChecked())
+    {
+      continue;
+    }
+    result.rankHistory.push_back(
+        {controls.rank,
+         controls.dateKnownCheck->isChecked()
+             ? std::optional<QDate>(controls.dateEdit->date())
+             : std::nullopt});
   }
   return result;
 }
@@ -388,6 +496,20 @@ void ParticipantDialog::updateTrainingStartControls()
   trainingStartYearSpin_->setEnabled(enabled);
 }
 
+void ParticipantDialog::updateMembershipControls()
+{
+  joinedClubDateEdit_->setEnabled(joinedClubCheck_->isChecked() &&
+                                  joinedClubCheck_->isEnabled());
+  for (const RankHistoryControls& controls : rankHistoryControls_)
+  {
+    const bool received = controls.receivedCheck->isChecked() &&
+                          controls.receivedCheck->isEnabled();
+    controls.dateKnownCheck->setEnabled(received);
+    controls.dateEdit->setEnabled(
+        received && controls.dateKnownCheck->isChecked());
+  }
+}
+
 void ParticipantDialog::save()
 {
   const ParticipantProfile edited = profile();
@@ -398,6 +520,13 @@ void ParticipantDialog::save()
     QMessageBox::warning(
         this, "Некорректное начало тренировок",
         "Месяц начала тренировок не может быть в будущем.");
+    return;
+  }
+  if (!AreParticipantMilestoneDatesNotAfter(edited, QDate::currentDate()))
+  {
+    QMessageBox::warning(
+        this, "Некорректная история участника",
+        "Дата вступления и даты получения званий не могут быть в будущем.");
     return;
   }
   if (edited.trainingStartMonth.has_value() &&
@@ -429,7 +558,7 @@ void ParticipantDialog::save()
     QMessageBox::warning(this, "Некорректный профиль",
                          "Укажите ФИО или историчное имя. Проверьте контакт, "
                          "дату рождения, месяц начала тренировок и длину "
-                         "заметки (не более 4096 символов).");
+                         "заметки, дату вступления и историю званий.");
     return;
   }
   action_ = Action::Save;

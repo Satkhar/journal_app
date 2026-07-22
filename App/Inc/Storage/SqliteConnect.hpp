@@ -72,6 +72,7 @@ private:
   bool createSchemaV9();
   bool createSchemaV10();
   bool createSchemaV11();
+  bool createSchemaV12();
   bool createDayMarkerSchema();
   bool createRankSchema();
   bool createParticipantDetailsSchema();
@@ -79,6 +80,7 @@ private:
   bool createCombatHandSchema();
   bool createTrainingStartSchema();
   bool createParticipantMeasurementsSchema();
+  bool createParticipantHistorySchema();
   bool upgradeDayMarkerKindsSchema();
   bool migrateLegacyUsersToV3();
   bool cleanupLegacyTables();
@@ -91,6 +93,7 @@ private:
   bool migrateSchemaV8ToV9();
   bool migrateSchemaV9ToV10();
   bool migrateSchemaV10ToV11();
+  bool migrateSchemaV11ToV12();
   bool createProfileValidationTriggers();
   bool verifySchemaV3();
   bool verifySchemaV4();
@@ -100,6 +103,7 @@ private:
   bool verifySchemaV9();
   bool verifySchemaV10();
   bool verifySchemaV11();
+  bool verifySchemaV12();
   bool tableExists(const QString& tableName) const;
   bool enableForeignKeys();
   bool validateYearMonth(int year, int month) const;
@@ -111,5 +115,8 @@ private:
   bool saveParticipantEmblemRecord(const ParticipantEmblem& emblem);
   bool removeParticipantEmblemRecord(const ParticipantId& id,
                                      qint64 expectedRevision);
+  bool loadParticipantHistory(ParticipantProfile* profile);
+  bool replaceParticipantHistory(const ParticipantProfile& profile);
+  bool updateParticipantProfileRecord(const ParticipantProfile& profile);
   void setError(const QString& error);
 };

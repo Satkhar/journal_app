@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bitset>
 #include <limits>
+#include <set>
 
 namespace
 {
@@ -64,6 +65,16 @@ const std::vector<ParticipantRank>& ParticipantRanksInDisplayOrder()
       ParticipantRank::Page,   ParticipantRank::Squire,
       ParticipantRank::Novice, ParticipantRank::Recruit,
       ParticipantRank::Guest,  ParticipantRank::Knight};
+  return ranks;
+}
+
+const std::vector<ParticipantRank>& ParticipantRanksWithHistory()
+{
+  // Guest — статус посетителя, а не получаемое клубное звание.
+  static const std::vector<ParticipantRank> ranks = {
+      ParticipantRank::Page, ParticipantRank::Squire,
+      ParticipantRank::Novice, ParticipantRank::Recruit,
+      ParticipantRank::Knight};
   return ranks;
 }
 
@@ -129,6 +140,19 @@ int ParticipantRankSortKey(ParticipantRank rank)
              : static_cast<int>(std::distance(ranks.cbegin(), found));
 }
 
+bool IsParticipantRankWithHistory(ParticipantRank rank)
+{
+  const auto& ranks = ParticipantRanksWithHistory();
+  return std::find(ranks.cbegin(), ranks.cend(), rank) != ranks.cend();
+}
+
+bool ParticipantRankHistoryEntry::isValid() const
+{
+  return IsParticipantRankWithHistory(rank) &&
+         (!obtainedOn.has_value() ||
+          (obtainedOn->isValid() && obtainedOn->year() >= 1900));
+}
+
 QString CombatHandStorageValue(CombatHand hand)
 {
   switch (hand)
@@ -175,6 +199,14 @@ bool ParticipantProfile::isValid() const
   const QString trimmedDisplayName = displayName.trimmed();
   const QString trimmedHistoricalName = historicalName.trimmed();
   const QString trimmedFullName = fullName.trimmed();
+  std::set<ParticipantRank> historyRanks;
+  for (const ParticipantRankHistoryEntry& entry : rankHistory)
+  {
+    if (!entry.isValid() || !historyRanks.insert(entry.rank).second)
+    {
+      return false;
+    }
+  }
   return id.isValid() &&
          (!trimmedHistoricalName.isEmpty() || !trimmedFullName.isEmpty()) &&
          !trimmedDisplayName.isEmpty() &&
@@ -190,7 +222,27 @@ bool ParticipantProfile::isValid() const
          !CombatHandStorageValue(combatHand).isEmpty() &&
          notes.size() <= kMaxNotesLength &&
          (!birthday.has_value() || birthday->isValid()) &&
+         (!joinedClubOn.has_value() ||
+          (joinedClubOn->isValid() && joinedClubOn->year() >= 1900)) &&
          isStructurallyValidTrainingStartMonth(trainingStartMonth);
+}
+
+bool AreParticipantMilestoneDatesNotAfter(
+    const ParticipantProfile& profile, const QDate& referenceDate)
+{
+  if (!profile.isValid() || !referenceDate.isValid() ||
+      (profile.joinedClubOn.has_value() &&
+       *profile.joinedClubOn > referenceDate))
+  {
+    return false;
+  }
+  return std::none_of(
+      profile.rankHistory.cbegin(), profile.rankHistory.cend(),
+      [&referenceDate](const ParticipantRankHistoryEntry& entry)
+      {
+        return entry.obtainedOn.has_value() &&
+               *entry.obtainedOn > referenceDate;
+      });
 }
 
 bool ParticipantEmblem::isValid() const

@@ -648,8 +648,17 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   collator.setNumericMode(true);
   std::stable_sort(
       sortedParticipants.begin(), sortedParticipants.end(),
-      [&collator](const Participant& lhs, const Participant& rhs)
+      [&collator, &profilesById](const Participant& lhs,
+                                const Participant& rhs)
       {
+        const int lhsRank = ParticipantRankSortKey(
+            profilesById.value(lhs.id.value).rank);
+        const int rhsRank = ParticipantRankSortKey(
+            profilesById.value(rhs.id.value).rank);
+        if (lhsRank != rhsRank)
+        {
+          return lhsRank < rhsRank;
+        }
         const int byName = collator.compare(lhs.displayName, rhs.displayName);
         return byName != 0 ? byName < 0 : lhs.id.value < rhs.id.value;
       });

@@ -162,6 +162,8 @@ bool downgradeMeasurementsSchemaToV10(const QString& path)
   {
     QSqlQuery query(db);
     downgraded =
+        query.exec("DROP TABLE participant_rank_history") &&
+        query.exec("ALTER TABLE participants DROP COLUMN club_joined_on") &&
         query.exec("DROP INDEX idx_strike_tests_progress") &&
         query.exec("DROP TABLE participant_strike_tests") &&
         query.exec("DROP TABLE participant_emblems") &&
@@ -197,7 +199,7 @@ bool setStoredTrainingStartMonth(const QString& path,
   return updated;
 }
 
-bool isNormalizedSchemaV11(const QString& path, bool expectsTrainerBackup)
+bool isNormalizedSchemaV12(const QString& path, bool expectsTrainerBackup)
 {
   const QString connection = QUuid::createUuid().toString();
   QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
@@ -208,15 +210,17 @@ bool isNormalizedSchemaV11(const QString& path, bool expectsTrainerBackup)
   bool hasCombatHandColumn = false;
   bool hasTrainingStartYearColumn = false;
   bool hasTrainingStartMonthColumn = false;
+  bool hasClubJoinedOnColumn = false;
   bool hasEmblemsTable = false;
   bool hasStrikeTestsTable = false;
   bool hasStrikeProgressIndex = false;
+  bool hasRankHistoryTable = false;
   bool backupOk = !expectsTrainerBackup;
   if (db.open())
   {
     QSqlQuery query(db);
     versionOk = query.exec("PRAGMA user_version") && query.next() &&
-                query.value(0).toInt() == 11;
+                query.value(0).toInt() == 12;
     if (query.exec("PRAGMA table_info(participants)"))
     {
       while (query.next())
@@ -234,6 +238,9 @@ bool isNormalizedSchemaV11(const QString& path, bool expectsTrainerBackup)
         hasTrainingStartMonthColumn =
             hasTrainingStartMonthColumn ||
             query.value(1).toString() == "training_start_month";
+        hasClubJoinedOnColumn =
+            hasClubJoinedOnColumn ||
+            query.value(1).toString() == "club_joined_on";
       }
     }
     else
@@ -242,7 +249,8 @@ bool isNormalizedSchemaV11(const QString& path, bool expectsTrainerBackup)
     }
     if (query.exec("SELECT type, name FROM sqlite_master WHERE name IN ("
                    "'participant_emblems', 'participant_strike_tests', "
-                   "'idx_strike_tests_progress')"))
+                   "'idx_strike_tests_progress', "
+                   "'participant_rank_history')"))
     {
       while (query.next())
       {
@@ -256,6 +264,9 @@ bool isNormalizedSchemaV11(const QString& path, bool expectsTrainerBackup)
         hasStrikeProgressIndex =
             hasStrikeProgressIndex ||
             (type == "index" && name == "idx_strike_tests_progress");
+        hasRankHistoryTable =
+            hasRankHistoryTable ||
+            (type == "table" && name == "participant_rank_history");
       }
     }
     else
@@ -275,8 +286,29 @@ bool isNormalizedSchemaV11(const QString& path, bool expectsTrainerBackup)
   QSqlDatabase::removeDatabase(connection);
   return versionOk && !hasTrainerColumn && hasHistoricalNameColumn &&
          hasCombatHandColumn && hasTrainingStartYearColumn &&
-         hasTrainingStartMonthColumn && hasEmblemsTable &&
-         hasStrikeTestsTable && hasStrikeProgressIndex && backupOk;
+         hasTrainingStartMonthColumn && hasClubJoinedOnColumn &&
+         hasEmblemsTable && hasStrikeTestsTable && hasStrikeProgressIndex &&
+         hasRankHistoryTable && backupOk;
+}
+
+bool downgradeParticipantHistorySchemaToV11(const QString& path)
+{
+  const QString connection = QUuid::createUuid().toString();
+  QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connection);
+  db.setDatabaseName(path);
+  bool downgraded = false;
+  if (db.open())
+  {
+    QSqlQuery query(db);
+    downgraded =
+        query.exec("DROP TABLE participant_rank_history") &&
+        query.exec("ALTER TABLE participants DROP COLUMN club_joined_on") &&
+        query.exec("PRAGMA user_version = 11");
+  }
+  db.close();
+  db = QSqlDatabase();
+  QSqlDatabase::removeDatabase(connection);
+  return downgraded;
 }
 
 bool createSchemaV5Database(const QString& path, const Participant& person)
@@ -595,6 +627,11 @@ bool freshDatabaseTest(const QString& path)
   profile->contact = "@alice_example";
   profile->birthday = Birthday{29, 2, std::nullopt};
   profile->trainingStartMonth = JournalMonth{2019, 9};
+  profile->joinedClubOn = QDate(2019, 9, 14);
+  profile->rankHistory = {
+      {ParticipantRank::Recruit, QDate(2019, 10, 1)},
+      {ParticipantRank::Novice, std::nullopt},
+      {ParticipantRank::Squire, QDate(2021, 5, 16)}};
   profile->rank = ParticipantRank::Squire;
   profile->combatHand = CombatHand::Left;
   profile->notes = "Plain text note";
@@ -605,6 +642,23 @@ bool freshDatabaseTest(const QString& path)
   }
   const auto renamed = storage.getParticipantsForMonth(2025, 7);
   const auto updatedProfile = storage.getParticipantProfile(alice.id);
+  const auto historyEntry = [&updatedProfile](ParticipantRank rank)
+      -> const ParticipantRankHistoryEntry*
+  {
+    if (!updatedProfile.has_value())
+    {
+      return nullptr;
+    }
+    const auto found = std::find_if(
+        updatedProfile->rankHistory.cbegin(),
+        updatedProfile->rankHistory.cend(),
+        [rank](const ParticipantRankHistoryEntry& entry)
+        { return entry.rank == rank; });
+    return found == updatedProfile->rankHistory.cend() ? nullptr : &*found;
+  };
+  const auto* recruitHistory = historyEntry(ParticipantRank::Recruit);
+  const auto* noviceHistory = historyEntry(ParticipantRank::Novice);
+  const auto* squireHistory = historyEntry(ParticipantRank::Squire);
   if (!check(renamed.size() == 1 && updatedProfile.has_value() &&
                  renamed.front().displayName == "Alice Updated" &&
                  renamed.front().historicalName == "Alice Updated" &&
@@ -613,6 +667,13 @@ bool freshDatabaseTest(const QString& path)
                  updatedProfile->fullName == "Alice Example Smith" &&
                  updatedProfile->contact == "@alice_example" &&
                  updatedProfile->trainingStartMonth == JournalMonth{2019, 9} &&
+                 updatedProfile->joinedClubOn == QDate(2019, 9, 14) &&
+                 updatedProfile->rankHistory.size() == 3 &&
+                 recruitHistory &&
+                 recruitHistory->obtainedOn == QDate(2019, 10, 1) &&
+                 noviceHistory && !noviceHistory->obtainedOn.has_value() &&
+                 squireHistory &&
+                 squireHistory->obtainedOn == QDate(2021, 5, 16) &&
                  updatedProfile->rank == ParticipantRank::Squire &&
                  updatedProfile->combatHand == CombatHand::Left,
              "profile update lost identity, contact, rank, or combat hand"))
@@ -657,6 +718,35 @@ bool freshDatabaseTest(const QString& path)
              "future stored month made the entire profile unreadable") ||
       !check(setStoredTrainingStartMonth(path, profile->id, {2019, 9}),
              "test setup could not restore training-start month"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.rankHistory.push_back(
+      {ParticipantRank::Recruit, QDate(2020, 1, 1)});
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "duplicate historical rank was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.rankHistory.push_back({ParticipantRank::Guest, std::nullopt});
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "guest status was accepted as historical rank"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.joinedClubOn = QDate::currentDate().addDays(1);
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "future club join date was accepted"))
+  {
+    return false;
+  }
+  invalid = *profile;
+  invalid.rankHistory.front().obtainedOn = QDate::currentDate().addDays(1);
+  if (!check(!storage.updateParticipantProfile(invalid),
+             "future rank date was accepted"))
   {
     return false;
   }
@@ -1241,7 +1331,7 @@ bool snapshotNameSourcesRoundTrip(const QString& sourcePath,
                "snapshot import lost ordinary or historical name source");
 }
 
-bool migrationV10ToV11Test(const QString& path)
+bool migrationV10ToV12Test(const QString& path)
 {
   ParticipantProfile before = participantProfile("V10 Alice");
   before.contact = "@v10";
@@ -1264,7 +1354,7 @@ bool migrationV10ToV11Test(const QString& path)
   }
 
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v10 to v11 migration failed"))
+  if (!check(storage.open(path), "schema v10 to v12 migration failed"))
   {
     return false;
   }
@@ -1275,14 +1365,44 @@ bool migrationV10ToV11Test(const QString& path)
                    after->rank == ParticipantRank::Squire &&
                    after->combatHand == CombatHand::Left &&
                    after->trainingStartMonth == JournalMonth{2019, 9},
-               "v10 to v11 migration changed participant profile") &&
+               "v10 to v12 migration changed participant profile") &&
          check(roster.size() == 1 && roster.front().id == before.id,
-               "v10 to v11 migration lost month membership") &&
-         check(isNormalizedSchemaV11(path, false),
-               "v10 migration did not produce clean schema v11");
+               "v10 to v12 migration lost month membership") &&
+         check(isNormalizedSchemaV12(path, false),
+               "v10 migration did not produce clean schema v12");
 }
 
-bool migrationV5ToV11Test(const QString& path)
+bool migrationV11ToV12Test(const QString& path)
+{
+  const ParticipantProfile before = participantProfile("V11 Alice");
+  {
+    SqliteConnect storage;
+    if (!check(storage.open(path), "v11 migration setup open failed") ||
+        !check(storage.addParticipantToMonth(2025, 7, before),
+               "v11 migration participant setup failed"))
+    {
+      return false;
+    }
+  }
+  if (!check(downgradeParticipantHistorySchemaToV11(path),
+             "v11 migration schema setup failed"))
+  {
+    return false;
+  }
+  SqliteConnect storage;
+  if (!check(storage.open(path), "schema v11 to v12 migration failed"))
+  {
+    return false;
+  }
+  const auto after = storage.getParticipantProfile(before.id);
+  return check(after.has_value() && !after->joinedClubOn.has_value() &&
+                   after->rankHistory.empty(),
+               "v11 migration invented participant history") &&
+         check(isNormalizedSchemaV12(path, false),
+               "v11 migration did not produce clean schema v12");
+}
+
+bool migrationV5ToV12Test(const QString& path)
 {
   const Participant alice = participant("V5 Alice");
   if (!createSchemaV5Database(path, alice))
@@ -1290,7 +1410,7 @@ bool migrationV5ToV11Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v5 to v11 migration failed"))
+  if (!check(storage.open(path), "schema v5 to v12 migration failed"))
   {
     return false;
   }
@@ -1309,13 +1429,13 @@ bool migrationV5ToV11Test(const QString& path)
                    migratedMarkers.front().kinds == DayMarkerKind::Payment,
                "v5 migration lost old day marker") &&
          check(storage.saveDayMarker(2025, 7, trainerMarker),
-               "v11 schema rejected trainer day marker") &&
-         check(storage.open(path), "migrated v11 reopen is not idempotent") &&
-         check(isNormalizedSchemaV11(path, false),
-               "v5 migration did not produce clean schema v11");
+               "v12 schema rejected trainer day marker") &&
+         check(storage.open(path), "migrated v12 reopen is not idempotent") &&
+         check(isNormalizedSchemaV12(path, false),
+               "v5 migration did not produce clean schema v12");
 }
 
-bool migrationV7ToV11Test(const QString& path)
+bool migrationV7ToV12Test(const QString& path)
 {
   const Participant alice = participant("V7 Alice");
   const QString fullName(kMaxParticipantFullNameLength, QLatin1Char('f'));
@@ -1324,7 +1444,7 @@ bool migrationV7ToV11Test(const QString& path)
     return false;
   }
   SqliteConnect storage;
-  if (!check(storage.open(path), "schema v7 to v11 migration failed"))
+  if (!check(storage.open(path), "schema v7 to v12 migration failed"))
   {
     return false;
   }
@@ -1342,8 +1462,8 @@ bool migrationV7ToV11Test(const QString& path)
                "migrated schema rejected 300-character ordinary name") &&
          check(storage.getParticipantProfile(alice.id)->displayName == fullName,
                "ordinary-name fallback failed after v7 migration") &&
-         check(isNormalizedSchemaV11(path, false),
-               "v7 migration did not produce clean schema v11");
+         check(isNormalizedSchemaV12(path, false),
+               "v7 migration did not produce clean schema v12");
 }
 
 bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
@@ -1364,8 +1484,8 @@ bool developmentV6IsRepaired(const QString& path, bool withTrainerColumn)
                "repaired schema v6 rejected trainer marker") &&
          check(storage.open(path),
                "repaired development schema v6 reopen failed") &&
-      check(isNormalizedSchemaV11(path, withTrainerColumn),
-            "development schema v6 was not normalized to v11");
+      check(isNormalizedSchemaV12(path, withTrainerColumn),
+            "development schema v6 was not normalized to v12");
 }
 
 } // namespace
@@ -1386,9 +1506,10 @@ int main(int argc, char* argv[])
       participantStatisticsTest(directory.filePath("statistics.db")) &&
       snapshotNameSourcesRoundTrip(directory.filePath("snapshot-source.db"),
                                    directory.filePath("snapshot-target.db")) &&
-      migrationV10ToV11Test(directory.filePath("v10.db")) &&
-      migrationV5ToV11Test(directory.filePath("v5.db")) &&
-      migrationV7ToV11Test(directory.filePath("v7.db")) &&
+      migrationV10ToV12Test(directory.filePath("v10.db")) &&
+      migrationV11ToV12Test(directory.filePath("v11.db")) &&
+      migrationV5ToV12Test(directory.filePath("v5.db")) &&
+      migrationV7ToV12Test(directory.filePath("v7.db")) &&
       developmentV6IsRepaired(directory.filePath("old-v6-trainer.db"), true) &&
       developmentV6IsRepaired(directory.filePath("old-v6-marker.db"), false);
   return ok ? 0 : 1;

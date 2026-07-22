@@ -626,6 +626,10 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
   profile.contact = "@alice";
   profile.rank = ParticipantRank::Guest;
   profile.trainingStartMonth = JournalMonth{2018, 9};
+  profile.joinedClubOn = QDate(2018, 9, 15);
+  profile.rankHistory = {
+      {ParticipantRank::Novice, QDate(2019, 2, 3)},
+      {ParticipantRank::Knight, std::nullopt}};
   ParticipantDialog dialog(profile, true);
   auto* year = dialog.findChild<QSpinBox*>("participantBirthYearSpinBox");
   auto* rank = dialog.findChild<QComboBox*>("participantRankComboBox");
@@ -644,9 +648,28 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
       "participantTrainingStartYearSpinBox");
   auto* trainingStartLabel =
       dialog.findChild<QLabel*>("participantTrainingStartLabel");
+  auto* joinedClubCheck =
+      dialog.findChild<QCheckBox*>("participantJoinedClubCheckBox");
+  auto* joinedClubDate =
+      dialog.findChild<QDateEdit*>("participantJoinedClubDateEdit");
+  auto* recruitReceived = dialog.findChild<QCheckBox*>(
+      "participantRankHistory_recruitReceivedCheckBox");
+  auto* noviceReceived = dialog.findChild<QCheckBox*>(
+      "participantRankHistory_noviceReceivedCheckBox");
+  auto* noviceDateKnown = dialog.findChild<QCheckBox*>(
+      "participantRankHistory_noviceDateKnownCheckBox");
+  auto* noviceDate = dialog.findChild<QDateEdit*>(
+      "participantRankHistory_noviceDateEdit");
+  auto* knightReceived = dialog.findChild<QCheckBox*>(
+      "participantRankHistory_knightReceivedCheckBox");
+  auto* knightDateKnown = dialog.findChild<QCheckBox*>(
+      "participantRankHistory_knightDateKnownCheckBox");
   if (!Check(year && rank && combatHand && id && historicalName && fullName &&
                  contact && trainingStartCheck && trainingStartMonth &&
-                 trainingStartYear && trainingStartLabel,
+                 trainingStartYear && trainingStartLabel && joinedClubCheck &&
+                 joinedClubDate && recruitReceived && noviceReceived &&
+                 noviceDateKnown && noviceDate && knightReceived &&
+                 knightDateKnown,
              "participant profile controls missing"))
   {
     return false;
@@ -672,6 +695,17 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
   {
     return false;
   }
+  if (!Check(joinedClubCheck->isChecked() &&
+                 joinedClubDate->date() == QDate(2018, 9, 15) &&
+                 !recruitReceived->isChecked() && noviceReceived->isChecked() &&
+                 noviceDateKnown->isChecked() &&
+                 noviceDate->date() == QDate(2019, 2, 3) &&
+                 knightReceived->isChecked() &&
+                 !knightDateKnown->isChecked(),
+             "participant milestone history was not populated"))
+  {
+    return false;
+  }
   const int knightIndex =
       rank->findData(static_cast<int>(ParticipantRank::Knight));
   if (!Check(knightIndex >= 0, "Knight rank missing from participant editor"))
@@ -694,6 +728,12 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
                    edited.fullName == "Alice Updated" &&
                    edited.contact == "+7 900 000-00-00" &&
                    edited.trainingStartMonth == JournalMonth{2017, 4} &&
+                   edited.joinedClubOn == QDate(2018, 9, 15) &&
+                   edited.rankHistory.size() == 2 &&
+                   edited.rankHistory.at(0).rank == ParticipantRank::Novice &&
+                   edited.rankHistory.at(0).obtainedOn == QDate(2019, 2, 3) &&
+                   edited.rankHistory.at(1).rank == ParticipantRank::Knight &&
+                   !edited.rankHistory.at(1).obtainedOn.has_value() &&
                    trainingStartLabel->text().contains("2017"),
              "participant editor lost profile details"))
   {
@@ -1100,7 +1140,7 @@ bool ParticipantCardKeepsUnchangedEmblem()
                "card without local storage exposes unavailable mutations");
 }
 
-bool ParticipantDirectoryHidesIdAndSortsByName()
+bool ParticipantDirectoryGroupsByRankAndSortsNamesWithinGroup()
 {
   ParticipantProfile knight;
   knight.id = {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"};
@@ -1113,7 +1153,11 @@ bool ParticipantDirectoryHidesIdAndSortsByName()
   page.displayName = "Page";
   page.historicalName = "Page";
   page.rank = ParticipantRank::Page;
-  ParticipantDirectoryDialog dialog({knight, page});
+  ParticipantProfile anotherPage = page;
+  anotherPage.id = {"cccccccc-cccc-cccc-cccc-cccccccccccc"};
+  anotherPage.displayName = "Able Page";
+  anotherPage.historicalName = "Able Page";
+  ParticipantDirectoryDialog dialog({knight, page, anotherPage});
   auto* table = dialog.findChild<QTableWidget*>();
   if (!Check(table && table->columnCount() == 5,
              "participant directory column count is invalid"))
@@ -1131,12 +1175,14 @@ bool ParticipantDirectoryHidesIdAndSortsByName()
                    table->horizontalHeaderItem(4)->text() ==
                        QString::fromUtf8("Статус"),
                "participant directory exposes ID or misses rank") &&
-         Check(table->item(0, 0)->text() == "Knight" &&
-                   table->item(1, 0)->text() == "Page",
-               "participant directory is not sorted by display name") &&
-         Check(table->item(0, 1)->text() == "Knight Full Name",
+         Check(table->item(0, 0)->text() == "Able Page" &&
+                   table->item(1, 0)->text() == "Page" &&
+                   table->item(2, 0)->text() == "Knight",
+               "participant directory is not grouped by rank and sorted "
+               "within the group") &&
+         Check(table->item(2, 1)->text() == "Knight Full Name",
                "participant directory lost full name") &&
-         Check(table->item(0, 0)->data(Qt::UserRole).toString() ==
+         Check(table->item(2, 0)->data(Qt::UserRole).toString() ==
                    knight.id.value,
                "participant directory lost hidden row identity");
 }
@@ -1400,7 +1446,7 @@ int main(int argc, char* argv[])
       !TimedStrikeEditorBuildsValidUtcRecord() ||
       !ParticipantStatisticsRequestsStrikeHistory() ||
       !ParticipantCardKeepsUnchangedEmblem() ||
-      !ParticipantDirectoryHidesIdAndSortsByName() ||
+      !ParticipantDirectoryGroupsByRankAndSortsNamesWithinGroup() ||
       !EventEditorDoesNotDuplicateFullNameOnlyParticipant() ||
       !EventEditorSeparatesCompetitorsAndAttendees() ||
       !EventEditorRequiresExplicitCategory() ||

@@ -11,6 +11,7 @@ class JournalApp;
 class ParticipantEmblemWidget;
 class QCheckBox;
 class QComboBox;
+class QDateEdit;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -48,6 +49,14 @@ public:
   std::optional<JournalMonth> selectedMonth() const;
 
 private:
+  struct RankHistoryControls
+  {
+    ParticipantRank rank;
+    QCheckBox* receivedCheck;
+    QCheckBox* dateKnownCheck;
+    QDateEdit* dateEdit;
+  };
+
   ParticipantProfile original_;
   Action action_;
   QLineEdit* nameEdit_;
@@ -60,6 +69,9 @@ private:
   QCheckBox* trainingStartCheck_;
   QComboBox* trainingStartMonthCombo_;
   QSpinBox* trainingStartYearSpin_;
+  QCheckBox* joinedClubCheck_;
+  QDateEdit* joinedClubDateEdit_;
+  std::vector<RankHistoryControls> rankHistoryControls_;
   QComboBox* rankCombo_;
   QComboBox* combatHandCombo_;
   ParticipantEmblemWidget* emblemWidget_;
@@ -73,6 +85,7 @@ private:
 
   void updateBirthdayControls();
   void updateTrainingStartControls();
+  void updateMembershipControls();
   void save();
   void openMonth(int year, int month);
 };

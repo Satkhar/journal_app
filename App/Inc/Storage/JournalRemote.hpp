@@ -77,4 +77,6 @@ private:
   static std::optional<int> cellOptionalInt(const QJsonArray& row, int index);
   static std::optional<ParticipantProfile>
   profileFromRow(const QJsonArray& row);
+  static std::optional<ParticipantRankHistoryEntry>
+  rankHistoryFromRow(const QJsonArray& row);
 };

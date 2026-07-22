@@ -31,6 +31,12 @@ ParticipantDirectoryDialog::ParticipantDirectoryDialog(
       [&collator](const ParticipantProfile& lhs,
                   const ParticipantProfile& rhs)
       {
+        const int lhsRank = ParticipantRankSortKey(lhs.rank);
+        const int rhsRank = ParticipantRankSortKey(rhs.rank);
+        if (lhsRank != rhsRank)
+        {
+          return lhsRank < rhsRank;
+        }
         const int byName = collator.compare(ParticipantDisplayName(lhs),
                                             ParticipantDisplayName(rhs));
         return byName != 0 ? byName < 0 : lhs.id.value < rhs.id.value;

@@ -91,14 +91,25 @@ bool IsTrainingStartMonthNotAfter(
     const std::optional<JournalMonth>& month, const QDate& referenceDate);
 
 const std::vector<ParticipantRank>& ParticipantRanksInDisplayOrder();
+const std::vector<ParticipantRank>& ParticipantRanksWithHistory();
 QString ParticipantRankStorageValue(ParticipantRank rank);
 QString ParticipantRankDisplayName(ParticipantRank rank);
 std::optional<ParticipantRank>
 ParticipantRankFromStorageValue(const QString& value);
 int ParticipantRankSortKey(ParticipantRank rank);
+bool IsParticipantRankWithHistory(ParticipantRank rank);
 QString CombatHandStorageValue(CombatHand hand);
 QString CombatHandDisplayName(CombatHand hand);
 std::optional<CombatHand> CombatHandFromStorageValue(const QString& value);
+
+struct ParticipantRankHistoryEntry
+{
+  ParticipantRank rank{ParticipantRank::Recruit};
+  // nullopt означает: звание получено, но точная дата неизвестна.
+  std::optional<QDate> obtainedOn;
+
+  bool isValid() const;
+};
 
 struct ParticipantProfile
 {
@@ -111,6 +122,9 @@ struct ParticipantProfile
   QString contact;
   std::optional<Birthday> birthday;
   std::optional<JournalMonth> trainingStartMonth;
+  std::optional<QDate> joinedClubOn;
+  // Отсутствие звания в списке означает, что участник его не проходил.
+  std::vector<ParticipantRankHistoryEntry> rankHistory;
   ParticipantRank rank{ParticipantRank::Guest};
   CombatHand combatHand{CombatHand::Unknown};
   QString notes;
@@ -118,6 +132,9 @@ struct ParticipantProfile
 
   bool isValid() const;
 };
+
+bool AreParticipantMilestoneDatesNotAfter(
+    const ParticipantProfile& profile, const QDate& referenceDate);
 
 constexpr int kMaxParticipantEmblemBytes = 5 * 1024 * 1024;
 constexpr int kMaxParticipantEmblemDimension = 1024;
