@@ -1218,6 +1218,7 @@ bool ParticipantPresentationUsesDistinctRanksAndCompactHandNames()
     colors.insert(ParticipantRankBackgroundColor(rank).rgba());
   }
   const auto& historyRanks = ParticipantRanksWithHistory();
+  const auto& displayRanks = ParticipantRanksInDisplayOrder();
   const QVector<ParticipantRosterState> roster = {
       {false, CombatHand::Left},    {false, CombatHand::Right},
       {false, CombatHand::Right},   {false, CombatHand::Unknown},
@@ -1243,6 +1244,14 @@ bool ParticipantPresentationUsesDistinctRanksAndCompactHandNames()
                                                 ParticipantRank::Squire,
                                                 ParticipantRank::Knight},
                "rank history controls use the wrong order") &&
+         Check(displayRanks ==
+                   std::vector<ParticipantRank>{ParticipantRank::Novice,
+                                                ParticipantRank::Recruit,
+                                                ParticipantRank::Page,
+                                                ParticipantRank::Squire,
+                                                ParticipantRank::Knight,
+                                                ParticipantRank::Guest},
+               "participant tables use the wrong rank order") &&
          Check(rosterSummary.activeParticipants == 4 &&
                    rosterSummary.leftHanded == 1 &&
                    rosterSummary.rightHanded == 2 &&

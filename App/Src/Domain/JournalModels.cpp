@@ -62,9 +62,9 @@ bool Birthday::isValid() const
 const std::vector<ParticipantRank>& ParticipantRanksInDisplayOrder()
 {
   static const std::vector<ParticipantRank> ranks = {
-      ParticipantRank::Page,   ParticipantRank::Squire,
       ParticipantRank::Novice, ParticipantRank::Recruit,
-      ParticipantRank::Guest,  ParticipantRank::Knight};
+      ParticipantRank::Page, ParticipantRank::Squire,
+      ParticipantRank::Knight, ParticipantRank::Guest};
   return ranks;
 }
 

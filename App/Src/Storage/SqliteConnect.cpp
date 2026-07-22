@@ -3246,9 +3246,9 @@ SqliteConnect::listParticipantProfiles(bool includeArchived)
   const QString sql =
       "SELECT id FROM participants " +
       QString(includeArchived ? "" : "WHERE archived_at IS NULL ") +
-      "ORDER BY CASE rank WHEN 'page' THEN 0 WHEN 'squire' THEN 1 "
-      "WHEN 'novice' THEN 2 WHEN 'recruit' THEN 3 WHEN 'guest' THEN 4 "
-      "WHEN 'knight' THEN 5 ELSE 6 END, lower(display_name), id";
+      "ORDER BY CASE rank WHEN 'novice' THEN 0 WHEN 'recruit' THEN 1 "
+      "WHEN 'page' THEN 2 WHEN 'squire' THEN 3 WHEN 'knight' THEN 4 "
+      "WHEN 'guest' THEN 5 ELSE 6 END, lower(display_name), id";
   if (!query.exec(sql))
   {
     setError(query.lastError().text());
