@@ -38,6 +38,8 @@ public:
       int fromYear, int fromMonth, int toYear, int toMonth,
       CopyScheduleMode scheduleMode);
   bool addUser(int year, int month, const QString& fullName);
+  bool addExistingParticipant(int year, int month,
+                              const ParticipantId& id);
   bool removeParticipant(int year, int month, const ParticipantId& id);
   bool saveAttendance(int year, int month,
                       const std::vector<AttendanceRecord>& data);

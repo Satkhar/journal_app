@@ -412,6 +412,33 @@ bool NewParticipantUsesFullNameUntilHistoricalNameExists()
   return true;
 }
 
+bool ExistingParticipantCanJoinMonthWithoutDuplicateProfile()
+{
+  QTemporaryDir directory;
+  TEST_CHECK(directory.isValid());
+  auto sqlite = std::make_unique<SqliteConnect>();
+  TEST_CHECK(sqlite->open(directory.filePath("journal.db")));
+  auto local = std::make_unique<JournalLocal>(std::move(sqlite));
+  JournalApp app(std::move(local));
+
+  TEST_CHECK(app.addUser(2024, 2, "Старый участник"));
+  const auto profiles = app.participantProfiles(false);
+  TEST_CHECK(profiles.has_value() && profiles->size() == 1);
+  const ParticipantId id = profiles->front().id;
+  TEST_CHECK(app.addExistingParticipant(2026, 7, id));
+  const MonthSnapshot target = app.loadMonth(2026, 7);
+  TEST_CHECK(target.participants.size() == 1);
+  TEST_CHECK(target.participants.front().id == id);
+  const auto profilesAfter = app.participantProfiles(true);
+  TEST_CHECK(profilesAfter.has_value() && profilesAfter->size() == 1);
+
+  TEST_CHECK(app.archiveParticipant(id));
+  TEST_CHECK(!app.addExistingParticipant(2026, 8, id));
+  TEST_CHECK(!app.addExistingParticipant(
+      2026, 8, {"99999999-9999-9999-9999-999999999999"}));
+  return true;
+}
+
 bool LegacyDatesMigrateToProfileSchema()
 {
   QTemporaryDir directory;
@@ -484,6 +511,8 @@ int main(int argc, char* argv[])
        ConfiguredMonthsAreListedNewestFirst},
       {"new participant uses full name before historical name",
        NewParticipantUsesFullNameUntilHistoricalNameExists},
+      {"existing participant joins month without duplicate profile",
+       ExistingParticipantCanJoinMonthWithoutDuplicateProfile},
       {"legacy dates migrate to profile schema",
        LegacyDatesMigrateToProfileSchema}};
 

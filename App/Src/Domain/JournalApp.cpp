@@ -270,6 +270,18 @@ bool JournalApp::addUser(int year, int month, const QString& fullName)
                                          makeParticipantProfile(trimmed));
 }
 
+bool JournalApp::addExistingParticipant(int year, int month,
+                                        const ParticipantId& id)
+{
+  if (!QDate(year, month, 1).isValid() || !id.isValid())
+  {
+    return false;
+  }
+  const auto profile = storage_->getParticipantProfile(id);
+  return profile.has_value() && !profile->archived &&
+         storage_->addParticipantToMonth(year, month, *profile);
+}
+
 bool JournalApp::removeParticipant(int year, int month,
                                    const ParticipantId& id)
 {

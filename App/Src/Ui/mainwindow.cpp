@@ -34,6 +34,7 @@
 
 #include <QHash>
 #include <algorithm>
+#include <iterator>
 #include <memory>
 
 #include "AttendanceCellWidget.hpp"
@@ -42,6 +43,7 @@
 #include "EventApp.hpp"
 #include "EventDirectoryDialog.hpp"
 #include "EventSqliteStorage.hpp"
+#include "ExistingParticipantDialog.hpp"
 #include "JournalLocal.hpp"
 #include "JournalRemote.hpp"
 #include "MonthDaysDialog.hpp"
@@ -164,6 +166,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), ui(new Ui::MainWindow), modeIndicator_(nullptr),
       localStorageAction_(nullptr), remoteStorageAction_(nullptr),
       serverUrlAction_(nullptr), addParticipantAction_(nullptr),
+      addExistingParticipantAction_(nullptr),
       removeParticipantAction_(nullptr), configureMonthAction_(nullptr),
       copyParticipantsAction_(nullptr), participantsAction_(nullptr),
       readLocalAction_(nullptr), saveMonthAction_(nullptr),
@@ -899,6 +902,10 @@ void MainWindow::setupMenus()
   addParticipantAction_ = monthMenu->addAction("Добавить участника…");
   addParticipantAction_->setObjectName("addParticipantAction");
   addParticipantAction_->setShortcut(QKeySequence::New);
+  addExistingParticipantAction_ =
+      monthMenu->addAction("Добавить существующего участника…");
+  addExistingParticipantAction_->setObjectName(
+      "addExistingParticipantAction");
   removeParticipantAction_ =
       monthMenu->addAction("Убрать выбранного участника");
   removeParticipantAction_->setObjectName("removeParticipantAction");
@@ -952,6 +959,8 @@ void MainWindow::setupMenus()
           [this]() { configureServerUrl(); });
   connect(addParticipantAction_, &QAction::triggered, this,
           [this]() { addParticipantToMonth(); });
+  connect(addExistingParticipantAction_, &QAction::triggered, this,
+          [this]() { addExistingParticipantToMonth(); });
   connect(removeParticipantAction_, &QAction::triggered, this,
           [this]() { removeSelectedParticipantFromMonth(); });
   connect(configureMonthAction_, &QAction::triggered, this,
@@ -1008,6 +1017,71 @@ void MainWindow::addParticipantToMonth()
   if (monthDataValid_)
   {
     ui->statusbar->showMessage("Участник добавлен");
+  }
+}
+
+void MainWindow::addExistingParticipantToMonth()
+{
+  if (isConnectingStorage_ || syncInProgress_ || refreshInProgress_ ||
+      !monthDataValid_ || activeStorageMode_ == "server" || !journalApp_)
+  {
+    ui->statusbar->showMessage("Данные месяца не готовы");
+    return;
+  }
+
+  const auto profiles = journalApp_->participantProfiles(false);
+  if (!profiles.has_value())
+  {
+    ui->statusbar->showMessage("Не удалось прочитать справочник участников",
+                               6000);
+    return;
+  }
+  QSet<QString> currentParticipantIds;
+  const QTableWidget* table = findChild<QTableWidget*>("bigTable");
+  const int summaryRow = monthSummaryRow(table);
+  for (int row = kFirstContentRow; table && row < summaryRow; ++row)
+  {
+    const QTableWidgetItem* item = table->item(row, kNameColumn);
+    const ParticipantId id{
+        item ? item->data(Qt::UserRole).toString() : QString()};
+    if (id.isValid())
+    {
+      currentParticipantIds.insert(id.value);
+    }
+  }
+
+  std::vector<ParticipantProfile> availableProfiles;
+  std::copy_if(
+      profiles->cbegin(), profiles->cend(),
+      std::back_inserter(availableProfiles),
+      [&currentParticipantIds](const ParticipantProfile& profile)
+      { return !currentParticipantIds.contains(profile.id.value); });
+  if (availableProfiles.empty())
+  {
+    ui->statusbar->showMessage(
+        "Все активные участники уже добавлены в этот месяц", 5000);
+    return;
+  }
+
+  ExistingParticipantDialog dialog(std::move(availableProfiles), this);
+  if (dialog.exec() != QDialog::Accepted)
+  {
+    return;
+  }
+  const auto selectedId = dialog.selectedParticipantId();
+  if (!selectedId.has_value() ||
+      !journalApp_->addExistingParticipant(
+          static_cast<int>(year), static_cast<int>(month), *selectedId))
+  {
+    ui->statusbar->showMessage(
+        "Не удалось добавить существующего участника", 6000);
+    return;
+  }
+
+  refreshMonth();
+  if (monthDataValid_)
+  {
+    ui->statusbar->showMessage("Существующий участник добавлен");
   }
 }
 
@@ -1673,6 +1747,7 @@ void MainWindow::updateEditControlsByMode()
   const bool draftActive = hasCurrentMonthDraft();
   const bool canChangeStructure = canEditMonth && !draftActive;
   addParticipantAction_->setEnabled(canChangeStructure);
+  addExistingParticipantAction_->setEnabled(canChangeStructure);
   removeParticipantAction_->setEnabled(canChangeStructure);
   configureMonthAction_->setEnabled(canChangeStructure);
   copyParticipantsAction_->setEnabled(canChangeStructure);

@@ -2,6 +2,7 @@
 #include "CopyUsersDialog.hpp"
 #include "DayMarkerDialog.hpp"
 #include "EventDialog.hpp"
+#include "ExistingParticipantDialog.hpp"
 #include "MonthDaysDialog.hpp"
 #include "ParticipantDialog.hpp"
 #include "ParticipantDirectoryDialog.hpp"
@@ -1210,6 +1211,42 @@ bool ParticipantDirectoryGroupsByRankAndSortsNamesWithinGroup()
                "participant directory lost hidden row identity");
 }
 
+bool ExistingParticipantDialogKeepsIdentityAndRankOrder()
+{
+  ParticipantProfile knight;
+  knight.id = {"11111111-1111-1111-1111-111111111111"};
+  knight.historicalName = "Борей";
+  knight.fullName = "Борис Рыцарев";
+  knight.displayName = knight.historicalName;
+  knight.rank = ParticipantRank::Knight;
+  ParticipantProfile novice;
+  novice.id = {"22222222-2222-2222-2222-222222222222"};
+  novice.fullName = "Анна Новикова";
+  novice.displayName = novice.fullName;
+  novice.rank = ParticipantRank::Novice;
+
+  ExistingParticipantDialog dialog({knight, novice});
+  auto* combo =
+      dialog.findChild<QComboBox*>("existingParticipantCombo");
+  if (!Check(combo && combo->count() == 2,
+             "existing-participant dropdown is missing"))
+  {
+    return false;
+  }
+  if (!Check(combo->itemData(0).toString() == novice.id.value &&
+                 combo->itemText(0).contains("Анна Новикова") &&
+                 combo->itemData(1).toString() == knight.id.value &&
+                 combo->itemText(1).contains("Борей") &&
+                 combo->itemText(1).contains("Борис Рыцарев"),
+             "existing-participant dropdown lost identity or rank order"))
+  {
+    return false;
+  }
+  combo->setCurrentIndex(1);
+  return Check(dialog.selectedParticipantId() == knight.id,
+               "existing-participant selection returned the wrong UUID");
+}
+
 bool ParticipantPresentationUsesDistinctRanksAndCompactHandNames()
 {
   QSet<QRgb> colors;
@@ -1497,6 +1534,7 @@ int main(int argc, char* argv[])
   QApplication app(argc, argv);
   if (!WeekdayClickSelectsAndClearsGroup() || !BulkControlsStaySynchronized() ||
       !AddParticipantsDialogUsesConfiguredMonthDropdown() ||
+      !ExistingParticipantDialogKeepsIdentityAndRankOrder() ||
       !DayMarkerDialogSupportsMultipleKindsAndClear() ||
       !NoteOnlyMarkerBecomesOther() ||
       !AttendanceCellUsesCompactSemanticBadge() ||

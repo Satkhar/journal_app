@@ -56,6 +56,7 @@ private:
   QAction* remoteStorageAction_;
   QAction* serverUrlAction_;
   QAction* addParticipantAction_;
+  QAction* addExistingParticipantAction_;
   QAction* removeParticipantAction_;
   QAction* configureMonthAction_;
   QAction* copyParticipantsAction_;
@@ -114,6 +115,7 @@ private:
   // Создает верхнее меню и связывает QAction с use-case обработчиками.
   void setupMenus();
   void addParticipantToMonth();
+  void addExistingParticipantToMonth();
   void removeSelectedParticipantFromMonth();
   bool saveCurrentMonth();
   bool finishMonthDraftBeforeContextChange();

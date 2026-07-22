@@ -42,6 +42,7 @@ add_executable(journal_app
     ./App/Src/Ui/DayMarkerDialog.cpp
     ./App/Src/Ui/EventDialog.cpp
     ./App/Src/Ui/EventDirectoryDialog.cpp
+    ./App/Src/Ui/ExistingParticipantDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/CopyUsersDialog.cpp
     ./App/Src/Ui/ParticipantDialog.cpp
@@ -68,6 +69,7 @@ add_executable(journal_app
     ./App/Inc/Ui/DayMarkerDialog.hpp
     ./App/Inc/Ui/EventDialog.hpp
     ./App/Inc/Ui/EventDirectoryDialog.hpp
+    ./App/Inc/Ui/ExistingParticipantDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/CopyUsersDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
@@ -187,6 +189,7 @@ add_executable(journal_ui_tests
     ./App/Src/Ui/CopyUsersDialog.cpp
     ./App/Src/Ui/DayMarkerDialog.cpp
     ./App/Src/Ui/EventDialog.cpp
+    ./App/Src/Ui/ExistingParticipantDialog.cpp
     ./App/Src/Ui/MonthDaysDialog.cpp
     ./App/Src/Ui/ParticipantDialog.cpp
     ./App/Src/Ui/ParticipantDirectoryDialog.cpp
@@ -199,6 +202,7 @@ add_executable(journal_ui_tests
     ./App/Inc/Ui/CopyUsersDialog.hpp
     ./App/Inc/Ui/DayMarkerDialog.hpp
     ./App/Inc/Ui/EventDialog.hpp
+    ./App/Inc/Ui/ExistingParticipantDialog.hpp
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
     ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
