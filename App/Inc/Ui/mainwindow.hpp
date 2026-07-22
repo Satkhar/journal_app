@@ -162,6 +162,9 @@ private:
   // Пересчитывает число отмеченных активных дней для строки участника.
   void updateAttendanceCount(QTableWidget* tableWidget, int row);
   void updateDayAttendanceCount(QTableWidget* tableWidget, int column);
+  int monthSummaryRow(const QTableWidget* tableWidget) const;
+  void appendMonthSummaryRow(QTableWidget* tableWidget);
+  void updateMonthSummaryLabel(const QTableWidget* tableWidget);
   // Считывает текущий месяц/год/число дней из календаря.
   void updateCalendarVariables(QCalendarWidget* calendarWidget);
 };

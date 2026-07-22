@@ -10,6 +10,8 @@
 
 #include <algorithm>
 
+#include "ParticipantPresentation.hpp"
+
 ParticipantDirectoryDialog::ParticipantDirectoryDialog(
     const std::vector<ParticipantProfile>& profiles, QWidget* parent)
     : QDialog(parent), table_(new QTableWidget(this))
@@ -53,9 +55,7 @@ ParticipantDirectoryDialog::ParticipantDirectoryDialog(
     auto* fullNameItem = new QTableWidgetItem(profile.fullName);
     auto* combatHandItem =
         new QTableWidgetItem(CombatHandDisplayName(profile.combatHand));
-    const QColor groupColor = ParticipantRankSortKey(profile.rank) % 2 == 0
-                                  ? QColor(245, 248, 252)
-                                  : QColor(235, 241, 248);
+    const QColor groupColor = ParticipantRankBackgroundColor(profile.rank);
     nameItem->setBackground(groupColor);
     fullNameItem->setBackground(groupColor);
     rankItem->setBackground(groupColor);

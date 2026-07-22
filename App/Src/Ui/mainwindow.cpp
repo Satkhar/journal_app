@@ -47,6 +47,7 @@
 #include "MonthDaysDialog.hpp"
 #include "ParticipantDialog.hpp"
 #include "ParticipantDirectoryDialog.hpp"
+#include "ParticipantPresentation.hpp"
 #include "ParticipantStatisticsWidget.hpp"
 #include "SqliteConnect.hpp"
 #include "SyncService.hpp"
@@ -60,8 +61,10 @@ namespace
 constexpr int kFirstContentRow = 0;
 constexpr int kNameColumn = 0;
 constexpr int kRankColumn = 1;
-constexpr int kAttendanceCountColumn = 2;
-constexpr int kFirstDayColumn = 3;
+constexpr int kCombatHandColumn = 2;
+constexpr int kAttendanceCountColumn = 3;
+constexpr int kFirstDayColumn = 4;
+constexpr int kMonthSummaryRole = Qt::UserRole + 1;
 QString applicationDataFilePath(const QString& fileName)
 {
   const QString dataDirectory =
@@ -608,6 +611,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   // Даты находятся в horizontal header, поэтому остаются видимыми при
   // вертикальной прокрутке списка участников.
   tableWidget->clearContents();
+  tableWidget->clearSpans();
   tableWidget->setRowCount(kFirstContentRow);
   tableWidget->setColumnCount(kFirstDayColumn +
                               static_cast<int>(activeDays_.size()));
@@ -616,6 +620,8 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
                                        new QTableWidgetItem("Участник"));
   tableWidget->setHorizontalHeaderItem(kRankColumn,
                                        new QTableWidgetItem("Звание"));
+  tableWidget->setHorizontalHeaderItem(kCombatHandColumn,
+                                       new QTableWidgetItem("Рука"));
   tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
                                        new QTableWidgetItem("Посещено"));
 
@@ -667,9 +673,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
   {
     const ParticipantProfile profile = profilesById.value(participant.id.value);
     const ParticipantRank rank = profile.rank;
-    const QColor groupColor = ParticipantRankSortKey(rank) % 2 == 0
-                                  ? QColor(245, 248, 252)
-                                  : QColor(235, 241, 248);
+    const QColor groupColor = ParticipantRankBackgroundColor(rank);
     const int row = tableWidget->rowCount();
     tableWidget->insertRow(row);
     auto* nameItem = new QTableWidgetItem(
@@ -683,6 +687,14 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     rankItem->setFlags(rankItem->flags() & ~Qt::ItemIsEditable);
     rankItem->setBackground(groupColor);
     tableWidget->setItem(row, kRankColumn, rankItem);
+
+    auto* combatHandItem =
+        new QTableWidgetItem(CompactCombatHandName(profile.combatHand));
+    combatHandItem->setFlags(combatHandItem->flags() & ~Qt::ItemIsEditable);
+    combatHandItem->setTextAlignment(Qt::AlignCenter);
+    combatHandItem->setToolTip(CombatHandDisplayName(profile.combatHand));
+    combatHandItem->setBackground(groupColor);
+    tableWidget->setItem(row, kCombatHandColumn, combatHandItem);
 
     auto* countItem = new QTableWidgetItem();
     countItem->setFlags(countItem->flags() & ~Qt::ItemIsEditable);
@@ -712,10 +724,12 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     updateAttendanceCount(tableWidget, row);
   }
 
+  appendMonthSummaryRow(tableWidget);
   for (int index = 0; index < activeDays_.size(); ++index)
   {
     updateDayAttendanceCount(tableWidget, index + kFirstDayColumn);
   }
+  updateMonthSummaryLabel(tableWidget);
 
   tableWidget->resizeColumnsToContents();
 }
@@ -778,6 +792,7 @@ void MainWindow::createEmptyTable()
       activeDays_.isEmpty()
           ? fullMonthDays(static_cast<int>(year), static_cast<int>(month))
           : activeDays_;
+  activeDays_ = tableDays;
   QTableWidget* tableWidget = new QTableWidget(
       kFirstContentRow,
       kFirstDayColumn + static_cast<int>(tableDays.size()), this);
@@ -787,6 +802,8 @@ void MainWindow::createEmptyTable()
                                        new QTableWidgetItem("Участник"));
   tableWidget->setHorizontalHeaderItem(kRankColumn,
                                        new QTableWidgetItem("Звание"));
+  tableWidget->setHorizontalHeaderItem(kCombatHandColumn,
+                                       new QTableWidgetItem("Рука"));
   tableWidget->setHorizontalHeaderItem(kAttendanceCountColumn,
                                        new QTableWidgetItem("Посещено"));
   for (int i = 0; i < tableDays.size(); ++i)
@@ -815,6 +832,13 @@ void MainWindow::createEmptyTable()
     layout->setRowStretch(1, 1);
     layout->setColumnStretch(0, 1);
   }
+
+  appendMonthSummaryRow(tableWidget);
+  for (int index = 0; index < activeDays_.size(); ++index)
+  {
+    updateDayAttendanceCount(tableWidget, index + kFirstDayColumn);
+  }
+  updateMonthSummaryLabel(tableWidget);
 
   connect(tableWidget, &QTableWidget::cellDoubleClicked, this,
           [this, tableWidget](int row, int column)
@@ -1884,6 +1908,7 @@ void MainWindow::addAttendanceCell(
           {
             updateAttendanceCount(tableWidget, row);
             updateDayAttendanceCount(tableWidget, column);
+            updateMonthSummaryLabel(tableWidget);
             if (!journalApp_ || activeStorageMode_ != "local" ||
                 isConnectingStorage_ || syncInProgress_ ||
                 refreshInProgress_ || !monthDataValid_)
@@ -1910,6 +1935,7 @@ void MainWindow::addAttendanceCell(
             cell->setAttendanceChecked(!checked);
             updateAttendanceCount(tableWidget, row);
             updateDayAttendanceCount(tableWidget, column);
+            updateMonthSummaryLabel(tableWidget);
             ui->statusbar->showMessage(
                 "Не удалось сохранить отметку посещения", 5000);
           });
@@ -2047,6 +2073,96 @@ void MainWindow::updateDayAttendanceCount(QTableWidget* tableWidget,
                                  static_cast<int>(month),
                                  activeDays_.at(dayIndex), attendanceCount));
   header->setToolTip(QString("Посетили: %1").arg(attendanceCount));
+
+  const int summaryRow = monthSummaryRow(tableWidget);
+  if (summaryRow >= 0)
+  {
+    QTableWidgetItem* summaryItem = tableWidget->item(summaryRow, column);
+    if (!summaryItem)
+    {
+      summaryItem = new QTableWidgetItem();
+      summaryItem->setFlags(Qt::ItemIsEnabled);
+      summaryItem->setTextAlignment(Qt::AlignCenter);
+      summaryItem->setBackground(QColor("#ECEFF1"));
+      tableWidget->setItem(summaryRow, column, summaryItem);
+    }
+    summaryItem->setText(QString::number(attendanceCount));
+    summaryItem->setToolTip(
+        QString("Посетили %1: %2")
+            .arg(activeDays_.at(dayIndex))
+            .arg(attendanceCount));
+  }
+}
+
+int MainWindow::monthSummaryRow(const QTableWidget* tableWidget) const
+{
+  if (!tableWidget)
+  {
+    return -1;
+  }
+  for (int row = tableWidget->rowCount() - 1; row >= kFirstContentRow; --row)
+  {
+    const QTableWidgetItem* item = tableWidget->item(row, kNameColumn);
+    if (item && item->data(kMonthSummaryRole).toBool())
+    {
+      return row;
+    }
+  }
+  return -1;
+}
+
+void MainWindow::appendMonthSummaryRow(QTableWidget* tableWidget)
+{
+  if (!tableWidget || monthSummaryRow(tableWidget) >= 0)
+  {
+    return;
+  }
+  const int row = tableWidget->rowCount();
+  tableWidget->insertRow(row);
+  for (int column = 0; column < tableWidget->columnCount(); ++column)
+  {
+    auto* item = new QTableWidgetItem();
+    item->setFlags(Qt::ItemIsEnabled);
+    item->setBackground(QColor("#ECEFF1"));
+    item->setTextAlignment(Qt::AlignCenter);
+    tableWidget->setItem(row, column, item);
+  }
+  QTableWidgetItem* label = tableWidget->item(row, kNameColumn);
+  label->setText("За день");
+  label->setData(kMonthSummaryRole, true);
+  QFont font = label->font();
+  font.setBold(true);
+  label->setFont(font);
+}
+
+void MainWindow::updateMonthSummaryLabel(
+    const QTableWidget* tableWidget)
+{
+  if (!ui->monthSummaryLabel)
+  {
+    return;
+  }
+  const int summaryRow = monthSummaryRow(tableWidget);
+  if (summaryRow < 0 || activeDays_.isEmpty())
+  {
+    ui->monthSummaryLabel->setText("Среднее за тренировку: —");
+    return;
+  }
+  QVector<int> attendanceByDay;
+  attendanceByDay.reserve(activeDays_.size());
+  for (int index = 0; index < activeDays_.size(); ++index)
+  {
+    const QTableWidgetItem* item =
+        tableWidget->item(summaryRow, index + kFirstDayColumn);
+    attendanceByDay.push_back(item ? item->text().toInt() : 0);
+  }
+  const double average = AverageAttendancePerTraining(attendanceByDay);
+  const QLocale russian(QLocale::Russian, QLocale::Russia);
+  ui->monthSummaryLabel->setText(
+      QString("Среднее за тренировку: %1 · тренировок: %2 · участников: %3")
+          .arg(russian.toString(average, 'f', 1))
+          .arg(activeDays_.size())
+          .arg(summaryRow - kFirstContentRow));
 }
 
 //---------------------------------------------------------------

@@ -6,6 +6,7 @@
 #include "ParticipantDialog.hpp"
 #include "ParticipantDirectoryDialog.hpp"
 #include "ParticipantEmblemWidget.hpp"
+#include "ParticipantPresentation.hpp"
 #include "ParticipantStrikeHistoryDialog.hpp"
 #include "ParticipantStatisticsWidget.hpp"
 
@@ -29,6 +30,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
+#include <QSet>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -458,7 +460,7 @@ bool ParticipantStatisticsShowsAccessibleMonthHistory()
                         &decemberColumn, &decemberRowSpan,
                         &decemberColumnSpan);
 
-  return Check(tabs->count() == 2 && tabs->tabText(1) ==
+  return Check(tabs->count() == 3 && tabs->tabText(2) ==
                                            QString::fromUtf8("Статистика"),
                "participant statistics tab missing") &&
          Check(total->text() == "9" && !average->text().isEmpty() &&
@@ -648,6 +650,11 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
       "participantTrainingStartYearSpinBox");
   auto* trainingStartLabel =
       dialog.findChild<QLabel*>("participantTrainingStartLabel");
+  auto* tabs = dialog.findChild<QTabWidget*>("participantTabWidget");
+  auto* profilePage = dialog.findChild<QWidget*>("participantProfilePage");
+  auto* detailsPage = dialog.findChild<QWidget*>("participantDetailsPage");
+  auto* statusLabel =
+      dialog.findChild<QLabel*>("participantStatusLabel");
   auto* joinedClubCheck =
       dialog.findChild<QCheckBox*>("participantJoinedClubCheckBox");
   auto* joinedClubDate =
@@ -669,7 +676,8 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
                  trainingStartYear && trainingStartLabel && joinedClubCheck &&
                  joinedClubDate && recruitReceived && noviceReceived &&
                  noviceDateKnown && noviceDate && knightReceived &&
-                 knightDateKnown,
+                 knightDateKnown && tabs && profilePage && detailsPage &&
+                 statusLabel,
              "participant profile controls missing"))
   {
     return false;
@@ -703,6 +711,21 @@ bool ParticipantEditorUsesReasonableYearAndKeepsIdInDetails()
                  knightReceived->isChecked() &&
                  !knightDateKnown->isChecked(),
              "participant milestone history was not populated"))
+  {
+    return false;
+  }
+  if (!Check(tabs->count() == 3 && tabs->tabText(0) ==
+                                      QString::fromUtf8("Профиль") &&
+                 tabs->tabText(1) == QString::fromUtf8("Дополнительно") &&
+                 tabs->tabText(2) == QString::fromUtf8("Статистика") &&
+                 profilePage->isAncestorOf(historicalName) &&
+                 profilePage->isAncestorOf(fullName) &&
+                 profilePage->isAncestorOf(contact) &&
+                 profilePage->isAncestorOf(statusLabel) &&
+                 detailsPage->isAncestorOf(rank) &&
+                 detailsPage->isAncestorOf(combatHand) &&
+                 detailsPage->isAncestorOf(joinedClubDate),
+             "participant fields are assigned to the wrong tabs"))
   {
     return false;
   }
@@ -1187,6 +1210,28 @@ bool ParticipantDirectoryGroupsByRankAndSortsNamesWithinGroup()
                "participant directory lost hidden row identity");
 }
 
+bool ParticipantPresentationUsesDistinctRanksAndCompactHandNames()
+{
+  QSet<QRgb> colors;
+  for (ParticipantRank rank : ParticipantRanksInDisplayOrder())
+  {
+    colors.insert(ParticipantRankBackgroundColor(rank).rgba());
+  }
+  return Check(colors.size() ==
+                   static_cast<int>(ParticipantRanksInDisplayOrder().size()),
+               "different ranks share a background color") &&
+         Check(CompactCombatHandName(CombatHand::Left) ==
+                       QString::fromUtf8("ЛЕВ") &&
+                   CompactCombatHandName(CombatHand::Right) ==
+                       QString::fromUtf8("ПРАВ") &&
+                   CompactCombatHandName(CombatHand::Unknown) ==
+                       QString::fromUtf8("—"),
+               "combat-hand labels are not compact") &&
+         Check(AverageAttendancePerTraining({5, 0, 4}) == 3.0 &&
+                   AverageAttendancePerTraining({}) == 0.0,
+               "monthly average excludes zero-attendance training days");
+}
+
 bool EventEditorDoesNotDuplicateFullNameOnlyParticipant()
 {
   ParticipantProfile profile;
@@ -1447,6 +1492,7 @@ int main(int argc, char* argv[])
       !ParticipantStatisticsRequestsStrikeHistory() ||
       !ParticipantCardKeepsUnchangedEmblem() ||
       !ParticipantDirectoryGroupsByRankAndSortsNamesWithinGroup() ||
+      !ParticipantPresentationUsesDistinctRanksAndCompactHandNames() ||
       !EventEditorDoesNotDuplicateFullNameOnlyParticipant() ||
       !EventEditorSeparatesCompetitorsAndAttendees() ||
       !EventEditorRequiresExplicitCategory() ||

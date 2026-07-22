@@ -213,27 +213,31 @@ ParticipantDialog::ParticipantDialog(
         {historyRank, received, dateKnown, dateEdit});
   }
 
-  auto* form = new QFormLayout();
+  auto* basicForm = new QFormLayout();
+  basicForm->addRow("Историчное имя", nameEdit_);
+  basicForm->addRow("ФИО", fullNameEdit_);
+  basicForm->addRow("Контакт", contactEdit_);
+  auto* statusLabel =
+      new QLabel(profile.archived ? "Архив" : "Активен", this);
+  statusLabel->setObjectName("participantStatusLabel");
+  basicForm->addRow("Статус", statusLabel);
+
+  auto* detailsForm = new QFormLayout();
   auto* idLabel = new QLabel(profile.id.value, this);
   idLabel->setObjectName("participantIdLabel");
   idLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  form->addRow("ID", idLabel);
-  form->addRow("Историчное имя", nameEdit_);
-  form->addRow("ФИО", fullNameEdit_);
-  form->addRow("Контакт", contactEdit_);
-  form->addRow("Звание", rankCombo_);
-  form->addRow("Боевая рука", combatHandCombo_);
-  form->addRow("Герб", emblemWidget_);
-  form->addRow(QString(), birthdayCheck_);
-  form->addRow("Дата рождения", birthdayLayout);
-  form->addRow(QString(), trainingStartCheck_);
-  form->addRow("Начало тренировок", trainingStartLayout);
-  form->addRow(QString(), joinedClubCheck_);
-  form->addRow("Вступление в клуб", joinedClubDateEdit_);
-  form->addRow(rankHistoryGroup);
-  form->addRow("Заметка", notesEdit_);
-  form->addRow("Статус",
-               new QLabel(profile.archived ? "Архив" : "Активен", this));
+  detailsForm->addRow("ID", idLabel);
+  detailsForm->addRow("Звание", rankCombo_);
+  detailsForm->addRow("Боевая рука", combatHandCombo_);
+  detailsForm->addRow("Герб", emblemWidget_);
+  detailsForm->addRow(QString(), birthdayCheck_);
+  detailsForm->addRow("Дата рождения", birthdayLayout);
+  detailsForm->addRow(QString(), trainingStartCheck_);
+  detailsForm->addRow("Начало тренировок", trainingStartLayout);
+  detailsForm->addRow(QString(), joinedClubCheck_);
+  detailsForm->addRow("Вступление в клуб", joinedClubDateEdit_);
+  detailsForm->addRow(rankHistoryGroup);
+  detailsForm->addRow("Заметка", notesEdit_);
 
   auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
   if (editable)
@@ -340,7 +344,14 @@ ParticipantDialog::ParticipantDialog(
   auto* profilePage = new QWidget(this);
   profilePage->setObjectName("participantProfilePage");
   auto* profileLayout = new QVBoxLayout(profilePage);
-  profileLayout->addLayout(form);
+  profileLayout->addLayout(basicForm);
+  profileLayout->addStretch();
+
+  auto* detailsPage = new QWidget(this);
+  detailsPage->setObjectName("participantDetailsPage");
+  auto* detailsLayout = new QVBoxLayout(detailsPage);
+  detailsLayout->addLayout(detailsForm);
+  detailsLayout->addStretch();
 
   auto* statisticsWidget = new ParticipantStatisticsWidget(
       statistics, profile.trainingStartMonth, this);
@@ -395,6 +406,7 @@ ParticipantDialog::ParticipantDialog(
   auto* tabs = new QTabWidget(this);
   tabs->setObjectName("participantTabWidget");
   tabs->addTab(profilePage, "Профиль");
+  tabs->addTab(detailsPage, "Дополнительно");
   tabs->addTab(statisticsWidget, "Статистика");
 
   auto* layout = new QVBoxLayout(this);

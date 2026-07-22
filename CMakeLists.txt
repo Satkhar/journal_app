@@ -72,6 +72,7 @@ add_executable(journal_app
     ./App/Inc/Ui/CopyUsersDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
     ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
+    ./App/Inc/Ui/ParticipantPresentation.hpp
     ./App/Inc/Ui/ParticipantStatisticsWidget.hpp
     ./App/Inc/Ui/ParticipantEmblemWidget.hpp
     ./App/Inc/Ui/ParticipantStrikeHistoryDialog.hpp
@@ -201,6 +202,7 @@ add_executable(journal_ui_tests
     ./App/Inc/Ui/MonthDaysDialog.hpp
     ./App/Inc/Ui/ParticipantDialog.hpp
     ./App/Inc/Ui/ParticipantDirectoryDialog.hpp
+    ./App/Inc/Ui/ParticipantPresentation.hpp
     ./App/Inc/Ui/ParticipantStatisticsWidget.hpp
     ./App/Inc/Ui/ParticipantEmblemWidget.hpp
     ./App/Inc/Ui/ParticipantStrikeHistoryDialog.hpp)
