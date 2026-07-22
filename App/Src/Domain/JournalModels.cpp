@@ -72,8 +72,8 @@ const std::vector<ParticipantRank>& ParticipantRanksWithHistory()
 {
   // Guest — статус посетителя, а не получаемое клубное звание.
   static const std::vector<ParticipantRank> ranks = {
-      ParticipantRank::Page, ParticipantRank::Squire,
       ParticipantRank::Novice, ParticipantRank::Recruit,
+      ParticipantRank::Page, ParticipantRank::Squire,
       ParticipantRank::Knight};
   return ranks;
 }

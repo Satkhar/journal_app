@@ -53,3 +53,44 @@ inline double AverageAttendancePerTraining(
       std::accumulate(attendanceByDay.cbegin(), attendanceByDay.cend(), 0);
   return static_cast<double>(total) / attendanceByDay.size();
 }
+
+struct ParticipantRosterState
+{
+  bool archived = false;
+  CombatHand combatHand = CombatHand::Unknown;
+};
+
+struct MonthlyRosterSummary
+{
+  int activeParticipants = 0;
+  int leftHanded = 0;
+  int rightHanded = 0;
+  int unknownHand = 0;
+};
+
+inline MonthlyRosterSummary SummarizeMonthlyRoster(
+    const QVector<ParticipantRosterState>& roster)
+{
+  MonthlyRosterSummary summary;
+  for (const ParticipantRosterState& participant : roster)
+  {
+    if (participant.archived)
+    {
+      continue;
+    }
+    ++summary.activeParticipants;
+    switch (participant.combatHand)
+    {
+    case CombatHand::Left:
+      ++summary.leftHanded;
+      break;
+    case CombatHand::Right:
+      ++summary.rightHanded;
+      break;
+    case CombatHand::Unknown:
+      ++summary.unknownHand;
+      break;
+    }
+  }
+  return summary;
+}

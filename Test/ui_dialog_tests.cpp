@@ -1217,6 +1217,12 @@ bool ParticipantPresentationUsesDistinctRanksAndCompactHandNames()
   {
     colors.insert(ParticipantRankBackgroundColor(rank).rgba());
   }
+  const auto& historyRanks = ParticipantRanksWithHistory();
+  const QVector<ParticipantRosterState> roster = {
+      {false, CombatHand::Left},    {false, CombatHand::Right},
+      {false, CombatHand::Right},   {false, CombatHand::Unknown},
+      {true, CombatHand::Left}};
+  const MonthlyRosterSummary rosterSummary = SummarizeMonthlyRoster(roster);
   return Check(colors.size() ==
                    static_cast<int>(ParticipantRanksInDisplayOrder().size()),
                "different ranks share a background color") &&
@@ -1229,7 +1235,19 @@ bool ParticipantPresentationUsesDistinctRanksAndCompactHandNames()
                "combat-hand labels are not compact") &&
          Check(AverageAttendancePerTraining({5, 0, 4}) == 3.0 &&
                    AverageAttendancePerTraining({}) == 0.0,
-               "monthly average excludes zero-attendance training days");
+               "monthly average excludes zero-attendance training days") &&
+         Check(historyRanks ==
+                   std::vector<ParticipantRank>{ParticipantRank::Novice,
+                                                ParticipantRank::Recruit,
+                                                ParticipantRank::Page,
+                                                ParticipantRank::Squire,
+                                                ParticipantRank::Knight},
+               "rank history controls use the wrong order") &&
+         Check(rosterSummary.activeParticipants == 4 &&
+                   rosterSummary.leftHanded == 1 &&
+                   rosterSummary.rightHanded == 2 &&
+                   rosterSummary.unknownHand == 1,
+               "monthly roster summary includes archived participants");
 }
 
 bool EventEditorDoesNotDuplicateFullNameOnlyParticipant()

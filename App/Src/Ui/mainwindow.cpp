@@ -65,6 +65,8 @@ constexpr int kCombatHandColumn = 2;
 constexpr int kAttendanceCountColumn = 3;
 constexpr int kFirstDayColumn = 4;
 constexpr int kMonthSummaryRole = Qt::UserRole + 1;
+constexpr int kParticipantArchivedRole = Qt::UserRole + 2;
+constexpr int kParticipantCombatHandRole = Qt::UserRole + 3;
 QString applicationDataFilePath(const QString& fileName)
 {
   const QString dataDirectory =
@@ -680,6 +682,7 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
         profile.archived ? QString("[архив] %1").arg(participant.displayName)
                          : participant.displayName);
     nameItem->setData(Qt::UserRole, participant.id.value);
+    nameItem->setData(kParticipantArchivedRole, profile.archived);
     nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
     nameItem->setBackground(groupColor);
     tableWidget->setItem(row, kNameColumn, nameItem);
@@ -693,6 +696,8 @@ void MainWindow::renderMonth(const MonthSnapshot& snapshot)
     combatHandItem->setFlags(combatHandItem->flags() & ~Qt::ItemIsEditable);
     combatHandItem->setTextAlignment(Qt::AlignCenter);
     combatHandItem->setToolTip(CombatHandDisplayName(profile.combatHand));
+    combatHandItem->setData(kParticipantCombatHandRole,
+                            static_cast<int>(profile.combatHand));
     combatHandItem->setBackground(groupColor);
     tableWidget->setItem(row, kCombatHandColumn, combatHandItem);
 
@@ -2157,12 +2162,43 @@ void MainWindow::updateMonthSummaryLabel(
     attendanceByDay.push_back(item ? item->text().toInt() : 0);
   }
   const double average = AverageAttendancePerTraining(attendanceByDay);
+  QVector<ParticipantRosterState> roster;
+  roster.reserve(summaryRow - kFirstContentRow);
+  for (int row = kFirstContentRow; row < summaryRow; ++row)
+  {
+    const QTableWidgetItem* nameItem = tableWidget->item(row, kNameColumn);
+    const QTableWidgetItem* handItem =
+        tableWidget->item(row, kCombatHandColumn);
+    const ParticipantId id{
+        nameItem ? nameItem->data(Qt::UserRole).toString() : QString()};
+    if (!id.isValid())
+    {
+      continue;
+    }
+    roster.push_back(
+        {nameItem->data(kParticipantArchivedRole).toBool(),
+         handItem
+             ? static_cast<CombatHand>(
+                   handItem->data(kParticipantCombatHandRole).toInt())
+             : CombatHand::Unknown});
+  }
+  const MonthlyRosterSummary rosterSummary = SummarizeMonthlyRoster(roster);
+  if (QTableWidgetItem* handSummary =
+          tableWidget->item(summaryRow, kCombatHandColumn))
+  {
+    handSummary->setText(
+        QString("Л: %1 · П: %2")
+            .arg(rosterSummary.leftHanded)
+            .arg(rosterSummary.rightHanded));
+    handSummary->setToolTip(
+        QString("Рука не указана: %1").arg(rosterSummary.unknownHand));
+  }
   const QLocale russian(QLocale::Russian, QLocale::Russia);
   ui->monthSummaryLabel->setText(
       QString("Среднее за тренировку: %1 · тренировок: %2 · участников: %3")
           .arg(russian.toString(average, 'f', 1))
           .arg(activeDays_.size())
-          .arg(summaryRow - kFirstContentRow));
+          .arg(rosterSummary.activeParticipants));
 }
 
 //---------------------------------------------------------------

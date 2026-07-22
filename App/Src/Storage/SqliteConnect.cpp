@@ -2873,8 +2873,8 @@ bool SqliteConnect::loadParticipantHistory(ParticipantProfile* profile)
   query.prepare(
       "SELECT rank, obtained_on FROM participant_rank_history "
       "WHERE participant_id = :id ORDER BY CASE rank "
-      "WHEN 'page' THEN 0 WHEN 'squire' THEN 1 WHEN 'novice' THEN 2 "
-      "WHEN 'recruit' THEN 3 ELSE 4 END");
+      "WHEN 'novice' THEN 0 WHEN 'recruit' THEN 1 WHEN 'page' THEN 2 "
+      "WHEN 'squire' THEN 3 ELSE 4 END");
   query.bindValue(":id", profile->id.value);
   if (!query.exec())
   {
