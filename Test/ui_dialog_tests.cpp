@@ -31,6 +31,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSet>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -1211,6 +1212,36 @@ bool ParticipantDirectoryGroupsByRankAndSortsNamesWithinGroup()
                "participant directory lost hidden row identity");
 }
 
+bool ParticipantStatisticsTabDoesNotRaiseDialogMinimumSize()
+{
+  ParticipantProfile profile;
+  profile.id = {"12345678-1234-1234-1234-123456789abc"};
+  profile.displayName = "Alice";
+  profile.historicalName = "Alice";
+  const ParticipantStatisticsData statistics{
+      MakeJournalStatistics(profile.id), {}, std::nullopt,
+      "Турниры не загружались"};
+  ParticipantDialog dialog(profile, statistics, false);
+  auto* tabs = dialog.findChild<QTabWidget*>("participantTabWidget");
+  auto* statisticsPage =
+      dialog.findChild<QScrollArea*>("participantStatisticsPage");
+  if (!Check(tabs && statisticsPage && statisticsPage->widgetResizable(),
+             "participant statistics page is not scrollable"))
+  {
+    return false;
+  }
+
+  dialog.show();
+  QApplication::processEvents();
+  const QSize profileMinimum = dialog.minimumSizeHint();
+  tabs->setCurrentWidget(statisticsPage);
+  QApplication::processEvents();
+  const QSize statisticsMinimum = dialog.minimumSizeHint();
+  return Check(statisticsMinimum.width() <= profileMinimum.width() &&
+                   statisticsMinimum.height() <= profileMinimum.height(),
+               "statistics tab raises participant dialog minimum size");
+}
+
 bool ExistingParticipantDialogKeepsIdentityAndRankOrder()
 {
   ParticipantProfile knight;
@@ -1544,6 +1575,7 @@ int main(int argc, char* argv[])
       !ParticipantAverageUsesOnlyCompletedMonths() ||
       !ParticipantMonthNavigationReturnsSelectionAndProtectsDirtyProfile() ||
       !ParticipantStatisticsDistinguishesUnavailableSources() ||
+      !ParticipantStatisticsTabDoesNotRaiseDialogMinimumSize() ||
       !ParticipantEditorUsesReasonableYearAndKeepsIdInDetails() ||
       !ParticipantEditorRejectsFutureTrainingStart() ||
       !ParticipantEditorPreservesStoredFutureTrainingStart() ||

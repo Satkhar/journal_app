@@ -13,6 +13,7 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTextEdit>
@@ -405,9 +406,14 @@ ParticipantDialog::ParticipantDialog(
 
   auto* tabs = new QTabWidget(this);
   tabs->setObjectName("participantTabWidget");
+  auto* statisticsPage = new QScrollArea(this);
+  statisticsPage->setObjectName("participantStatisticsPage");
+  statisticsPage->setWidgetResizable(true);
+  statisticsPage->setFrameShape(QFrame::NoFrame);
+  statisticsPage->setWidget(statisticsWidget);
   tabs->addTab(profilePage, "Профиль");
   tabs->addTab(detailsPage, "Дополнительно");
-  tabs->addTab(statisticsWidget, "Статистика");
+  tabs->addTab(statisticsPage, "Статистика");
 
   auto* layout = new QVBoxLayout(this);
   layout->addWidget(tabs);
